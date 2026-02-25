@@ -248,11 +248,12 @@ module.exports = {
     {
       name: 'learnlytica-backend',
       cwd: './backend',
-      script: 'dist/index.js',
+      script: 'dist/src/index.js',
       env: {
         NODE_ENV: 'production'
       },
       instances: 1,
+      exec_mode: 'fork',
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
@@ -264,12 +265,13 @@ module.exports = {
     {
       name: 'learnlytica-frontend',
       cwd: './frontend',
-      script: 'node_modules/.bin/vite',
-      args: 'preview --port 4666 --host',
+      script: 'npm',
+      args: 'run preview -- --host 0.0.0.0 --port 4666',
       env: {
         NODE_ENV: 'production'
       },
       instances: 1,
+      exec_mode: 'fork',
       autorestart: true,
       watch: false,
       max_memory_restart: '512M',
