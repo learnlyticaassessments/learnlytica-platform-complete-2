@@ -1,0 +1,17 @@
+FROM node:18-alpine
+
+# Install testing frameworks
+RUN npm install -g jest @jest/globals supertest axios
+
+# Install additional testing utilities
+RUN npm install -g @types/jest @types/supertest
+
+# Security: Run as non-root user
+RUN addgroup -g 1001 -S coderunner && \
+    adduser -u 1001 -S coderunner -G coderunner
+
+USER coderunner
+WORKDIR /workspace
+
+# Resource limits enforced by Docker run command
+# CPU: 1 core, Memory: 512MB, Network: Disabled, Timeout: 30s

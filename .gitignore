@@ -1,0 +1,27 @@
+# Node / builds
+node_modules/
+dist/
+
+# Logs
+*.log
+backend/logs/
+frontend/logs/
+
+# Environment files
+backend/.env
+frontend/.env
+
+# macOS
+.DS_Store
+
+# Terraform local state/cache
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.tfplan
+
+# SSH keys
+*.pem
+

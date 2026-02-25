@@ -1,0 +1,18 @@
+FROM mcr.microsoft.com/playwright:v1.40.0-jammy
+
+# Install Node.js and npm
+RUN apt-get update && apt-get install -y nodejs npm
+
+# Install Playwright and testing libraries
+RUN npm install -g playwright @playwright/test
+
+# Install additional testing tools
+RUN npm install -g typescript ts-node
+
+# Security: Run as non-root user
+RUN useradd -m -u 1001 coderunner
+USER coderunner
+WORKDIR /workspace
+
+# Playwright browsers are already installed in base image
+# Resource limits enforced via Docker run command

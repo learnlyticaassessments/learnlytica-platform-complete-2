@@ -1,0 +1,53 @@
+{
+  "title": "Calculate Array Sum",
+  "category": "algorithms",
+  "difficulty": "beginner",
+  "points": 100,
+  "timeLimit": 15,
+  "description": "Write a function that calculates the sum of all numbers in an array.\n\n**Requirements:**\n- Function should accept an array of numbers\n- Return the sum of all elements\n- Handle empty arrays (return 0)\n\n**Constraints:**\n- Array length: 0 to 1000\n- Numbers can be positive, negative, or zero\n\n**Examples:**\n\nInput: [1, 2, 3, 4, 5]\nOutput: 15\nExplanation: 1 + 2 + 3 + 4 + 5 = 15\n\nInput: []\nOutput: 0\nExplanation: Empty array sums to 0\n\nInput: [-1, 1, -2, 2]\nOutput: 0\nExplanation: Negative and positive cancel out",
+  "testConfig": {
+    "framework": "jest",
+    "execution": {
+      "timeout": 30000
+    },
+    "testCases": [
+      {
+        "id": "test-1",
+        "name": "Sum of positive numbers",
+        "points": 25,
+        "testCode": "expect(sum([1,2,3,4,5])).toBe(15);"
+      },
+      {
+        "id": "test-2",
+        "name": "Empty array returns zero",
+        "points": 25,
+        "testCode": "expect(sum([])).toBe(0);"
+      },
+      {
+        "id": "test-3",
+        "name": "Mixed positive and negative",
+        "points": 25,
+        "testCode": "expect(sum([-1,1,-2,2])).toBe(0);"
+      },
+      {
+        "id": "test-4",
+        "name": "Single element",
+        "points": 25,
+        "testCode": "expect(sum([42])).toBe(42);"
+      }
+    ]
+  },
+  "starterCode": {
+    "files": [
+      {
+        "name": "solution.js",
+        "content": "/**\n * Calculate the sum of all numbers in an array\n * @param {number[]} arr - Array of numbers\n * @returns {number} Sum of all elements\n */\nfunction sum(arr) {\n  // TODO: Implement this function\n  return 0;\n}\n\nmodule.exports = { sum };"
+      }
+    ]
+  },
+  "hints": [
+    "Consider using a loop to iterate through the array",
+    "Don't forget to handle the empty array case"
+  ],
+  "tags": ["algorithms", "arrays", "beginner", "loops"]
+}

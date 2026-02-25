@@ -1,0 +1,14 @@
+FROM python:3.11-alpine
+
+# Install testing frameworks
+RUN pip install pytest pytest-json-report requests pytest-asyncio httpx
+
+# Install additional testing utilities for API testing
+RUN pip install flask fastapi uvicorn
+
+# Security: Run as non-root user
+RUN addgroup -g 1001 coderunner && \
+    adduser -u 1001 -D -G coderunner coderunner
+
+USER coderunner
+WORKDIR /workspace

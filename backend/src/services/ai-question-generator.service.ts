@@ -1,0 +1,338 @@
+/**
+ * AI Question Generator Service
+ * Uses Claude AI to generate complete programming questions
+ */
+
+import Anthropic from '@anthropic-ai/sdk';
+
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY || ''
+});
+
+export interface GenerateQuestionRequest {
+  topic: string;
+  language: 'javascript' | 'python' | 'java';
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  questionType: 'algorithm' | 'api' | 'component' | 'database' | 'fullstack';
+  points?: number;
+  timeLimit?: number;
+}
+
+export interface GeneratedQuestion {
+  title: string;
+  category: string;
+  difficulty: string;
+  points: number;
+  timeLimit: number;
+  description: string;
+  testConfig: {
+    framework: string;
+    execution: {
+      timeout: number;
+    };
+    testCases: Array<{
+      id: string;
+      name: string;
+      points: number;
+      testCode: string;
+    }>;
+  };
+  starterCode: {
+    files: Array<{
+      name: string;
+      content: string;
+    }>;
+  };
+  solution: string;
+  hints: string[];
+  tags: string[];
+}
+
+/**
+ * Generate a complete question using Claude AI
+ */
+export async function generateQuestion(
+  request: GenerateQuestionRequest
+): Promise<GeneratedQuestion> {
+  
+  const systemPrompt = `You are an expert educator creating programming assessment questions.
+
+Your task is to generate a complete, production-ready coding question with comprehensive test cases.
+
+CRITICAL: Return ONLY valid JSON matching this exact schema, with no markdown formatting, no code blocks, no explanations:
+
+{
+  "title": "string (clear, concise question title)",
+  "category": "string (algorithms, backend, frontend, database, fullstack)",
+  "difficulty": "string (beginner, intermediate, advanced)",
+  "points": number (50-100 for beginner, 100-300 for intermediate, 300-500 for advanced),
+  "timeLimit": number (minutes: 15-30 for beginner, 30-60 for intermediate, 60-120 for advanced),
+  "description": "string (markdown formatted with Requirements, Constraints, Examples sections)",
+  "testConfig": {
+    "framework": "string (jest for JS, pytest for Python, junit for Java)",
+    "execution": {
+      "timeout": number (milliseconds, typically 30000)
+    },
+    "testCases": [
+      {
+        "id": "string (test-1, test-2, etc)",
+        "name": "string (descriptive test name)",
+        "points": number (distribute total points across 6-10 tests),
+        "testCode": "string (actual test code that will run)"
+      }
+    ]
+  },
+  "starterCode": {
+    "files": [
+      {
+        "name": "string (solution.js, solution.py, Solution.java)",
+        "content": "string (function signature with TODO comment)"
+      }
+    ]
+  },
+  "solution": "string (complete working solution for validation)",
+  "hints": ["string (3 progressive hints)"],
+  "tags": ["string (relevant tags)"]
+}
+
+REQUIREMENTS:
+1. Generate 6-10 comprehensive test cases covering:
+   - Happy path (2-3 tests)
+   - Edge cases (3-4 tests): empty input, single element, large input
+   - Error cases (1-2 tests): invalid input, null values
+   - Performance test (1 test): large dataset
+
+2. Test code must be actual executable code for the specified framework
+3. Description must include clear examples with input/output
+4. Starter code should have helpful comments
+5. Solution must be complete and working
+6. All points must sum to the total points value`;
+
+  const userPrompt = `Generate a ${request.difficulty} ${request.language} question about: ${request.topic}
+
+Question Type: ${request.questionType}
+Target Points: ${request.points || 'auto-determine based on difficulty'}
+Time Limit: ${request.timeLimit || 'auto-determine based on difficulty'} minutes
+
+Create a complete question with comprehensive test cases that students can solve.`;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      temperature: 1,
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: userPrompt
+      }]
+    });
+
+    // Extract text from response
+    const responseText = message.content[0].type === 'text' 
+      ? message.content[0].text 
+      : '';
+
+    // Clean response - remove markdown code blocks if present
+    let cleanedResponse = responseText.trim();
+    if (cleanedResponse.startsWith('```json')) {
+      cleanedResponse = cleanedResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (cleanedResponse.startsWith('```')) {
+      cleanedResponse = cleanedResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    // Parse JSON
+    const question: GeneratedQuestion = JSON.parse(cleanedResponse);
+
+    // Validate required fields
+    if (!question.title || !question.testConfig || !question.testConfig.testCases) {
+      throw new Error('Invalid question structure generated');
+    }
+
+    return question;
+
+  } catch (error: any) {
+    console.error('AI Generation Error:', error);
+    throw new Error(`Failed to generate question: ${error.message}`);
+  }
+}
+
+/**
+ * Generate test cases for existing code
+ */
+export async function generateTestCases(
+  code: string,
+  language: string,
+  description?: string
+): Promise<any[]> {
+  
+  const systemPrompt = `Generate comprehensive test cases for the provided code.
+
+Return ONLY valid JSON array with no markdown:
+[
+  {
+    "id": "test-1",
+    "name": "descriptive name",
+    "points": 15,
+    "testCode": "actual executable test code"
+  }
+]
+
+Include:
+- Happy path tests
+- Edge cases (empty, null, single element, large input)
+- Error cases
+- Performance tests`;
+
+  const userPrompt = `Language: ${language}
+${description ? `Description: ${description}` : ''}
+
+Code:
+\`\`\`
+${code}
+\`\`\`
+
+Generate 8 comprehensive test cases.`;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: userPrompt
+      }]
+    });
+
+    const responseText = message.content[0].type === 'text' 
+      ? message.content[0].text 
+      : '[]';
+
+    let cleaned = responseText.trim();
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    }
+
+    return JSON.parse(cleaned);
+
+  } catch (error: any) {
+    throw new Error(`Failed to generate test cases: ${error.message}`);
+  }
+}
+
+/**
+ * Improve existing question
+ */
+export async function improveQuestion(
+  existingQuestion: any
+): Promise<any> {
+  
+  const systemPrompt = `Analyze and improve the provided question.
+
+Return ONLY valid JSON with improvements:
+{
+  "improvedDescription": "better description",
+  "additionalTestCases": [...],
+  "suggestions": ["suggestion 1", "suggestion 2"],
+  "improvedStarterCode": "better starter code"
+}`;
+
+  const userPrompt = `Improve this question:
+${JSON.stringify(existingQuestion, null, 2)}
+
+Suggest:
+1. Clearer description
+2. Additional edge case tests
+3. Better starter code
+4. Any missing requirements`;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3072,
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: userPrompt
+      }]
+    });
+
+    const responseText = message.content[0].type === 'text' 
+      ? message.content[0].text 
+      : '{}';
+
+    let cleaned = responseText.trim();
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    }
+
+    return JSON.parse(cleaned);
+
+  } catch (error: any) {
+    throw new Error(`Failed to improve question: ${error.message}`);
+  }
+}
+
+/**
+ * Review student code and provide feedback
+ */
+export async function reviewStudentCode(
+  code: string,
+  testResults: any,
+  question: any
+): Promise<any> {
+  
+  const systemPrompt = `Review student code and provide constructive feedback.
+
+Return ONLY valid JSON:
+{
+  "overall": "string (overall assessment)",
+  "correctness": "string (correctness feedback)",
+  "performance": "string (performance analysis)",
+  "codeQuality": "string (code quality feedback)",
+  "bestPractices": "string (best practices suggestions)",
+  "suggestions": ["specific improvements"]
+}`;
+
+  const userPrompt = `Question: ${question.title}
+
+Student Code:
+\`\`\`
+${code}
+\`\`\`
+
+Test Results:
+- Tests Passed: ${testResults.testsPassed}/${testResults.testsRun}
+- Score: ${testResults.pointsEarned}/${testResults.totalPoints}
+
+Provide constructive feedback on correctness, performance, code quality, and best practices.`;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: userPrompt
+      }]
+    });
+
+    const responseText = message.content[0].type === 'text' 
+      ? message.content[0].text 
+      : '{}';
+
+    let cleaned = responseText.trim();
+    if (cleaned.startsWith('```json')) {
+      cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    }
+
+    return JSON.parse(cleaned);
+
+  } catch (error: any) {
+    throw new Error(`Failed to review code: ${error.message}`);
+  }
+}

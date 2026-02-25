@@ -1,0 +1,13 @@
+aws_region        = "us-east-1"
+name_prefix       = "learnlytica"
+instance_type     = "t3.medium"
+ssh_key_name      = "your-ec2-keypair-name"
+allow_ssh_from_anywhere = false
+allowed_ssh_cidr  = "YOUR.PUBLIC.IP.ADDRESS/32"
+root_volume_size_gb = 30
+allocate_eip      = true
+
+tags = {
+  Environment = "dev"
+  Owner       = "your-name"
+}

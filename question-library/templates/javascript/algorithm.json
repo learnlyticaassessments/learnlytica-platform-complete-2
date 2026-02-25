@@ -1,0 +1,53 @@
+{
+  "title": "[Your Question Title]",
+  "category": "algorithms",
+  "difficulty": "intermediate",
+  "points": 100,
+  "timeLimit": 30,
+  "description": "Write a function that [describe the problem].\n\n**Requirements:**\n- Requirement 1\n- Requirement 2\n\n**Constraints:**\n- Constraint 1\n- Constraint 2\n\n**Examples:**\n\nInput: [example input]\nOutput: [example output]\nExplanation: [why]\n\nInput: [example input 2]\nOutput: [example output 2]\nExplanation: [why]",
+  "testConfig": {
+    "framework": "jest",
+    "execution": {
+      "timeout": 30000
+    },
+    "testCases": [
+      {
+        "id": "test-1",
+        "name": "Basic functionality",
+        "points": 25,
+        "testCode": "// TODO: Add test code\nexpect(yourFunction(input)).toBe(expectedOutput);"
+      },
+      {
+        "id": "test-2",
+        "name": "Edge case - empty input",
+        "points": 25,
+        "testCode": "// TODO: Test empty input"
+      },
+      {
+        "id": "test-3",
+        "name": "Edge case - single element",
+        "points": 25,
+        "testCode": "// TODO: Test single element"
+      },
+      {
+        "id": "test-4",
+        "name": "Large input performance",
+        "points": 25,
+        "testCode": "// TODO: Test with large input"
+      }
+    ]
+  },
+  "starterCode": {
+    "files": [
+      {
+        "name": "solution.js",
+        "content": "/**\n * TODO: Add function description\n * @param {type} param - Description\n * @returns {type} Description\n */\nfunction yourFunction(param) {\n  // TODO: Implement this function\n  return null;\n}\n\nmodule.exports = { yourFunction };"
+      }
+    ]
+  },
+  "hints": [
+    "Hint 1: Consider using...",
+    "Hint 2: Remember to handle..."
+  ],
+  "tags": ["algorithms", "arrays", "strings"]
+}
