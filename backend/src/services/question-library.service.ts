@@ -5,8 +5,22 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { existsSync } from 'fs';
 
-const LIBRARY_PATH = path.join(__dirname, '../../../question-library');
+const LIBRARY_PATH_CANDIDATES = [
+  // PM2 production run (backend cwd)
+  path.resolve(process.cwd(), '../question-library'),
+  // Local dev run from repo root
+  path.resolve(process.cwd(), 'question-library'),
+  // Source path (`backend/src/services`)
+  path.resolve(__dirname, '../../../../question-library'),
+  // Compiled path (`backend/dist/src/services`)
+  path.resolve(__dirname, '../../../../../question-library'),
+];
+
+const LIBRARY_PATH =
+  LIBRARY_PATH_CANDIDATES.find((candidate) => existsSync(candidate)) ??
+  LIBRARY_PATH_CANDIDATES[0];
 
 export interface QuestionTemplate {
   title: string;

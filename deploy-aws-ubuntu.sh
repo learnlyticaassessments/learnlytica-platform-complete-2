@@ -93,17 +93,23 @@ echo ""
 echo "Step 8/12: Setting up database..."
 DB_NAME="learnlytica"
 DB_USER="learnlytica"
-DB_PASSWORD=$(openssl rand -base64 32)
+if [ -f backend/.env ]; then
+  EXISTING_DB_PASSWORD=$(sed -n "s#^DATABASE_URL=postgresql://$DB_USER:\\([^@]*\\)@localhost:5432/$DB_NAME#\\1#p" backend/.env | head -1)
+fi
+DB_PASSWORD="${EXISTING_DB_PASSWORD:-$(openssl rand -base64 32)}"
+
+sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'" | grep -q 1 || \
+sudo -u postgres psql -c "CREATE USER $DB_USER WITH ENCRYPTED PASSWORD '$DB_PASSWORD';"
+
+# Keep the DB password and backend/.env in sync on reruns.
+sudo -u postgres psql -c "ALTER USER $DB_USER WITH ENCRYPTED PASSWORD '$DB_PASSWORD';"
 
 sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || \
-sudo -u postgres psql <<EOF
-CREATE DATABASE $DB_NAME;
-CREATE USER $DB_USER WITH ENCRYPTED PASSWORD '$DB_PASSWORD';
-GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
-ALTER DATABASE $DB_NAME OWNER TO $DB_USER;
-\c $DB_NAME
-GRANT ALL ON SCHEMA public TO $DB_USER;
-EOF
+sudo -u postgres psql -c "CREATE DATABASE $DB_NAME;"
+
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
+sudo -u postgres psql -c "ALTER DATABASE $DB_NAME OWNER TO $DB_USER;"
+sudo -u postgres psql -d $DB_NAME -c "GRANT USAGE, CREATE ON SCHEMA public TO $DB_USER;"
 
 echo "✅ Database created: $DB_NAME"
 echo ""
@@ -186,6 +192,15 @@ sudo -u postgres psql -d $DB_NAME -f backend/migrations/002_create_lab_templates
 sudo -u postgres psql -d $DB_NAME -f backend/migrations/003_create_assessments.sql 2>/dev/null || echo "Migration 3 already applied or failed"
 sudo -u postgres psql -d $DB_NAME -f backend/migrations/004_create_auth.sql 2>/dev/null || echo "Migration 4 already applied or failed"
 echo "✅ Database migrations completed"
+echo ""
+
+# Ensure the app DB user can read/write tables created by postgres-owned migrations.
+echo "Applying database grants for application user..."
+sudo -u postgres psql -d $DB_NAME -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+sudo -u postgres psql -d $DB_NAME -c "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;" 2>/dev/null || true
+sudo -u postgres psql -d $DB_NAME -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO $DB_USER;" 2>/dev/null || true
+sudo -u postgres psql -d $DB_NAME -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO $DB_USER;" 2>/dev/null || true
+echo "✅ Database grants applied"
 echo ""
 
 # Step 12: Configure Nginx
