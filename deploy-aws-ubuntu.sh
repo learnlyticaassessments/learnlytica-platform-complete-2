@@ -242,7 +242,7 @@ echo ""
 
 # Setup PM2 ecosystem
 echo "Setting up PM2 process management..."
-cat > ecosystem.config.js << 'PM2CONFIG'
+cat > ecosystem.config.cjs << 'PM2CONFIG'
 module.exports = {
   apps: [
     {
@@ -287,7 +287,7 @@ mkdir -p backend/logs
 mkdir -p frontend/logs
 
 # Start services with PM2
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 pm2 save
 pm2 startup systemd -u root --hp /root
 
