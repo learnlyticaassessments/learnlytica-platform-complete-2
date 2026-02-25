@@ -4,15 +4,19 @@
 
 ---
 
+## https://github.com/learnlyticaassessments/learnlytica-platform-complete-2.git
+
 ## 📦 **What's Included**
 
 ### ✅ **Module 1: Question Management System** (100% COMPLETE)
+
 - Complete backend REST API (9 endpoints)
 - Full React frontend UI (4 pages)
 - Database schema with full-text search
 - ~4,130 lines of production code
 
-### ✅ **Module 2: Assessment Creation System** (100% COMPLETE)  
+### ✅ **Module 2: Assessment Creation System** (100% COMPLETE)
+
 - Complete backend REST API (19 endpoints)
 - Database schema (4 tables)
 - Lab template management
@@ -27,6 +31,7 @@
 ## 🎯 **What You Can Do RIGHT NOW**
 
 ### **Module 1 - Questions:**
+
 - ✅ Create coding questions with test cases
 - ✅ Search and filter questions
 - ✅ Organize by category, difficulty, skills
@@ -34,6 +39,7 @@
 - ✅ Full CRUD via UI
 
 ### **Module 2 - Assessments:**
+
 - ✅ Create lab templates (Docker environments)
 - ✅ Build assessments from questions
 - ✅ Configure time limits, passing scores
@@ -46,6 +52,7 @@
 ## 🚀 **Quick Start (10 Minutes)**
 
 ### **1. Setup Database**
+
 ```bash
 createdb learnlytica
 
@@ -55,6 +62,7 @@ psql -d learnlytica -f backend/migrations/003_create_assessments.sql
 ```
 
 ### **2. Install Dependencies**
+
 ```bash
 ./install.sh
 
@@ -66,11 +74,13 @@ cp frontend/.env.example frontend/.env
 ```
 
 ### **3. Start Platform**
+
 ```bash
 ./start-production.sh
 ```
 
 ### **4. Access Application**
+
 ```
 Frontend: http://localhost:4666
 Backend:  http://localhost:3666
@@ -81,6 +91,7 @@ Backend:  http://localhost:3666
 ## 🔌 **Complete API Reference**
 
 ### **Module 1: Questions API (9 endpoints)**
+
 ```
 POST   /api/v1/questions
 GET    /api/v1/questions
@@ -94,6 +105,7 @@ POST   /api/v1/questions/bulk-import
 ```
 
 ### **Module 2: Lab Templates API (7 endpoints)**
+
 ```
 GET    /api/v1/lab-templates
 GET    /api/v1/lab-templates/:id
@@ -105,6 +117,7 @@ PATCH  /api/v1/lab-templates/:id/deactivate (Admin only)
 ```
 
 ### **Module 2: Assessments API (12 endpoints)**
+
 ```
 GET    /api/v1/assessments
 GET    /api/v1/assessments/:id
@@ -126,6 +139,7 @@ POST   /api/v1/assessments/:id/clone
 ## 💾 **Database Schema**
 
 ### **5 Tables Ready:**
+
 1. **questions** - Question repository
 2. **lab_templates** - Docker lab environments (3 samples included)
 3. **assessments** - Assessment configurations
@@ -191,6 +205,7 @@ Platform Overall:  75% Complete
 ## 🎯 **Use Cases Supported**
 
 ### **✅ Fully Functional:**
+
 1. Question Management (UI + API)
 2. Lab Template Management (API)
 3. Assessment Creation (API)
@@ -198,11 +213,13 @@ Platform Overall:  75% Complete
 5. Assessment Statistics (API)
 
 ### **⏳ API Ready (No UI):**
+
 - Assessment creation (use API calls)
 - Lab template management (use API calls)
 - Student assignment (use API calls)
 
 ### **❌ Not Yet Built:**
+
 - Module 3: Student Assessment Interface
 - Module 4: Test Execution Engine
 - Module 5: Reporting & Analytics
@@ -222,12 +239,14 @@ Platform Overall:  75% Complete
 ## 🔐 **Security & Permissions**
 
 ### **Role-Based Access:**
+
 - **Admin:** Full access to everything
 - **Client:** Create assessments, manage own content
 - **Question Creator:** Create questions only
 - **Student:** Take assessments (Module 3)
 
 ### **Implemented:**
+
 - JWT authentication
 - Permission checks in services
 - SQL injection prevention
@@ -239,6 +258,7 @@ Platform Overall:  75% Complete
 ## 🧪 **Testing**
 
 See **docs/TESTING_GUIDE.md** for:
+
 - Database setup verification
 - API endpoint testing
 - Frontend UI testing
@@ -264,6 +284,7 @@ Production Ready:   YES (Modules 1 & 2 backend)
 ## 🎉 **What's New in This Version**
 
 ### **Module 2 Backend Added:**
+
 - ✅ 8 new backend files
 - ✅ 19 new API endpoints
 - ✅ Complete business logic
@@ -272,6 +293,7 @@ Production Ready:   YES (Modules 1 & 2 backend)
 - ✅ ~2,500 lines of code
 
 ### **Now You Can:**
+
 - Create Docker lab environments
 - Build assessments from questions
 - Assign assessments to students
@@ -284,16 +306,19 @@ Production Ready:   YES (Modules 1 & 2 backend)
 ## 🚀 **Next Steps**
 
 ### **Option 1: Use Now**
+
 - Start using Modules 1 & 2 via API
 - Build custom frontend if needed
 - Deploy to production
 
 ### **Option 2: Add Module 2 Frontend**
+
 - Build assessment creation UI
 - Lab template management UI
 - Student assignment interface
 
 ### **Option 3: Build Module 3**
+
 - Student assessment interface
 - Take assessments
 - View results
