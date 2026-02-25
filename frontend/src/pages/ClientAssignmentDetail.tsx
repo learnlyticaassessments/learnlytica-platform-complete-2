@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ClipboardList, UserRound, Clock3, Shield, Activity, FileClock, Eye } from 'lucide-react';
 import { assessmentService } from '../services/assessmentService';
+import { certificateService } from '../services/certificateService';
 
 export function ClientAssignmentDetail() {
   const { assignmentId } = useParams();
@@ -9,16 +10,42 @@ export function ClientAssignmentDetail() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [dueDateInput, setDueDateInput] = useState('');
+  const [reentryPolicyInput, setReentryPolicyInput] = useState<'resume_allowed' | 'single_session'>('resume_allowed');
+  const [clientAuditNotes, setClientAuditNotes] = useState('');
+  const [coachingNotes, setCoachingNotes] = useState('');
+  const [issuingCertificate, setIssuingCertificate] = useState(false);
+  const [issuedCertificate, setIssuedCertificate] = useState<any>(null);
 
   useEffect(() => {
     if (!assignmentId) return;
     setLoading(true);
     assessmentService
       .getAssignmentDetail(assignmentId)
-      .then((res) => setData(res.data))
+      .then(async (res) => {
+        setData(res.data);
+        try {
+          const certs = await certificateService.list();
+          const match = (certs.data || []).find((c: any) => c.student_assessment_id === assignmentId || c.studentAssessmentId === assignmentId);
+          setIssuedCertificate(match || null);
+        } catch {
+          setIssuedCertificate(null);
+        }
+      })
       .catch((e) => setError(e?.response?.data?.error || 'Failed to load assignment detail'))
       .finally(() => setLoading(false));
   }, [assignmentId]);
+
+  useEffect(() => {
+    const a = data?.assignment;
+    if (!a) return;
+    setReentryPolicyInput(a.reentryPolicy || 'resume_allowed');
+    setDueDateInput(toDateTimeLocal(a.dueDate));
+    setClientAuditNotes(a.clientAuditNotes || '');
+    setCoachingNotes(a.coachingNotes || '');
+  }, [data]);
 
   const timeline = useMemo(() => {
     const a = data?.assignment;
@@ -61,6 +88,73 @@ export function ClientAssignmentDetail() {
   const learner = data?.learner;
   const focusEvents = Array.isArray(data?.focusEvents) ? data.focusEvents : [];
   const review = data?.review;
+  const isSubmitted = assignment?.status === 'submitted' || assignment?.status === 'graded';
+
+  const refresh = async () => {
+    if (!assignmentId) return;
+    const res = await assessmentService.getAssignmentDetail(assignmentId);
+    setData(res.data);
+    try {
+      const certs = await certificateService.list({ status: 'issued' });
+      const match = (certs.data || []).find((c: any) => c.student_assessment_id === assignmentId || c.studentAssessmentId === assignmentId);
+      setIssuedCertificate(match || null);
+    } catch {
+      // ignore certificate fetch failures in detail page refresh
+    }
+  };
+
+  const saveAssignmentActions = async () => {
+    if (!assignmentId) return;
+    setSaving(true);
+    setError('');
+    setActionMsg(null);
+    try {
+      const payload: any = {
+        dueDate: dueDateInput ? new Date(dueDateInput).toISOString() : null,
+        clientAuditNotes,
+        coachingNotes
+      };
+      if (!isSubmitted) payload.reentryPolicy = reentryPolicyInput;
+      await assessmentService.updateAssignment(assignmentId, payload);
+      setActionMsg('Assignment updated');
+      await refresh();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to update assignment');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revokeAssignment = async () => {
+    if (!assignmentId) return;
+    if (!confirm('Revoke this assignment? This cannot be undone.')) return;
+    setSaving(true);
+    setError('');
+    setActionMsg(null);
+    try {
+      await assessmentService.revokeAssignment(assignmentId);
+      navigate('/learners');
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to revoke assignment');
+      setSaving(false);
+    }
+  };
+
+  const issueCertificate = async () => {
+    if (!assignmentId) return;
+    setIssuingCertificate(true);
+    setError('');
+    setActionMsg(null);
+    try {
+      const res = await certificateService.issue({ assignmentId });
+      setIssuedCertificate(res.data);
+      setActionMsg('Certificate issued successfully');
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to issue certificate');
+    } finally {
+      setIssuingCertificate(false);
+    }
+  };
 
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
@@ -79,6 +173,16 @@ export function ClientAssignmentDetail() {
             </div>
           </div>
           <div className="flex gap-2">
+            {learner?.id && (
+              <Link to={`/learners/${learner.id}/skill-matrix`} className="btn-secondary">
+                Skill Matrix
+              </Link>
+            )}
+            {assignment?.passed && !issuedCertificate && (
+              <button className="btn-primary" onClick={() => void issueCertificate()} disabled={issuingCertificate}>
+                {issuingCertificate ? 'Issuing...' : 'Issue Certificate'}
+              </button>
+            )}
             {assignment?.reviewAvailable && (
               <Link to={`/learners/assignments/${assignmentId}/review`} className="btn-primary">
                 Review Submission
@@ -99,7 +203,33 @@ export function ClientAssignmentDetail() {
           <Metric label="Time Limit" value={assessment?.timeLimitMinutes ? `${assessment.timeLimitMinutes}m` : 'None'} />
           <Metric label="Pass Threshold" value={assessment?.passingScore != null ? `${assessment.passingScore}%` : 'N/A'} />
         </div>
+        {assignment?.reviewedAt && (
+          <div className="mt-3 text-xs" style={{ color: 'var(--text-dim)' }}>
+            Notes last updated: {new Date(assignment.reviewedAt).toLocaleString()}
+          </div>
+        )}
       </section>
+
+      {(error || actionMsg) && (
+        <div className="space-y-2">
+          {error && <div className="ll-toast err">{error}</div>}
+          {actionMsg && <div className="ll-toast ok">{actionMsg}</div>}
+        </div>
+      )}
+
+      {issuedCertificate && (
+        <div className="card">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Certificate Issued</div>
+              <div className="text-xs text-gray-600 mt-1">
+                #{issuedCertificate.certificate_number || issuedCertificate.certificateNumber} · Verify code {issuedCertificate.verification_code || issuedCertificate.verificationCode}
+              </div>
+            </div>
+            <Link to="/certificates" className="btn-secondary">Open Certificates</Link>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <section className="xl:col-span-2 card">
@@ -156,6 +286,73 @@ export function ClientAssignmentDetail() {
         </section>
       </div>
 
+      <section className="card space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Assignment Actions</h2>
+          <p className="text-sm text-gray-600">Update due date and re-entry policy, or revoke if not submitted.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="md:col-span-1">
+            <label className="block text-sm font-medium mb-1">Due Date</label>
+            <input
+              type="datetime-local"
+              className="input-field"
+              value={dueDateInput}
+              onChange={(e) => setDueDateInput(e.target.value)}
+              disabled={saving}
+            />
+          </div>
+          <div className="md:col-span-1">
+            <label className="block text-sm font-medium mb-1">Re-entry Policy</label>
+            <select
+              className="input-field"
+              value={reentryPolicyInput}
+              onChange={(e) => setReentryPolicyInput(e.target.value as 'resume_allowed' | 'single_session')}
+              disabled={saving || isSubmitted}
+            >
+              <option value="resume_allowed">Resume allowed</option>
+              <option value="single_session">Single session</option>
+            </select>
+          </div>
+          <div className="md:col-span-1 flex items-end gap-2">
+            <button className="btn-primary w-full" type="button" onClick={saveAssignmentActions} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+            <button
+              className="btn-danger"
+              type="button"
+              onClick={revokeAssignment}
+              disabled={saving || isSubmitted}
+              title={isSubmitted ? 'Cannot revoke submitted/graded assignment' : 'Revoke assignment'}
+            >
+              Revoke
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Client Audit Notes (internal)</label>
+            <textarea
+              className="input-field min-h-[120px]"
+              value={clientAuditNotes}
+              onChange={(e) => setClientAuditNotes(e.target.value)}
+              placeholder="Observations, concerns, rubric notes, policy decisions..."
+              disabled={saving}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Coaching Notes (learner guidance)</label>
+            <textarea
+              className="input-field min-h-[120px]"
+              value={coachingNotes}
+              onChange={(e) => setCoachingNotes(e.target.value)}
+              placeholder="Improvement recommendations, study topics, next steps..."
+              disabled={saving}
+            />
+          </div>
+        </div>
+      </section>
+
       <section className="card">
         <h2 className="text-lg font-semibold mb-3">Recent Focus / Visibility Events</h2>
         {focusEvents.length ? (
@@ -182,6 +379,13 @@ export function ClientAssignmentDetail() {
       </section>
     </div>
   );
+}
+
+function toDateTimeLocal(iso?: string | null) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const tzOffset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

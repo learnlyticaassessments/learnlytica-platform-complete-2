@@ -9,6 +9,7 @@ router.use(requireRole('admin', 'client'));
 
 router.get('/', learnerController.listLearners);
 router.post('/', learnerController.createLearner);
+router.post('/import', learnerController.importLearners);
+router.patch('/:id', learnerController.updateLearner);
 
 export default router;
-

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { UserPlus, Users, ClipboardCheck, Loader2 } from 'lucide-react';
+import { UserPlus, Users, ClipboardCheck, Loader2, Upload, UserCog, Download } from 'lucide-react';
 import { learnersService } from '../services/learnersService';
 import { assessmentService } from '../services/assessmentService';
 import { useAuth } from '../auth/AuthContext';
@@ -40,6 +40,19 @@ type AssignmentRow = {
   reentryPolicy: ReentryPolicy;
 };
 
+type CsvPreviewRow = {
+  fullName: string;
+  email: string;
+  password?: string;
+};
+
+type BulkAssignCsvRow = {
+  learnerEmail: string;
+  assessmentRef: string;
+  dueDate?: string;
+  reentryPolicy?: ReentryPolicy;
+};
+
 export function Learners() {
   const { user } = useAuth();
   const canManage = can(user?.role, 'learners.manage');
@@ -61,6 +74,17 @@ export function Learners() {
   const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<string>('');
   const [assignmentSearch, setAssignmentSearch] = useState('');
   const [assignmentBusyId, setAssignmentBusyId] = useState<string | null>(null);
+  const [learnerBusyId, setLearnerBusyId] = useState<string | null>(null);
+  const [csvText, setCsvText] = useState('');
+  const [csvDefaultPassword, setCsvDefaultPassword] = useState('Learner@123');
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvResult, setCsvResult] = useState<any>(null);
+  const [bulkAssignCsvText, setBulkAssignCsvText] = useState('');
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [bulkAssignResult, setBulkAssignResult] = useState<any>(null);
+  const [selectedAccountLearnerIds, setSelectedAccountLearnerIds] = useState<string[]>([]);
+  const [bulkResetPasswordValue, setBulkResetPasswordValue] = useState('Learner@123');
+  const [liveSubmissionView, setLiveSubmissionView] = useState(false);
 
   const [newLearner, setNewLearner] = useState({
     fullName: '',
@@ -94,6 +118,14 @@ export function Learners() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!liveSubmissionView) return;
+    const timer = window.setInterval(() => {
+      loadData();
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [liveSubmissionView]);
+
   const filteredLearners = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return learners;
@@ -101,6 +133,24 @@ export function Learners() {
       learner.fullName.toLowerCase().includes(q) || learner.email.toLowerCase().includes(q)
     );
   }, [learners, search]);
+
+  const csvPreview = useMemo<CsvPreviewRow[]>(() => {
+    if (!csvText.trim()) return [];
+    const lines = csvText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    return lines.map((line) => {
+      const cols = line.split(',').map((c) => c.trim());
+      // Accept: fullName,email,password OR email,fullName,password
+      const firstLooksEmail = cols[0]?.includes('@');
+      const email = firstLooksEmail ? (cols[0] || '') : (cols[1] || '');
+      const fullName = firstLooksEmail ? (cols[1] || '') : (cols[0] || '');
+      const password = cols[2] || undefined;
+      return { fullName, email, password };
+    });
+  }, [csvText]);
 
   const selectedAssessment = assessments.find((a) => a.id === selectedAssessmentId);
   const selectedAssessmentFilter = useMemo(() => {
@@ -120,6 +170,23 @@ export function Learners() {
       );
     });
   }, [assignments, selectedAssessmentFilter, assignmentStatusFilter, assignmentSearch]);
+
+  const bulkAssignCsvPreview = useMemo<BulkAssignCsvRow[]>(() => {
+    if (!bulkAssignCsvText.trim()) return [];
+    return bulkAssignCsvText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [learnerEmail = '', assessmentRef = '', dueDate = '', policy = ''] = line.split(',').map((c) => c.trim());
+        return {
+          learnerEmail: learnerEmail.toLowerCase(),
+          assessmentRef,
+          dueDate: dueDate || undefined,
+          reentryPolicy: policy === 'single_session' ? 'single_session' : policy === 'resume_allowed' ? 'resume_allowed' : undefined
+        };
+      });
+  }, [bulkAssignCsvText]);
 
   const toggleLearnerSelection = (id: string) => {
     setSelectedLearnerIds((prev) =>
@@ -232,6 +299,237 @@ export function Learners() {
     } finally {
       setAssignmentBusyId(null);
     }
+  };
+
+  const importCsvLearners = async () => {
+    if (!csvPreview.length) {
+      setError('Paste CSV rows first');
+      return;
+    }
+    setCsvImporting(true);
+    setError(null);
+    setSuccess(null);
+    setCsvResult(null);
+    try {
+      const rows = csvPreview
+        .filter((r) => r.email && r.fullName)
+        .map((r) => ({ email: r.email, fullName: r.fullName, password: r.password }));
+      const result = await learnersService.importCsvRows({
+        rows,
+        defaultPassword: csvDefaultPassword || undefined
+      });
+      setCsvResult(result.data);
+      setSuccess(`Imported ${result.data.summary.created} learner(s); skipped ${result.data.summary.skipped}`);
+      await loadData();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to import learners');
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  const toggleLearnerActive = async (learner: Learner, nextActive: boolean) => {
+    setLearnerBusyId(learner.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      await learnersService.update(learner.id, { isActive: nextActive });
+      setLearners((prev) =>
+        prev.map((l) => (l.id === learner.id ? { ...l, isActive: nextActive } : l))
+      );
+      setSuccess(`${learner.fullName} ${nextActive ? 'activated' : 'deactivated'}`);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to update learner status');
+    } finally {
+      setLearnerBusyId(null);
+    }
+  };
+
+  const resetLearnerPassword = async (learner: Learner) => {
+    const password = prompt(`Set a new temporary password for ${learner.fullName}`);
+    if (!password) return;
+    setLearnerBusyId(learner.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      await learnersService.update(learner.id, { password });
+      setSuccess(`Temporary password reset for ${learner.fullName}`);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to reset learner password');
+    } finally {
+      setLearnerBusyId(null);
+    }
+  };
+
+  const runBulkAssignmentImport = async () => {
+    if (!bulkAssignCsvPreview.length) {
+      setError('Paste bulk assignment CSV rows first');
+      return;
+    }
+
+    setBulkAssigning(true);
+    setError(null);
+    setSuccess(null);
+    setBulkAssignResult(null);
+
+    try {
+      const learnersByEmail = new Map(learners.map((l) => [l.email.toLowerCase(), l]));
+      const assessmentsById = new Map(assessments.map((a) => [a.id, a]));
+      const assessmentsByTitle = new Map(assessments.map((a) => [a.title.trim().toLowerCase(), a]));
+      const skipped: Array<{ line: number; reason: string; row: BulkAssignCsvRow }> = [];
+      const grouped = new Map<string, { assessmentId: string; studentIds: string[]; dueDate?: string; reentryPolicy: ReentryPolicy }>();
+
+      bulkAssignCsvPreview.forEach((row, idx) => {
+        const learner = learnersByEmail.get(row.learnerEmail);
+        const assessment =
+          assessmentsById.get(row.assessmentRef) ||
+          assessmentsByTitle.get(row.assessmentRef.trim().toLowerCase());
+
+        if (!learner) {
+          skipped.push({ line: idx + 1, reason: 'Learner email not found', row });
+          return;
+        }
+        if (!assessment) {
+          skipped.push({ line: idx + 1, reason: 'Assessment not found (use exact title or id)', row });
+          return;
+        }
+
+        let dueDateIso: string | undefined;
+        if (row.dueDate) {
+          const parsed = new Date(row.dueDate);
+          if (Number.isNaN(parsed.getTime())) {
+            skipped.push({ line: idx + 1, reason: 'Invalid due date', row });
+            return;
+          }
+          dueDateIso = parsed.toISOString();
+        }
+
+        const policy: ReentryPolicy = row.reentryPolicy || 'resume_allowed';
+        const groupKey = [assessment.id, dueDateIso || '', policy].join('|');
+        const existing = grouped.get(groupKey);
+        if (existing) {
+          if (!existing.studentIds.includes(learner.id)) existing.studentIds.push(learner.id);
+        } else {
+          grouped.set(groupKey, {
+            assessmentId: assessment.id,
+            studentIds: [learner.id],
+            dueDate: dueDateIso,
+            reentryPolicy: policy
+          });
+        }
+      });
+
+      let assignedRows = 0;
+      for (const group of grouped.values()) {
+        await assessmentService.assign(group.assessmentId, {
+          studentIds: group.studentIds,
+          dueDate: group.dueDate,
+          reentryPolicy: group.reentryPolicy
+        });
+        assignedRows += group.studentIds.length;
+      }
+
+      const summary = {
+        requested: bulkAssignCsvPreview.length,
+        assignedRows,
+        groupedRequests: grouped.size,
+        skipped: skipped.length
+      };
+
+      setBulkAssignResult({ summary, skipped });
+      setSuccess(`Bulk assignment import complete: ${assignedRows} row(s) assigned, ${skipped.length} skipped`);
+      await loadData();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed bulk assignment import');
+    } finally {
+      setBulkAssigning(false);
+    }
+  };
+
+  const toggleAccountSelection = (learnerId: string) => {
+    setSelectedAccountLearnerIds((prev) =>
+      prev.includes(learnerId) ? prev.filter((id) => id !== learnerId) : [...prev, learnerId]
+    );
+  };
+
+  const bulkUpdateLearners = async (action: 'activate' | 'deactivate' | 'resetPassword') => {
+    if (!selectedAccountLearnerIds.length) {
+      setError('Select learner accounts first');
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    const selected = learners.filter((l) => selectedAccountLearnerIds.includes(l.id));
+
+    try {
+      for (const learner of selected) {
+        setLearnerBusyId(learner.id);
+        if (action === 'activate') {
+          await learnersService.update(learner.id, { isActive: true });
+        } else if (action === 'deactivate') {
+          await learnersService.update(learner.id, { isActive: false });
+        } else {
+          await learnersService.update(learner.id, { password: bulkResetPasswordValue });
+        }
+      }
+
+      if (action === 'activate' || action === 'deactivate') {
+        const nextActive = action === 'activate';
+        setLearners((prev) =>
+          prev.map((l) => (selectedAccountLearnerIds.includes(l.id) ? { ...l, isActive: nextActive } : l))
+        );
+      }
+
+      setSuccess(
+        action === 'resetPassword'
+          ? `Reset password for ${selected.length} learner(s)`
+          : `${action === 'activate' ? 'Activated' : 'Deactivated'} ${selected.length} learner(s)`
+      );
+    } catch (e: any) {
+      setError(e?.response?.data?.error || `Failed to ${action} selected learners`);
+    } finally {
+      setLearnerBusyId(null);
+    }
+  };
+
+  const exportAssignmentsCsv = () => {
+    const rows = filteredAssignments.map((row) => ({
+      learnerName: row.learnerName,
+      learnerEmail: row.learnerEmail,
+      assessmentTitle: row.assessmentTitle,
+      status: row.status,
+      dueDate: row.dueDate || '',
+      submittedAt: row.submittedAt || '',
+      score: row.score ?? '',
+      reentryPolicy: row.reentryPolicy
+    }));
+    const headers = Object.keys(rows[0] || {
+      learnerName: '',
+      learnerEmail: '',
+      assessmentTitle: '',
+      status: '',
+      dueDate: '',
+      submittedAt: '',
+      score: '',
+      reentryPolicy: ''
+    });
+    const csv = [
+      headers.join(','),
+      ...rows.map((r) =>
+        headers
+          .map((h) => `"${String((r as any)[h] ?? '').replace(/"/g, '""')}"`)
+          .join(',')
+      )
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `learnlytica-assignments-${new Date().toISOString().slice(0, 19)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   if (loading) {
@@ -462,6 +760,237 @@ export function Learners() {
               </button>
             </div>
           </form>
+
+          <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Upload className="w-4 h-4 text-[var(--accent)]" />
+              <h3 className="font-semibold">CSV Bulk Assignment</h3>
+            </div>
+            <p className="text-xs text-gray-600">
+              Paste rows as `learnerEmail,assessmentTitleOrId,dueDate,reentryPolicy`.
+              `dueDate` accepts ISO or `YYYY-MM-DD HH:mm`. `reentryPolicy` is `resume_allowed` or `single_session`.
+            </p>
+            <textarea
+              className="input-field min-h-[120px] font-mono text-xs"
+              placeholder={`asha@company.com,Intro JS Assessment,2026-03-01T18:00:00Z,resume_allowed\nravi@company.com,8f1f7d9e-...,2026-03-01 18:00,single_session`}
+              value={bulkAssignCsvText}
+              onChange={(e) => setBulkAssignCsvText(e.target.value)}
+            />
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-gray-600">Preview rows: {bulkAssignCsvPreview.length}</span>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={runBulkAssignmentImport}
+                disabled={bulkAssigning || !bulkAssignCsvPreview.length}
+              >
+                {bulkAssigning ? 'Importing Assignments...' : 'Run Bulk Assignment Import'}
+              </button>
+            </div>
+            {bulkAssignResult?.summary && (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs space-y-1">
+                <div>Requested rows: {bulkAssignResult.summary.requested}</div>
+                <div>Assigned rows: {bulkAssignResult.summary.assignedRows}</div>
+                <div>Grouped API requests: {bulkAssignResult.summary.groupedRequests}</div>
+                <div>Skipped rows: {bulkAssignResult.summary.skipped}</div>
+                {bulkAssignResult.skipped?.slice(0, 5).map((s: any) => (
+                  <div key={`${s.line}-${s.reason}`} className="text-red-300">
+                    Line {s.line}: {s.reason}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-1 card p-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">CSV Import Learners</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Paste CSV rows as `fullName,email,password` or `email,fullName,password`.
+            </p>
+          </div>
+          <textarea
+            className="input-field min-h-[200px] font-mono text-sm"
+            placeholder={`Asha Patel,asha@company.com,Temp@123\nRavi Kumar,ravi@company.com,Temp@123`}
+            value={csvText}
+            onChange={(e) => setCsvText(e.target.value)}
+          />
+          <div>
+            <label className="block text-sm font-medium mb-1">Default Password (used when row has no password)</label>
+            <input
+              className="input-field"
+              type="text"
+              value={csvDefaultPassword}
+              onChange={(e) => setCsvDefaultPassword(e.target.value)}
+            />
+          </div>
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm">
+            Preview rows: <span className="font-semibold">{csvPreview.length}</span>
+          </div>
+          <button className="btn-primary w-full" type="button" onClick={importCsvLearners} disabled={csvImporting || !csvPreview.length}>
+            {csvImporting ? 'Importing...' : 'Import Learners from CSV'}
+          </button>
+          {csvResult?.summary && (
+            <div className="text-xs text-gray-600 space-y-1">
+              <div>Requested: {csvResult.summary.requested}</div>
+              <div>Created: {csvResult.summary.created}</div>
+              <div>Skipped: {csvResult.summary.skipped}</div>
+              {csvResult.skipped?.slice(0, 5).map((s: any) => (
+                <div key={`${s.index}-${s.email || 'row'}`} className="text-red-300">
+                  Row {s.index + 1}: {s.email || '(no email)'} - {s.reason}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="xl:col-span-2 card p-6 space-y-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Learner Accounts</h2>
+              <p className="text-sm text-gray-600">Manage learner status and temporary password resets.</p>
+            </div>
+            <input
+              className="input-field md:w-80"
+              placeholder="Filter learner accounts"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+            <table className="w-full text-sm">
+              <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
+                <tr>
+                  <th className="px-3 py-3 text-left">
+                    <input
+                      type="checkbox"
+                      checked={filteredLearners.length > 0 && selectedAccountLearnerIds.length === filteredLearners.length}
+                      onChange={() =>
+                        setSelectedAccountLearnerIds((prev) =>
+                          prev.length === filteredLearners.length ? [] : filteredLearners.map((l) => l.id)
+                        )
+                      }
+                    />
+                  </th>
+                  <th className="px-3 py-3 text-left">Learner</th>
+                  <th className="px-3 py-3 text-left">Status</th>
+                  <th className="px-3 py-3 text-left">Created</th>
+                  <th className="px-3 py-3 text-right">Account Ops</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)]">
+                {filteredLearners.map((learner) => {
+                  const busy = learnerBusyId === learner.id;
+                  return (
+                    <tr key={learner.id} className="hover:bg-[var(--surface-2)]/50">
+                      <td className="px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedAccountLearnerIds.includes(learner.id)}
+                          onChange={() => toggleAccountSelection(learner.id)}
+                        />
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="font-medium text-gray-900">{learner.fullName}</div>
+                        <div className="text-xs text-gray-600">{learner.email}</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          learner.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {learner.isActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-gray-600">
+                        {learner.createdAt ? new Date(learner.createdAt).toLocaleString() : '—'}
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={busy}
+                            onClick={() => void resetLearnerPassword(learner)}
+                          >
+                            Reset Password
+                          </button>
+                          <Link
+                            to={`/learners/${learner.id}/skill-matrix`}
+                            className="btn-secondary"
+                          >
+                            Skill Matrix
+                          </Link>
+                          <button
+                            type="button"
+                            className={learner.isActive ? 'btn-danger' : 'btn-primary'}
+                            disabled={busy}
+                            onClick={() => void toggleLearnerActive(learner, !learner.isActive)}
+                          >
+                            {busy ? 'Working...' : learner.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredLearners.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                      No learners found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <UserCog className="w-4 h-4 text-[var(--accent)]" />
+              <h3 className="font-semibold">Bulk Learner Actions</h3>
+            </div>
+            <div className="text-xs text-gray-600">
+              Selected: {selectedAccountLearnerIds.length} learner(s)
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={!selectedAccountLearnerIds.length}
+                onClick={() => void bulkUpdateLearners('activate')}
+              >
+                Activate Selected
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={!selectedAccountLearnerIds.length}
+                onClick={() => void bulkUpdateLearners('deactivate')}
+              >
+                Deactivate Selected
+              </button>
+              <div className="flex gap-2">
+                <input
+                  className="input-field"
+                  placeholder="Temp password"
+                  value={bulkResetPasswordValue}
+                  onChange={(e) => setBulkResetPasswordValue(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={!selectedAccountLearnerIds.length || !bulkResetPasswordValue}
+                  onClick={() => void bulkUpdateLearners('resetPassword')}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -490,11 +1019,30 @@ export function Learners() {
               <option value="graded">Graded</option>
               <option value="expired">Expired</option>
             </select>
-            <button className="btn-secondary" type="button" onClick={loadData}>
-              Refresh
-            </button>
+            <div className="flex gap-2">
+              <button className="btn-secondary" type="button" onClick={loadData}>
+                Refresh
+              </button>
+              <button
+                className={liveSubmissionView ? 'btn-primary' : 'btn-secondary'}
+                type="button"
+                onClick={() => setLiveSubmissionView((v) => !v)}
+                title="Auto-refresh every 10s"
+              >
+                Live
+              </button>
+              <button className="btn-secondary" type="button" onClick={exportAssignmentsCsv} title="Export current filtered rows as CSV">
+                <Download className="w-4 h-4" />
+                Export
+              </button>
+            </div>
           </div>
         </div>
+        {liveSubmissionView && (
+          <div className="text-xs text-gray-600">
+            Live submission view is ON (auto-refresh every 10 seconds).
+          </div>
+        )}
 
         <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
           <table className="w-full text-sm">

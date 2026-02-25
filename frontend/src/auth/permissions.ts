@@ -3,6 +3,8 @@ import type { AuthUser } from '../services/authService';
 export type AppRole = AuthUser['role'];
 
 export type AppAction =
+  | 'batches.view'
+  | 'batches.manage'
   | 'learners.view'
   | 'learners.manage'
   | 'questions.view'
@@ -15,6 +17,8 @@ export type AppAction =
   | 'assessments.edit'
   | 'assessments.delete'
   | 'analytics.view'
+  | 'certificates.view'
+  | 'certificates.manage'
   | 'library.view'
   | 'ai.generate'
   | 'student.assessments.view'
@@ -29,6 +33,8 @@ const ROLE_LABELS: Record<AppRole, string> = {
 
 const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
   admin: new Set<AppAction>([
+    'batches.view',
+    'batches.manage',
     'learners.view',
     'learners.manage',
     'questions.view',
@@ -41,6 +47,8 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'assessments.edit',
     'assessments.delete',
     'analytics.view',
+    'certificates.view',
+    'certificates.manage',
     'library.view',
     'ai.generate',
     'student.assessments.view',
@@ -48,6 +56,8 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'labTemplates.manage'
   ]),
   client: new Set<AppAction>([
+    'batches.view',
+    'batches.manage',
     'learners.view',
     'learners.manage',
     'questions.view',
@@ -58,6 +68,8 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'assessments.edit',
     'assessments.delete',
     'analytics.view',
+    'certificates.view',
+    'certificates.manage',
     'library.view',
     'ai.generate'
   ]),

@@ -40,10 +40,25 @@ export const analyticsService = {
     return response.data;
   },
 
+  getStudentSkillMatrix: async (studentId: string) => {
+    const response = await client.get(`/students/${studentId}/skill-matrix`);
+    return response.data;
+  },
+
   exportCsv: async (assessmentId: string) => {
     const response = await client.get(`/assessments/${assessmentId}/export-csv`, {
       responseType: 'blob'
     });
+    return response.data;
+  },
+
+  exportOrganizationAttemptsCsv: async () => {
+    const response = await client.get('/exports/org-attempts-csv', { responseType: 'blob' });
+    return response.data;
+  },
+
+  exportSkillMatrixCsv: async () => {
+    const response = await client.get('/exports/skill-matrix-csv', { responseType: 'blob' });
     return response.data;
   }
 };

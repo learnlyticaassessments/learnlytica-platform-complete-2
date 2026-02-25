@@ -33,6 +33,22 @@ export const learnersService = {
   create: async (payload: { email: string; fullName: string; password: string }) => {
     const response = await client.post('/learners', payload);
     return response.data as { success: boolean; data: any };
+  },
+
+  importCsvRows: async (payload: { rows: Array<{ email: string; fullName: string; password?: string }>; defaultPassword?: string }) => {
+    const response = await client.post('/learners/import', payload);
+    return response.data as {
+      success: boolean;
+      data: {
+        created: any[];
+        skipped: Array<{ index: number; email?: string; reason: string }>;
+        summary: { requested: number; created: number; skipped: number };
+      };
+    };
+  },
+
+  update: async (id: string, payload: { fullName?: string; isActive?: boolean; password?: string }) => {
+    const response = await client.patch(`/learners/${id}`, payload);
+    return response.data as { success: boolean; data: any };
   }
 };
-

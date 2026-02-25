@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { analyticsService } from '../../services/analyticsService';
-import { BarChart3, Users, FileText, CheckCircle, TrendingUp } from 'lucide-react';
+import { BarChart3, Users, FileText, CheckCircle, TrendingUp, Download } from 'lucide-react';
 
 export function Dashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState<string | null>(null);
 
   useEffect(() => {
     loadStats();
@@ -23,13 +24,60 @@ export function Dashboard() {
     }
   };
 
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportOrgAttempts = async () => {
+    setExporting('attempts');
+    try {
+      const blob = await analyticsService.exportOrganizationAttemptsCsv();
+      downloadBlob(blob, `learnlytica-org-attempts-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (error) {
+      console.error('Failed to export org attempts', error);
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const exportSkillMatrix = async () => {
+    setExporting('skills');
+    try {
+      const blob = await analyticsService.exportSkillMatrixCsv();
+      downloadBlob(blob, `learnlytica-skill-matrix-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (error) {
+      console.error('Failed to export skill matrix', error);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   if (loading) return <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>;
 
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Analytics Dashboard</h1>
-        <p className="text-gray-600 mt-1">Platform overview and insights</p>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Analytics Dashboard</h1>
+            <p className="text-gray-600 mt-1">Platform overview and insights</p>
+          </div>
+          <div className="flex gap-2">
+            <button className="btn-secondary" onClick={exportOrgAttempts} disabled={exporting !== null}>
+              <Download className="w-4 h-4" />
+              {exporting === 'attempts' ? 'Exporting...' : 'Export Attempts CSV'}
+            </button>
+            <button className="btn-secondary" onClick={exportSkillMatrix} disabled={exporting !== null}>
+              <Download className="w-4 h-4" />
+              {exporting === 'skills' ? 'Exporting...' : 'Export Skill Matrix CSV'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Stats Grid */}

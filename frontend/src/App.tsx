@@ -22,8 +22,11 @@ import { StudentDashboard } from './pages/student/StudentDashboard';
 import { AssessmentTake } from './pages/student/AssessmentTake';
 import { AssessmentReview } from './pages/student/AssessmentReview';
 import { Learners } from './pages/Learners';
+import { Batches } from './pages/Batches';
 import { ClientAssignmentReview } from './pages/ClientAssignmentReview';
 import { ClientAssignmentDetail } from './pages/ClientAssignmentDetail';
+import { ClientSkillMatrix } from './pages/ClientSkillMatrix';
+import { Certificates } from './pages/Certificates';
 
 // Module 5: Analytics
 import { Dashboard as AnalyticsDashboard } from './pages/analytics/Dashboard';
@@ -84,8 +87,11 @@ function App() {
                 <Route path="/assessments/create" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentCreate /></RoleRoute>} />
                 <Route path="/assessments/:id" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentDetail /></RoleRoute>} />
                 <Route path="/learners" element={<RoleRoute allowedRoles={['admin', 'client']}><Learners /></RoleRoute>} />
+                <Route path="/batches" element={<RoleRoute allowedRoles={['admin', 'client']}><Batches /></RoleRoute>} />
+                <Route path="/learners/:studentId/skill-matrix" element={<RoleRoute allowedRoles={['admin', 'client']}><ClientSkillMatrix /></RoleRoute>} />
                 <Route path="/learners/assignments/:assignmentId" element={<RoleRoute allowedRoles={['admin', 'client']}><ClientAssignmentDetail /></RoleRoute>} />
                 <Route path="/learners/assignments/:assignmentId/review" element={<RoleRoute allowedRoles={['admin', 'client']}><ClientAssignmentReview /></RoleRoute>} />
+                <Route path="/certificates" element={<RoleRoute allowedRoles={['admin', 'client']}><Certificates /></RoleRoute>} />
                 
                 {/* Module 3: Student Interface */}
                 <Route path="/student/assessments" element={<RoleRoute allowedRoles={['student']}><StudentDashboard /></RoleRoute>} />

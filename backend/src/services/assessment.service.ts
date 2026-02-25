@@ -265,7 +265,10 @@ export async function updateStudentAssignment(db: any, assignmentId: string, dat
 
   const updated = await assessmentModel.updateStudentAssignment(db, assignmentId, {
     dueDate: data.dueDate === undefined ? undefined : (data.dueDate ? new Date(data.dueDate) : null),
-    reentryPolicy: data.reentryPolicy
+    reentryPolicy: data.reentryPolicy,
+    clientAuditNotes: data.clientAuditNotes,
+    coachingNotes: data.coachingNotes,
+    reviewedBy: context.userId
   });
 
   return updated;
@@ -332,7 +335,11 @@ export async function getStudentAssignmentReview(db: any, assignmentId: string, 
       timeSpentMinutes: row.timeSpentMinutes == null ? null : Number(row.timeSpentMinutes),
       passed: row.passed,
       submittedAt: row.submittedAt,
-      reentryPolicy: row.reentryPolicy
+      reentryPolicy: row.reentryPolicy,
+      clientAuditNotes: row.clientAuditNotes ?? null,
+      coachingNotes: row.coachingNotes ?? null,
+      reviewedBy: row.reviewedBy ?? null,
+      reviewedAt: row.reviewedAt ?? null
     },
     learner: {
       id: row.studentId,
@@ -398,7 +405,11 @@ export async function getStudentAssignmentDetail(db: any, assignmentId: string, 
       draftUpdatedAt: row.draftUpdatedAt,
       lastActivityAt: row.lastActivityAt,
       focusEventCount: Array.isArray(focusEvents) ? focusEvents.length : 0,
-      reviewAvailable: ['submitted', 'graded'].includes(row.status)
+      reviewAvailable: ['submitted', 'graded'].includes(row.status),
+      clientAuditNotes: row.clientAuditNotes ?? null,
+      coachingNotes: row.coachingNotes ?? null,
+      reviewedBy: row.reviewedBy ?? null,
+      reviewedAt: row.reviewedAt ?? null
     },
     learner: {
       id: row.studentId,

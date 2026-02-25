@@ -4,6 +4,87 @@
  */
 
 import { sql } from 'kysely';
+import Anthropic from '@anthropic-ai/sdk';
+
+function parseJsonMaybe<T>(value: any, fallback: T): T {
+  if (value == null) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return value as T;
+}
+
+function inferSkillsFromQuestion(title: string = '', difficulty: string = ''): string[] {
+  const text = `${title} ${difficulty}`.toLowerCase();
+  const skills = new Set<string>();
+  if (/(array|string|loop|sort|search|algorithm|tree|graph|stack|queue)/.test(text)) skills.add('Algorithms');
+  if (/(api|rest|http|endpoint|request|response|supertest)/.test(text)) skills.add('Backend API');
+  if (/(react|ui|component|frontend|dom|css)/.test(text)) skills.add('Frontend UI');
+  if (/(sql|database|query|schema|postgres)/.test(text)) skills.add('Database & SQL');
+  if (/(full.?stack|workflow|integration|end.?to.?end|playwright)/.test(text)) skills.add('Full-Stack Workflow');
+  if (!skills.size) skills.add('General Problem Solving');
+  return [...skills];
+}
+
+function buildHeuristicSwot(matrix: any[]) {
+  const sorted = [...matrix].sort((a, b) => b.averageScore - a.averageScore);
+  const strengths = sorted.filter((s) => s.averageScore >= 80).slice(0, 3).map((s) => `${s.skill} (${s.averageScore.toFixed(1)}%)`);
+  const weaknesses = [...sorted].reverse().filter((s) => s.averageScore < 70).slice(0, 3).map((s) => `${s.skill} (${s.averageScore.toFixed(1)}%)`);
+
+  const opportunities = [
+    weaknesses.length ? `Targeted practice in ${weaknesses.map((w) => w.split(' (')[0]).join(', ')}` : 'Advance into higher-complexity assessments',
+    'Use review feedback and test output to create guided remediation tasks',
+    'Increase timed assessments to improve consistency under pressure'
+  ];
+  const threats = [
+    'Performance may drop in single-session locked attempts if weak areas remain unpracticed',
+    'Low test-pass consistency can hide partial understanding until grading',
+    'Context switching and focus interruptions may affect timed results'
+  ];
+  const recommendations = [
+    ...weaknesses.map((w) => `Assign a focused practice set for ${w.split(' (')[0]} with immediate review enabled`),
+    'Schedule one mixed-difficulty assessment to validate transfer of learning',
+    'Review failed tests and convert common failures into coaching checkpoints'
+  ].slice(0, 5);
+
+  return { strengths, weaknesses, opportunities, threats, recommendations, source: 'heuristic' };
+}
+
+async function maybeGenerateAiSwot(matrix: any[], learner: any, summary: any) {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const prompt = `
+You are an assessment analytics coach. Return strict JSON with keys:
+strengths (string[]), weaknesses (string[]), opportunities (string[]), threats (string[]), recommendations (string[]).
+Keep each item concise and actionable.
+
+Learner:
+${JSON.stringify(learner)}
+
+Summary:
+${JSON.stringify(summary)}
+
+Skill Matrix:
+${JSON.stringify(matrix)}
+`;
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 900,
+      temperature: 0.2,
+      messages: [{ role: 'user', content: prompt }]
+    });
+    const text = (msg.content || []).map((c: any) => c.text || '').join('\n');
+    const parsed = JSON.parse(text);
+    return { ...parsed, source: 'ai' };
+  } catch {
+    return null;
+  }
+}
 
 export async function getDashboardStats(db: any, organizationId: string) {
   // Total counts
@@ -188,4 +269,179 @@ export async function exportToCsv(db: any, assessmentId: string) {
   ]);
 
   return [headers, ...rows].map(row => row.join(',')).join('\n');
+}
+
+export async function exportOrganizationAttemptsCsv(db: any, organizationId: string) {
+  const rows = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .leftJoin('users as u', 'u.id', 'sa.student_id')
+    .where('a.organization_id', '=', organizationId)
+    .select([
+      'sa.id as assignmentId',
+      'u.full_name as learnerName',
+      'u.email as learnerEmail',
+      'a.title as assessmentTitle',
+      'sa.status',
+      'sa.score',
+      'sa.passed',
+      'sa.attempt_number as attemptNumber',
+      'sa.reentry_policy as reentryPolicy',
+      'sa.assigned_at as assignedAt',
+      'sa.started_at as startedAt',
+      'sa.submitted_at as submittedAt',
+      'sa.time_spent_minutes as timeSpentMinutes'
+    ])
+    .orderBy('sa.assigned_at', 'desc')
+    .execute();
+
+  const headers = ['Assignment ID','Learner Name','Learner Email','Assessment','Status','Score','Passed','Attempt','Re-entry Policy','Assigned At','Started At','Submitted At','Time Spent (min)'];
+  const csvRows = rows.map((r: any) => [
+    r.assignmentId, r.learnerName || '', r.learnerEmail || '', r.assessmentTitle || '', r.status || '',
+    r.score ?? '', r.passed == null ? '' : (r.passed ? 'Yes' : 'No'), r.attemptNumber ?? '',
+    r.reentryPolicy || '', r.assignedAt || '', r.startedAt || '', r.submittedAt || '', r.timeSpentMinutes ?? ''
+  ]);
+  return [headers, ...csvRows]
+    .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+}
+
+export async function getStudentSkillMatrix(
+  db: any,
+  organizationId: string,
+  studentId: string,
+  options?: { includeAiSwot?: boolean }
+) {
+  const learner = await db
+    .selectFrom('users')
+    .select(['id', 'full_name as fullName', 'email'])
+    .where('id', '=', studentId)
+    .where('organization_id', '=', organizationId)
+    .executeTakeFirst();
+  if (!learner) throw new Error('Learner not found');
+
+  const attempts = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .where('sa.student_id', '=', studentId)
+    .where('a.organization_id', '=', organizationId)
+    .where('sa.status', 'in', ['submitted', 'graded'] as any)
+    .select([
+      'sa.id',
+      'sa.score',
+      'sa.passed',
+      'sa.review_payload as reviewPayload',
+      'sa.submitted_at as submittedAt',
+      'a.title as assessmentTitle'
+    ])
+    .orderBy('sa.submitted_at', 'desc')
+    .execute();
+
+  const skillStats = new Map<string, { skill: string; questionCount: number; testsRun: number; testsPassed: number; pointsEarned: number; totalPoints: number; scores: number[]; lastSeenAt?: string | null }>();
+
+  for (const attempt of attempts) {
+    const review = parseJsonMaybe<any>(attempt.reviewPayload, null);
+    const questions = Array.isArray(review?.questions) ? review.questions : [];
+    for (const q of questions) {
+      const skills = inferSkillsFromQuestion(q.title, q.difficulty);
+      for (const skill of skills) {
+        const curr = skillStats.get(skill) || {
+          skill,
+          questionCount: 0,
+          testsRun: 0,
+          testsPassed: 0,
+          pointsEarned: 0,
+          totalPoints: 0,
+          scores: [],
+          lastSeenAt: null
+        };
+        curr.questionCount += 1;
+        curr.testsRun += Number(q.testsRun || 0);
+        curr.testsPassed += Number(q.testsPassed || 0);
+        curr.pointsEarned += Number(q.pointsEarned || 0);
+        curr.totalPoints += Number(q.totalPoints || 0);
+        const qScore = Number(q.totalPoints || 0) > 0 ? (Number(q.pointsEarned || 0) / Number(q.totalPoints || 0)) * 100 : 0;
+        curr.scores.push(qScore);
+        curr.lastSeenAt = attempt.submittedAt || curr.lastSeenAt;
+        skillStats.set(skill, curr);
+      }
+    }
+  }
+
+  const matrix = [...skillStats.values()].map((s) => {
+    const averageScore = s.scores.length ? s.scores.reduce((a, b) => a + b, 0) / s.scores.length : 0;
+    const testPassRate = s.testsRun > 0 ? (s.testsPassed / s.testsRun) * 100 : 0;
+    const proficiency = averageScore >= 85 ? 'advanced' : averageScore >= 70 ? 'intermediate' : 'needs_improvement';
+    return {
+      skill: s.skill,
+      questionCount: s.questionCount,
+      testPassRate,
+      averageScore,
+      pointsEarned: s.pointsEarned,
+      totalPoints: s.totalPoints,
+      proficiency,
+      lastSeenAt: s.lastSeenAt
+    };
+  }).sort((a, b) => b.averageScore - a.averageScore);
+
+  const summary = {
+    attemptsReviewed: attempts.length,
+    overallAverageScore: attempts.length
+      ? attempts.reduce((sum: number, a: any) => sum + Number(a.score || 0), 0) / attempts.length
+      : 0,
+    passRate: attempts.length
+      ? (attempts.filter((a: any) => !!a.passed).length / attempts.length) * 100
+      : 0,
+    skillsTracked: matrix.length
+  };
+
+  const heuristic = buildHeuristicSwot(matrix);
+  const ai = options?.includeAiSwot === false ? null : await maybeGenerateAiSwot(matrix, learner, summary);
+
+  return {
+    learner,
+    summary,
+    matrix,
+    swot: ai || heuristic
+  };
+}
+
+export async function exportSkillMatrixCsv(db: any, organizationId: string) {
+  const learners = await db
+    .selectFrom('users')
+    .select(['id', 'full_name as fullName', 'email'])
+    .where('organization_id', '=', organizationId)
+    .where('role', '=', 'student')
+    .execute();
+
+  const lines: any[][] = [[
+    'Learner ID','Learner Name','Email','Skill','Proficiency','Average Score','Test Pass Rate','Question Count','Points Earned','Total Points','Last Seen At'
+  ]];
+
+  for (const learner of learners) {
+    try {
+      const report = await getStudentSkillMatrix(db, organizationId, learner.id, { includeAiSwot: false });
+      for (const skill of report.matrix) {
+        lines.push([
+          learner.id,
+          learner.fullName || '',
+          learner.email || '',
+          skill.skill,
+          skill.proficiency,
+          skill.averageScore.toFixed(2),
+          skill.testPassRate.toFixed(2),
+          skill.questionCount,
+          skill.pointsEarned,
+          skill.totalPoints,
+          skill.lastSeenAt || ''
+        ]);
+      }
+    } catch {
+      // skip learner if malformed data
+    }
+  }
+
+  return lines
+    .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
 }

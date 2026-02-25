@@ -273,7 +273,8 @@ export async function assignToStudents(
   studentIds: string[],
   assignedBy: string,
   dueDate?: Date,
-  reentryPolicy: 'resume_allowed' | 'single_session' = 'resume_allowed'
+  reentryPolicy: 'resume_allowed' | 'single_session' = 'resume_allowed',
+  assignedBatchId?: string | null
 ): Promise<void> {
   // Get total points for the assessment
   const assessment = await getAssessmentById(db, assessmentId);
@@ -284,7 +285,8 @@ export async function assignToStudents(
     assigned_by: assignedBy,
     due_date: dueDate,
     total_points: assessment.totalPoints,
-    reentry_policy: reentryPolicy
+    reentry_policy: reentryPolicy,
+    assigned_batch_id: assignedBatchId ?? null
   }));
 
   await db.insertInto('student_assessments').values(values).execute();
@@ -434,11 +436,23 @@ export async function getStudentAssignmentById(db: any, id: string): Promise<any
 export async function updateStudentAssignment(
   db: any,
   id: string,
-  patch: { dueDate?: Date | null; reentryPolicy?: 'resume_allowed' | 'single_session' }
+  patch: {
+    dueDate?: Date | null;
+    reentryPolicy?: 'resume_allowed' | 'single_session';
+    clientAuditNotes?: string | null;
+    coachingNotes?: string | null;
+    reviewedBy?: string;
+  }
 ): Promise<any> {
   const values: any = {};
   if (patch.dueDate !== undefined) values.due_date = patch.dueDate;
   if (patch.reentryPolicy !== undefined) values.reentry_policy = patch.reentryPolicy;
+  if (patch.clientAuditNotes !== undefined) values.client_audit_notes = patch.clientAuditNotes;
+  if (patch.coachingNotes !== undefined) values.coaching_notes = patch.coachingNotes;
+  if (patch.clientAuditNotes !== undefined || patch.coachingNotes !== undefined) {
+    values.reviewed_at = new Date();
+    values.reviewed_by = patch.reviewedBy ?? null;
+  }
 
   const row = await db
     .updateTable('student_assessments')
@@ -478,6 +492,10 @@ export async function getStudentAssignmentReviewById(db: any, id: string): Promi
       'sa.review_payload as reviewPayload',
       'sa.focus_events as focusEvents',
       'sa.reentry_policy as reentryPolicy',
+      'sa.client_audit_notes as clientAuditNotes',
+      'sa.coaching_notes as coachingNotes',
+      'sa.reviewed_by as reviewedBy',
+      'sa.reviewed_at as reviewedAt',
       'a.organization_id as organizationId',
       'a.title as assessmentTitle',
       'a.description as assessmentDescription',
@@ -519,6 +537,10 @@ export async function getStudentAssignmentDetailById(db: any, id: string): Promi
       'sa.last_activity_at as lastActivityAt',
       'sa.focus_events as focusEvents',
       'sa.review_payload as reviewPayload',
+      'sa.client_audit_notes as clientAuditNotes',
+      'sa.coaching_notes as coachingNotes',
+      'sa.reviewed_by as reviewedBy',
+      'sa.reviewed_at as reviewedAt',
       'a.organization_id as organizationId',
       'a.title as assessmentTitle',
       'a.description as assessmentDescription',

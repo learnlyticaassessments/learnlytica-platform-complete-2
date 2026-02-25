@@ -76,10 +76,16 @@ export const assignmentFiltersSchema = z.object({
 
 export const updateAssignmentSchema = z.object({
   dueDate: z.string().datetime().nullable().optional(),
-  reentryPolicy: z.enum(['resume_allowed', 'single_session']).optional()
+  reentryPolicy: z.enum(['resume_allowed', 'single_session']).optional(),
+  clientAuditNotes: z.string().max(10000).nullable().optional(),
+  coachingNotes: z.string().max(10000).nullable().optional()
 }).refine(
-  (data) => data.dueDate !== undefined || data.reentryPolicy !== undefined,
-  { message: 'At least one field (dueDate or reentryPolicy) is required' }
+  (data) =>
+    data.dueDate !== undefined ||
+    data.reentryPolicy !== undefined ||
+    data.clientAuditNotes !== undefined ||
+    data.coachingNotes !== undefined,
+  { message: 'At least one updatable field is required' }
 );
 
 export const addQuestionsSchema = z.object({
