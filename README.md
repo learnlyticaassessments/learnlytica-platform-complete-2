@@ -4,8 +4,6 @@
 
 ---
 
-## https://github.com/learnlyticaassessments/learnlytica-platform-complete-2.git
-
 ## 📦 **What's Included**
 
 ### ✅ **Module 1: Question Management System** (100% COMPLETE)

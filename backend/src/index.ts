@@ -26,6 +26,7 @@ const dialect = new PostgresDialect({
 });
 
 const db = new Kysely({ dialect });
+app.locals.db = db;
 
 app.use((req, res, next) => {
   (req as any).db = db;
