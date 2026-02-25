@@ -61,7 +61,8 @@ export const updateAssessmentSchema = z.object({
 
 export const assignStudentsSchema = z.object({
   studentIds: z.array(z.string().uuid()).min(1, 'At least one student required'),
-  dueDate: z.string().datetime().optional()
+  dueDate: z.string().datetime().optional(),
+  reentryPolicy: z.enum(['resume_allowed', 'single_session']).optional()
 });
 
 export const addQuestionsSchema = z.object({

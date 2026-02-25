@@ -222,7 +222,8 @@ export async function assignToStudents(
     assessmentId,
     data.studentIds,
     context.userId,
-    data.dueDate
+    data.dueDate,
+    data.reentryPolicy || 'resume_allowed'
   );
 }
 

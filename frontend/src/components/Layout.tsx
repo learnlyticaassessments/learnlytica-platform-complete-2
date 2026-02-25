@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { FileText, ClipboardList, User, BarChart3, Book, Sparkles, Settings, LogOut, Zap } from 'lucide-react';
+import { FileText, ClipboardList, User, Users, BarChart3, Book, Sparkles, Settings, LogOut, Zap } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can, getRoleLabel } from '../auth/permissions';
 
@@ -24,6 +24,7 @@ export function Layout({ children }: LayoutProps) {
     { name: 'Questions', href: '/questions', icon: FileText, canView: can(user?.role, 'questions.view') },
     { name: 'AI Generator', href: '/ai/generate', icon: Sparkles, highlight: true, canView: can(user?.role, 'ai.generate') },
     { name: 'Assessments', href: '/assessments', icon: ClipboardList, canView: can(user?.role, 'assessments.view') },
+    { name: 'Learners', href: '/learners', icon: Users, canView: can(user?.role, 'learners.view') },
     { name: 'My Assessments', href: '/student/assessments', icon: User, canView: can(user?.role, 'student.assessments.view') },
     { name: 'Library', href: '/library', icon: Book, canView: can(user?.role, 'library.view') },
     { name: 'Analytics', href: '/analytics', icon: BarChart3, canView: can(user?.role, 'analytics.view') }

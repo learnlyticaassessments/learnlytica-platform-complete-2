@@ -3,6 +3,8 @@ import type { AuthUser } from '../services/authService';
 export type AppRole = AuthUser['role'];
 
 export type AppAction =
+  | 'learners.view'
+  | 'learners.manage'
   | 'questions.view'
   | 'questions.create'
   | 'questions.edit'
@@ -27,6 +29,8 @@ const ROLE_LABELS: Record<AppRole, string> = {
 
 const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
   admin: new Set<AppAction>([
+    'learners.view',
+    'learners.manage',
     'questions.view',
     'questions.create',
     'questions.edit',
@@ -44,6 +48,8 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'labTemplates.manage'
   ]),
   client: new Set<AppAction>([
+    'learners.view',
+    'learners.manage',
     'questions.view',
     'questions.create',
     'questions.edit',
@@ -69,4 +75,3 @@ export function can(role: AppRole | undefined | null, action: AppAction): boolea
   if (!role) return false;
   return PERMISSIONS[role].has(action);
 }
-

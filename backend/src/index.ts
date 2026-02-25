@@ -13,6 +13,7 @@ import analyticsRoutes from './routes/analytics.routes';
 import libraryRoutes from './routes/question-library.routes';
 import aiRoutes from './routes/ai-question.routes';
 import authRoutes from './routes/auth.routes';
+import learnerRoutes from './routes/learner.routes';
 import { errorHandler } from './middleware/error.middleware';
 
 const app = express();
@@ -54,6 +55,7 @@ app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/library', libraryRoutes);
 app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/learners', learnerRoutes);
 
 app.use(errorHandler);
 

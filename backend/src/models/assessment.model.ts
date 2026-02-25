@@ -272,7 +272,8 @@ export async function assignToStudents(
   assessmentId: string,
   studentIds: string[],
   assignedBy: string,
-  dueDate?: Date
+  dueDate?: Date,
+  reentryPolicy: 'resume_allowed' | 'single_session' = 'resume_allowed'
 ): Promise<void> {
   // Get total points for the assessment
   const assessment = await getAssessmentById(db, assessmentId);
@@ -282,7 +283,8 @@ export async function assignToStudents(
     student_id: studentId,
     assigned_by: assignedBy,
     due_date: dueDate,
-    total_points: assessment.totalPoints
+    total_points: assessment.totalPoints,
+    reentry_policy: reentryPolicy
   }));
 
   await db.insertInto('student_assessments').values(values).execute();
