@@ -43,6 +43,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       // Clear stale token, but don't hard-redirect to a route that may not exist.
       localStorage.removeItem('auth_token');
+      window.dispatchEvent(new Event('auth:logout'));
     }
     return Promise.reject(error);
   }

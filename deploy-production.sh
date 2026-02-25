@@ -90,8 +90,14 @@ echo "Running migrations..."
 psql -d $DB_NAME -f backend/migrations/001_create_questions.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/002_create_lab_templates.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/003_create_assessments.sql || exit 1
+psql -d $DB_NAME -f backend/migrations/004_create_auth.sql || exit 1
 
 echo "✅ Database ready"
+echo ""
+echo "🔐 Demo login accounts seeded (for first login):"
+echo "   admin@learnlytica.local   / Admin@123"
+echo "   client@learnlytica.local  / Client@123"
+echo "   student@learnlytica.local / Student@123"
 echo ""
 
 # Build frontend

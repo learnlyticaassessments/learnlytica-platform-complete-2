@@ -184,6 +184,7 @@ echo "Running database migrations..."
 sudo -u postgres psql -d $DB_NAME -f backend/migrations/001_create_questions.sql 2>/dev/null || echo "Migration 1 already applied or failed"
 sudo -u postgres psql -d $DB_NAME -f backend/migrations/002_create_lab_templates.sql 2>/dev/null || echo "Migration 2 already applied or failed"
 sudo -u postgres psql -d $DB_NAME -f backend/migrations/003_create_assessments.sql 2>/dev/null || echo "Migration 3 already applied or failed"
+sudo -u postgres psql -d $DB_NAME -f backend/migrations/004_create_auth.sql 2>/dev/null || echo "Migration 4 already applied or failed"
 echo "✅ Database migrations completed"
 echo ""
 
@@ -326,6 +327,11 @@ cat > /root/learnlytica-credentials.txt << CREDS
 🔐 SECRETS:
    JWT Secret: $JWT_SECRET
    Anthropic API Key: $ANTHROPIC_KEY
+
+👤 DEMO LOGIN USERS:
+   admin@learnlytica.local   / Admin@123
+   client@learnlytica.local  / Client@123
+   student@learnlytica.local / Student@123
 
 📋 USEFUL COMMANDS:
    View logs:        pm2 logs

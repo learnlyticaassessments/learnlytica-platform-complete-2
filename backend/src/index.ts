@@ -12,6 +12,7 @@ import studentRoutes from './routes/student-assessment.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import libraryRoutes from './routes/question-library.routes';
 import aiRoutes from './routes/ai-question.routes';
+import authRoutes from './routes/auth.routes';
 import { errorHandler } from './middleware/error.middleware';
 
 const app = express();
@@ -51,6 +52,7 @@ app.use('/api/v1/student', studentRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/library', libraryRoutes);
 app.use('/api/v1/ai', aiRoutes);
+app.use('/api/v1/auth', authRoutes);
 
 app.use(errorHandler);
 
