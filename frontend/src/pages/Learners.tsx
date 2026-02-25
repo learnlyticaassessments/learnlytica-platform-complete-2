@@ -12,6 +12,15 @@ type Learner = {
   fullName: string;
   isActive: boolean;
   createdAt: string;
+  batchCount?: number;
+  activeBatchCount?: number;
+  batches?: Array<{
+    id: string;
+    name: string;
+    code?: string | null;
+    membershipStatus: 'active' | 'inactive';
+    batchStatus: 'active' | 'archived';
+  }>;
 };
 
 type Assessment = {
@@ -71,6 +80,7 @@ export function Learners() {
   const [dueDate, setDueDate] = useState('');
   const [reentryPolicy, setReentryPolicy] = useState<ReentryPolicy>('resume_allowed');
   const [search, setSearch] = useState('');
+  const [learnerBatchFilter, setLearnerBatchFilter] = useState<'all' | 'unbatched'>('all');
   const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<string>('');
   const [assignmentSearch, setAssignmentSearch] = useState('');
   const [assignmentBusyId, setAssignmentBusyId] = useState<string | null>(null);
@@ -128,11 +138,17 @@ export function Learners() {
 
   const filteredLearners = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return learners;
-    return learners.filter((learner) =>
-      learner.fullName.toLowerCase().includes(q) || learner.email.toLowerCase().includes(q)
-    );
-  }, [learners, search]);
+    return learners.filter((learner) => {
+      if (learnerBatchFilter === 'unbatched' && (learner.batchCount || 0) > 0) return false;
+      if (!q) return true;
+      return learner.fullName.toLowerCase().includes(q) || learner.email.toLowerCase().includes(q);
+    });
+  }, [learners, search, learnerBatchFilter]);
+
+  const unbatchedLearnerCount = useMemo(
+    () => learners.filter((learner) => (learner.batchCount || 0) === 0).length,
+    [learners]
+  );
 
   const csvPreview = useMemo<CsvPreviewRow[]>(() => {
     if (!csvText.trim()) return [];
@@ -561,6 +577,10 @@ export function Learners() {
             <div className="text-gray-500">Published Assessments</div>
             <div className="text-xl font-bold">{assessments.length}</div>
           </div>
+          <div className="card px-4 py-3 min-w-[120px]">
+            <div className="text-gray-500">Unbatched</div>
+            <div className="text-xl font-bold">{unbatchedLearnerCount}</div>
+          </div>
         </div>
       </div>
 
@@ -626,12 +646,22 @@ export function Learners() {
               <ClipboardCheck className="w-5 h-5 text-[var(--accent)]" />
               <h2 className="text-lg font-semibold text-gray-900">Assign Assessment</h2>
             </div>
-            <input
-              className="input-field md:w-72"
-              placeholder="Search learners by name or email"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <div className="flex flex-col md:flex-row gap-2">
+              <select
+                className="input-field md:w-48"
+                value={learnerBatchFilter}
+                onChange={(e) => setLearnerBatchFilter(e.target.value as 'all' | 'unbatched')}
+              >
+                <option value="all">All Learners</option>
+                <option value="unbatched">Unbatched Only</option>
+              </select>
+              <input
+                className="input-field md:w-72"
+                placeholder="Search learners by name or email"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
 
           <form onSubmit={handleAssign} className="space-y-5">
@@ -732,6 +762,11 @@ export function Learners() {
                         <div className="min-w-0 flex-1">
                           <div className="font-medium text-gray-900 truncate">{learner.fullName}</div>
                           <div className="text-sm text-gray-600 truncate">{learner.email}</div>
+                          <div className="mt-1 text-xs text-gray-500 truncate">
+                            {(learner.batchCount || 0) > 0
+                              ? `Batches: ${learner.batches?.slice(0, 2).map((b) => b.name).join(', ')}${(learner.batchCount || 0) > 2 ? ` +${(learner.batchCount || 0) - 2}` : ''}`
+                              : 'No batch (individual learner)'}
+                          </div>
                         </div>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -851,14 +886,24 @@ export function Learners() {
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Learner Accounts</h2>
-              <p className="text-sm text-gray-600">Manage learner status and temporary password resets.</p>
+              <p className="text-sm text-gray-600">Manage learner status, batch placement, and temporary password resets.</p>
             </div>
-            <input
-              className="input-field md:w-80"
-              placeholder="Filter learner accounts"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <div className="flex flex-col md:flex-row gap-2">
+              <select
+                className="input-field md:w-48"
+                value={learnerBatchFilter}
+                onChange={(e) => setLearnerBatchFilter(e.target.value as 'all' | 'unbatched')}
+              >
+                <option value="all">All Learners</option>
+                <option value="unbatched">Unbatched Only</option>
+              </select>
+              <input
+                className="input-field md:w-80"
+                placeholder="Filter learner accounts"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
@@ -877,6 +922,7 @@ export function Learners() {
                     />
                   </th>
                   <th className="px-3 py-3 text-left">Learner</th>
+                  <th className="px-3 py-3 text-left">Batches</th>
                   <th className="px-3 py-3 text-left">Status</th>
                   <th className="px-3 py-3 text-left">Created</th>
                   <th className="px-3 py-3 text-right">Account Ops</th>
@@ -897,6 +943,26 @@ export function Learners() {
                       <td className="px-3 py-3">
                         <div className="font-medium text-gray-900">{learner.fullName}</div>
                         <div className="text-xs text-gray-600">{learner.email}</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        {(learner.batchCount || 0) === 0 ? (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                            Unbatched
+                          </span>
+                        ) : (
+                          <div className="flex flex-wrap gap-1">
+                            {(learner.batches || []).slice(0, 2).map((b) => (
+                              <span key={b.id} className="px-2 py-1 rounded-full text-[10px] font-medium bg-indigo-100 text-indigo-700">
+                                {b.name}
+                              </span>
+                            ))}
+                            {(learner.batchCount || 0) > 2 && (
+                              <span className="px-2 py-1 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700">
+                                +{(learner.batchCount || 0) - 2}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-3">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -939,7 +1005,7 @@ export function Learners() {
                 })}
                 {filteredLearners.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                       No learners found
                     </td>
                   </tr>

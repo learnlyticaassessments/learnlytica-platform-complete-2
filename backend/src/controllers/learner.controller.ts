@@ -14,8 +14,9 @@ export async function listLearners(req: Request, res: Response, next: NextFuncti
   try {
     const db = (req as any).db;
     const { organizationId } = getContext(req);
+    const batchFilter = typeof req.query.batchFilter === 'string' ? req.query.batchFilter : undefined;
 
-    const rows = await db
+    const learnerRows = await db
       .selectFrom('users')
       .select([
         'id',
@@ -29,7 +30,55 @@ export async function listLearners(req: Request, res: Response, next: NextFuncti
       .orderBy('created_at', 'desc')
       .execute();
 
-    res.json({ success: true, data: rows });
+    const learnerIds = learnerRows.map((r: any) => r.id);
+    let memberships: any[] = [];
+    if (learnerIds.length) {
+      memberships = await db
+        .selectFrom('batch_memberships as bm')
+        .innerJoin('batches as b', 'b.id', 'bm.batch_id')
+        .select([
+          'bm.student_id as learnerId',
+          'bm.status as membershipStatus',
+          'b.id as batchId',
+          'b.name as batchName',
+          'b.code as batchCode',
+          'b.status as batchStatus'
+        ])
+        .where('bm.student_id', 'in', learnerIds)
+        .where('b.organization_id', '=', organizationId)
+        .orderBy('b.name', 'asc')
+        .execute();
+    }
+
+    const byLearner = new Map<string, any[]>();
+    for (const m of memberships) {
+      const list = byLearner.get(m.learnerId) || [];
+      list.push({
+        id: m.batchId,
+        name: m.batchName,
+        code: m.batchCode,
+        membershipStatus: m.membershipStatus,
+        batchStatus: m.batchStatus
+      });
+      byLearner.set(m.learnerId, list);
+    }
+
+    const rows = learnerRows.map((row: any) => {
+      const learnerBatches = byLearner.get(row.id) || [];
+      return {
+        ...row,
+        batches: learnerBatches,
+        batchCount: learnerBatches.length,
+        activeBatchCount: learnerBatches.filter((b: any) => b.membershipStatus === 'active' && b.batchStatus === 'active').length
+      };
+    });
+
+    const filteredRows =
+      batchFilter === 'unbatched'
+        ? rows.filter((r: any) => r.batchCount === 0)
+        : rows;
+
+    res.json({ success: true, data: filteredRows });
   } catch (error) {
     next(error);
   }

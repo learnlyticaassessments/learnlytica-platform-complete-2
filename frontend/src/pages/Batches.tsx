@@ -12,6 +12,8 @@ type Learner = {
   fullName: string;
   isActive: boolean;
   createdAt: string;
+  batchCount?: number;
+  batches?: Array<{ id: string; name: string }>;
 };
 
 type Batch = {
@@ -116,6 +118,10 @@ export function Batches() {
   });
 
   const [selectedLearnerIdsToAdd, setSelectedLearnerIdsToAdd] = useState<string[]>([]);
+  const [showOnlyUnbatchedToAdd, setShowOnlyUnbatchedToAdd] = useState(false);
+  const [batchCsvText, setBatchCsvText] = useState('');
+  const [batchCsvDefaultPassword, setBatchCsvDefaultPassword] = useState('Learner@123');
+  const [batchCsvImportResult, setBatchCsvImportResult] = useState<any>(null);
   const [assignConfig, setAssignConfig] = useState({
     assessmentId: '',
     dueDate: '',
@@ -138,10 +144,27 @@ export function Batches() {
     const q = memberSearch.trim().toLowerCase();
     return learners.filter((l) => {
       if (memberLearnerIds.has(l.id)) return false;
+      if (showOnlyUnbatchedToAdd && (l.batchCount || 0) > 0) return false;
       if (!q) return true;
       return l.fullName.toLowerCase().includes(q) || l.email.toLowerCase().includes(q);
     });
-  }, [learners, memberLearnerIds, memberSearch]);
+  }, [learners, memberLearnerIds, memberSearch, showOnlyUnbatchedToAdd]);
+
+  const batchCsvPreview = useMemo(() => {
+    if (!batchCsvText.trim()) return [] as Array<{ fullName: string; email: string; password?: string }>;
+    return batchCsvText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const cols = line.split(',').map((c) => c.trim());
+        const firstLooksEmail = cols[0]?.includes('@');
+        const email = (firstLooksEmail ? cols[0] : cols[1] || '').toLowerCase();
+        const fullName = firstLooksEmail ? (cols[1] || '') : (cols[0] || '');
+        const password = cols[2] || undefined;
+        return { fullName, email, password };
+      });
+  }, [batchCsvText]);
 
   const loadBase = async (preserveSelection = true) => {
     setLoading(true);
@@ -301,6 +324,66 @@ export function Batches() {
       await loadBase(true);
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to add learners to batch');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const importLearnersIntoSelectedBatch = async () => {
+    if (!selectedBatchId) {
+      setError('Select a batch first');
+      return;
+    }
+    if (!batchCsvPreview.length) {
+      setError('Paste CSV learner rows first');
+      return;
+    }
+
+    setBusy('batch-csv-import');
+    setError(null);
+    setSuccess(null);
+    setBatchCsvImportResult(null);
+    try {
+      const rows = batchCsvPreview
+        .filter((r) => r.email && r.fullName)
+        .map((r) => ({ email: r.email, fullName: r.fullName, password: r.password }));
+
+      const importRes = await learnersService.importCsvRows({
+        rows,
+        defaultPassword: batchCsvDefaultPassword || undefined
+      });
+
+      const freshLearnersRes = await learnersService.list();
+      const freshLearners: Learner[] = freshLearnersRes.data || [];
+      const emailMap = new Map(freshLearners.map((l) => [l.email.toLowerCase(), l]));
+      const idsToAdd = Array.from(
+        new Set(
+          rows
+            .map((r) => emailMap.get(r.email.toLowerCase())?.id)
+            .filter(Boolean)
+            .filter((id) => !memberLearnerIds.has(id as string)) as string[]
+        )
+      );
+
+      let addResult: any = null;
+      if (idsToAdd.length) {
+        addResult = await batchesService.addMembers(selectedBatchId, idsToAdd);
+      }
+
+      setBatchCsvImportResult({
+        importSummary: importRes.data.summary,
+        importSkipped: importRes.data.skipped,
+        batchAddSummary: addResult?.data?.summary || { requested: idsToAdd.length, added: 0, skipped: 0 }
+      });
+
+      setSuccess(
+        `CSV processed: ${importRes.data.summary.created} created, ${addResult?.data?.summary?.added || 0} added to batch`
+      );
+      setBatchCsvText('');
+      await loadBase(true);
+      await loadSelectedBatchData(selectedBatchId);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed batch CSV import');
     } finally {
       setBusy(null);
     }
@@ -598,6 +681,19 @@ export function Batches() {
 
                   <div className="rounded-xl border border-[var(--border)]">
                     <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)] font-medium">Add Learners</div>
+                    <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between gap-2">
+                      <label className="flex items-center gap-2 text-xs text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={showOnlyUnbatchedToAdd}
+                          onChange={(e) => setShowOnlyUnbatchedToAdd(e.target.checked)}
+                        />
+                        Show unbatched learners only
+                      </label>
+                      <span className="text-xs text-gray-500">
+                        {addableLearners.length} available
+                      </span>
+                    </div>
                     <div className="max-h-[220px] overflow-auto divide-y divide-[var(--border)]">
                       {addableLearners.length ? addableLearners.slice(0, 120).map((learner) => (
                         <label key={learner.id} className="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[var(--surface-2)]/50">
@@ -609,6 +705,9 @@ export function Batches() {
                           <div className="min-w-0 flex-1">
                             <div className="font-medium text-gray-900 truncate">{learner.fullName}</div>
                             <div className="text-xs text-gray-600 truncate">{learner.email}</div>
+                            <div className="text-[10px] text-gray-500 truncate">
+                              {(learner.batchCount || 0) > 0 ? `In ${(learner.batchCount || 0)} batch(es)` : 'Unbatched'}
+                            </div>
                           </div>
                           {!learner.isActive && (
                             <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-700">inactive account</span>
@@ -625,6 +724,52 @@ export function Batches() {
                         {busy === 'add-members' ? 'Adding...' : 'Add Selected'}
                       </button>
                     </div>
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <UserPlus className="w-4 h-4 text-[var(--accent)]" />
+                      <h4 className="font-semibold">CSV Import Into This Batch</h4>
+                    </div>
+                    <p className="text-xs text-gray-600">
+                      Paste rows as <code>fullName,email,password</code> or <code>email,fullName,password</code>. Existing learners are matched by email and added to this batch.
+                    </p>
+                    <textarea
+                      className="input-field min-h-[120px] font-mono text-xs"
+                      placeholder={`Asha Patel,asha@company.com,Temp@123\nravi@company.com,Ravi Kumar,Temp@123`}
+                      value={batchCsvText}
+                      onChange={(e) => setBatchCsvText(e.target.value)}
+                    />
+                    <input
+                      className="input-field"
+                      value={batchCsvDefaultPassword}
+                      onChange={(e) => setBatchCsvDefaultPassword(e.target.value)}
+                      placeholder="Default password for new learners"
+                    />
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-gray-600">Preview rows: {batchCsvPreview.length}</span>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={!canManage || !batchCsvPreview.length || busy === 'batch-csv-import'}
+                        onClick={importLearnersIntoSelectedBatch}
+                      >
+                        {busy === 'batch-csv-import' ? 'Importing...' : 'Import + Add to Batch'}
+                      </button>
+                    </div>
+                    {batchCsvImportResult && (
+                      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs space-y-1">
+                        <div>Created learners: {batchCsvImportResult.importSummary?.created ?? 0}</div>
+                        <div>Skipped learner rows: {batchCsvImportResult.importSummary?.skipped ?? 0}</div>
+                        <div>Added to batch: {batchCsvImportResult.batchAddSummary?.added ?? 0}</div>
+                        <div>Skipped batch adds: {batchCsvImportResult.batchAddSummary?.skipped ?? 0}</div>
+                        {(batchCsvImportResult.importSkipped || []).slice(0, 4).map((s: any) => (
+                          <div key={`${s.index}-${s.email || 'row'}`} className="text-amber-700">
+                            Row {s.index + 1}: {s.reason}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 

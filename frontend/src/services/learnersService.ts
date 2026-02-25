@@ -25,8 +25,8 @@ client.interceptors.response.use(
 );
 
 export const learnersService = {
-  list: async () => {
-    const response = await client.get('/learners');
+  list: async (params?: { batchFilter?: 'unbatched' }) => {
+    const response = await client.get('/learners', { params });
     return response.data as { success: boolean; data: any[] };
   },
 
