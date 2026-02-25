@@ -22,6 +22,8 @@ import { StudentDashboard } from './pages/student/StudentDashboard';
 import { AssessmentTake } from './pages/student/AssessmentTake';
 import { AssessmentReview } from './pages/student/AssessmentReview';
 import { Learners } from './pages/Learners';
+import { ClientAssignmentReview } from './pages/ClientAssignmentReview';
+import { ClientAssignmentDetail } from './pages/ClientAssignmentDetail';
 
 // Module 5: Analytics
 import { Dashboard as AnalyticsDashboard } from './pages/analytics/Dashboard';
@@ -82,6 +84,8 @@ function App() {
                 <Route path="/assessments/create" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentCreate /></RoleRoute>} />
                 <Route path="/assessments/:id" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentDetail /></RoleRoute>} />
                 <Route path="/learners" element={<RoleRoute allowedRoles={['admin', 'client']}><Learners /></RoleRoute>} />
+                <Route path="/learners/assignments/:assignmentId" element={<RoleRoute allowedRoles={['admin', 'client']}><ClientAssignmentDetail /></RoleRoute>} />
+                <Route path="/learners/assignments/:assignmentId/review" element={<RoleRoute allowedRoles={['admin', 'client']}><ClientAssignmentReview /></RoleRoute>} />
                 
                 {/* Module 3: Student Interface */}
                 <Route path="/student/assessments" element={<RoleRoute allowedRoles={['student']}><StudentDashboard /></RoleRoute>} />

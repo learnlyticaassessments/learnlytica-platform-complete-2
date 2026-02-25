@@ -65,6 +65,23 @@ export const assignStudentsSchema = z.object({
   reentryPolicy: z.enum(['resume_allowed', 'single_session']).optional()
 });
 
+export const assignmentFiltersSchema = z.object({
+  assessmentId: z.string().uuid().optional(),
+  studentId: z.string().uuid().optional(),
+  status: z.enum(['assigned', 'in_progress', 'submitted', 'graded', 'expired']).optional(),
+  search: z.string().min(1).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20)
+});
+
+export const updateAssignmentSchema = z.object({
+  dueDate: z.string().datetime().nullable().optional(),
+  reentryPolicy: z.enum(['resume_allowed', 'single_session']).optional()
+}).refine(
+  (data) => data.dueDate !== undefined || data.reentryPolicy !== undefined,
+  { message: 'At least one field (dueDate or reentryPolicy) is required' }
+);
+
 export const addQuestionsSchema = z.object({
   questions: z.array(assessmentQuestionSchema).min(1, 'At least one question required')
 });
@@ -85,3 +102,5 @@ export type UpdateAssessmentInput = z.infer<typeof updateAssessmentSchema>;
 export type AssignStudentsInput = z.infer<typeof assignStudentsSchema>;
 export type AddQuestionsInput = z.infer<typeof addQuestionsSchema>;
 export type AssessmentFiltersInput = z.infer<typeof assessmentFiltersSchema>;
+export type AssignmentFiltersInput = z.infer<typeof assignmentFiltersSchema>;
+export type UpdateAssignmentInput = z.infer<typeof updateAssignmentSchema>;

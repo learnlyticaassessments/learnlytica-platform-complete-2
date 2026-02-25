@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { UserPlus, Users, ClipboardCheck, Loader2 } from 'lucide-react';
 import { learnersService } from '../services/learnersService';
 import { assessmentService } from '../services/assessmentService';
@@ -22,6 +23,22 @@ type Assessment = {
 };
 
 type ReentryPolicy = 'resume_allowed' | 'single_session';
+type AssignmentStatus = 'assigned' | 'in_progress' | 'submitted' | 'graded' | 'expired';
+
+type AssignmentRow = {
+  id: string;
+  assessmentId: string;
+  assessmentTitle: string;
+  studentId: string;
+  learnerName: string;
+  learnerEmail: string;
+  status: AssignmentStatus;
+  dueDate: string | null;
+  assignedAt: string;
+  submittedAt?: string | null;
+  score?: number | null;
+  reentryPolicy: ReentryPolicy;
+};
 
 export function Learners() {
   const { user } = useAuth();
@@ -35,11 +52,15 @@ export function Learners() {
 
   const [learners, setLearners] = useState<Learner[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [selectedLearnerIds, setSelectedLearnerIds] = useState<string[]>([]);
   const [selectedAssessmentId, setSelectedAssessmentId] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [reentryPolicy, setReentryPolicy] = useState<ReentryPolicy>('resume_allowed');
   const [search, setSearch] = useState('');
+  const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<string>('');
+  const [assignmentSearch, setAssignmentSearch] = useState('');
+  const [assignmentBusyId, setAssignmentBusyId] = useState<string | null>(null);
 
   const [newLearner, setNewLearner] = useState({
     fullName: '',
@@ -51,12 +72,17 @@ export function Learners() {
     setLoading(true);
     setError(null);
     try {
-      const [learnersRes, assessmentsRes] = await Promise.all([
+      const [learnersRes, assessmentsRes, assignmentsRes] = await Promise.all([
         learnersService.list(),
-        assessmentService.list({ status: 'published', page: 1, limit: 100 })
+        assessmentService.list({ status: 'published', page: 1, limit: 100 }),
+        assessmentService.listAssignments({ page: 1, limit: 100 })
       ]);
+      const assessmentRows = Array.isArray(assessmentsRes?.data)
+        ? assessmentsRes.data
+        : (assessmentsRes?.data?.assessments || []);
       setLearners(learnersRes.data || []);
-      setAssessments((assessmentsRes?.data?.assessments || []).filter((a: Assessment) => a.status === 'published'));
+      setAssessments(assessmentRows.filter((a: Assessment) => a.status === 'published'));
+      setAssignments(assignmentsRes?.data || []);
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to load learners and assessments');
     } finally {
@@ -77,6 +103,23 @@ export function Learners() {
   }, [learners, search]);
 
   const selectedAssessment = assessments.find((a) => a.id === selectedAssessmentId);
+  const selectedAssessmentFilter = useMemo(() => {
+    return selectedAssessmentId || '';
+  }, [selectedAssessmentId]);
+
+  const filteredAssignments = useMemo(() => {
+    const q = assignmentSearch.trim().toLowerCase();
+    return assignments.filter((row) => {
+      if (selectedAssessmentFilter && row.assessmentId !== selectedAssessmentFilter) return false;
+      if (assignmentStatusFilter && row.status !== assignmentStatusFilter) return false;
+      if (!q) return true;
+      return (
+        row.learnerName.toLowerCase().includes(q) ||
+        row.learnerEmail.toLowerCase().includes(q) ||
+        row.assessmentTitle.toLowerCase().includes(q)
+      );
+    });
+  }, [assignments, selectedAssessmentFilter, assignmentStatusFilter, assignmentSearch]);
 
   const toggleLearnerSelection = (id: string) => {
     setSelectedLearnerIds((prev) =>
@@ -132,10 +175,62 @@ export function Learners() {
       setSelectedLearnerIds([]);
       setDueDate('');
       setReentryPolicy('resume_allowed');
+      await loadData();
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to assign assessment');
     } finally {
       setSubmittingAssignment(false);
+    }
+  };
+
+  const toDateTimeLocalValue = (iso?: string | null) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+  };
+
+  const updateAssignmentRow = async (row: AssignmentRow, patch: Partial<{ dueDate: string | null; reentryPolicy: ReentryPolicy }>) => {
+    setAssignmentBusyId(row.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const payload: any = {};
+      if ('dueDate' in patch) payload.dueDate = patch.dueDate ? new Date(patch.dueDate).toISOString() : null;
+      if (patch.reentryPolicy) payload.reentryPolicy = patch.reentryPolicy;
+      await assessmentService.updateAssignment(row.id, payload);
+      setAssignments((prev) =>
+        prev.map((a) =>
+          a.id === row.id
+            ? {
+                ...a,
+                dueDate: payload.dueDate === undefined ? a.dueDate : payload.dueDate,
+                reentryPolicy: payload.reentryPolicy ?? a.reentryPolicy
+              }
+            : a
+        )
+      );
+      setSuccess(`Updated assignment for ${row.learnerName}`);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to update assignment');
+    } finally {
+      setAssignmentBusyId(null);
+    }
+  };
+
+  const revokeAssignment = async (row: AssignmentRow) => {
+    if (!confirm(`Revoke assignment for ${row.learnerName}?`)) return;
+    setAssignmentBusyId(row.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      await assessmentService.revokeAssignment(row.id);
+      setAssignments((prev) => prev.filter((a) => a.id !== row.id));
+      setSuccess(`Revoked assignment for ${row.learnerName}`);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to revoke assignment');
+    } finally {
+      setAssignmentBusyId(null);
     }
   };
 
@@ -367,6 +462,155 @@ export function Learners() {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <div className="card p-6 space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Assignment Operations</h2>
+            <p className="text-sm text-gray-600">Extend due dates, change re-entry policy, or revoke unsubmitted attempts.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full lg:w-auto">
+            <input
+              className="input-field min-w-[220px]"
+              placeholder="Search learner / assessment"
+              value={assignmentSearch}
+              onChange={(e) => setAssignmentSearch(e.target.value)}
+            />
+            <select
+              className="input-field"
+              value={assignmentStatusFilter}
+              onChange={(e) => setAssignmentStatusFilter(e.target.value)}
+            >
+              <option value="">All statuses</option>
+              <option value="assigned">Assigned</option>
+              <option value="in_progress">In progress</option>
+              <option value="submitted">Submitted</option>
+              <option value="graded">Graded</option>
+              <option value="expired">Expired</option>
+            </select>
+            <button className="btn-secondary" type="button" onClick={loadData}>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+          <table className="w-full text-sm">
+            <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
+              <tr>
+                <th className="px-3 py-3 text-left">Learner</th>
+                <th className="px-3 py-3 text-left">Assessment</th>
+                <th className="px-3 py-3 text-left">Status</th>
+                <th className="px-3 py-3 text-left">Due Date</th>
+                <th className="px-3 py-3 text-left">Re-entry</th>
+                <th className="px-3 py-3 text-left">Result</th>
+                <th className="px-3 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)]">
+              {filteredAssignments.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                    No assignments match current filters.
+                  </td>
+                </tr>
+              )}
+              {filteredAssignments.map((row) => {
+                const isLocked = row.status === 'submitted' || row.status === 'graded';
+                const busy = assignmentBusyId === row.id;
+                return (
+                  <tr key={row.id} className="hover:bg-[var(--surface-2)]/50 align-top">
+                    <td className="px-3 py-3">
+                      <div className="font-medium text-gray-900">{row.learnerName}</div>
+                      <div className="text-xs text-gray-600">{row.learnerEmail}</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="font-medium text-gray-900">{row.assessmentTitle}</div>
+                      <div className="text-xs text-gray-600">ID: {row.assessmentId.slice(0, 8)}...</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        row.status === 'assigned' ? 'bg-blue-100 text-blue-700' :
+                        row.status === 'in_progress' ? 'bg-amber-100 text-amber-700' :
+                        row.status === 'submitted' ? 'bg-purple-100 text-purple-700' :
+                        row.status === 'graded' ? 'bg-green-100 text-green-700' :
+                        'bg-gray-100 text-gray-600'
+                      }`}>
+                        {row.status.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <input
+                        type="datetime-local"
+                        className="input-field min-w-[180px]"
+                        defaultValue={toDateTimeLocalValue(row.dueDate)}
+                        disabled={busy}
+                        onBlur={(e) => {
+                          const nextVal = e.target.value || null;
+                          const currentVal = toDateTimeLocalValue(row.dueDate) || null;
+                          if (nextVal !== currentVal) {
+                            void updateAssignmentRow(row, { dueDate: nextVal });
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="px-3 py-3">
+                      <select
+                        className="input-field min-w-[180px]"
+                        value={row.reentryPolicy}
+                        disabled={busy || isLocked}
+                        onChange={(e) => void updateAssignmentRow(row, { reentryPolicy: e.target.value as ReentryPolicy })}
+                      >
+                        <option value="resume_allowed">Resume allowed</option>
+                        <option value="single_session">Single session</option>
+                      </select>
+                    </td>
+                    <td className="px-3 py-3">
+                      {row.score != null ? (
+                        <div>
+                          <div className="font-medium">{row.score}%</div>
+                          <div className="text-xs text-gray-600">{row.submittedAt ? new Date(row.submittedAt).toLocaleString() : ''}</div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-500">Not submitted</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <div className="flex justify-end gap-2">
+                        <Link
+                          to={`/learners/assignments/${row.id}`}
+                          className="btn-secondary"
+                          title="Inspect assignment timeline and activity"
+                        >
+                          Inspect
+                        </Link>
+                        {isLocked && (
+                          <Link
+                            to={`/learners/assignments/${row.id}/review`}
+                            className="btn-secondary"
+                            title="Open learner review"
+                          >
+                            Review
+                          </Link>
+                        )}
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          disabled={busy || isLocked}
+                          onClick={() => void revokeAssignment(row)}
+                          title={isLocked ? 'Cannot revoke submitted/graded assignment' : 'Revoke assignment'}
+                        >
+                          {busy ? 'Working...' : 'Revoke'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

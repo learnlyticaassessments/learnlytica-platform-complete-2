@@ -319,3 +319,218 @@ export async function getAssessmentStatistics(db: any, assessmentId: string): Pr
     averageTimeSpent: Number(stats?.averageTimeSpent || 0)
   };
 }
+
+export async function listStudentAssignments(
+  db: any,
+  organizationId: string,
+  filters?: any
+): Promise<{ assignments: any[]; total: number; page: number; limit: number }> {
+  const page = filters?.page || 1;
+  const limit = filters?.limit || 20;
+  const offset = (page - 1) * limit;
+
+  let baseQuery = db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .innerJoin('users as u', 'u.id', 'sa.student_id')
+    .where('a.organization_id', '=', organizationId);
+
+  if (filters?.assessmentId) {
+    baseQuery = baseQuery.where('sa.assessment_id', '=', filters.assessmentId);
+  }
+  if (filters?.studentId) {
+    baseQuery = baseQuery.where('sa.student_id', '=', filters.studentId);
+  }
+  if (filters?.status) {
+    baseQuery = baseQuery.where('sa.status', '=', filters.status);
+  }
+  if (filters?.search) {
+    const term = `%${filters.search}%`;
+    baseQuery = baseQuery.where((eb: any) =>
+      eb.or([
+        eb('u.full_name', 'ilike', term),
+        eb('u.email', 'ilike', term),
+        eb('a.title', 'ilike', term)
+      ])
+    );
+  }
+
+  const countRow = await baseQuery
+    .select(sql`count(*)`.as('count'))
+    .executeTakeFirst();
+
+  const rows = await baseQuery
+    .select([
+      'sa.id',
+      'sa.assessment_id as assessmentId',
+      'sa.student_id as studentId',
+      'sa.status',
+      'sa.attempt_number as attemptNumber',
+      'sa.assigned_at as assignedAt',
+      'sa.due_date as dueDate',
+      'sa.started_at as startedAt',
+      'sa.submitted_at as submittedAt',
+      'sa.score',
+      'sa.points_earned as pointsEarned',
+      'sa.total_points as totalPoints',
+      'sa.passed',
+      'sa.reentry_policy as reentryPolicy',
+      'sa.last_activity_at as lastActivityAt',
+      'a.title as assessmentTitle',
+      'a.allow_review_after_submission as allowReviewAfterSubmission',
+      'u.full_name as learnerName',
+      'u.email as learnerEmail'
+    ])
+    .orderBy('sa.assigned_at', 'desc')
+    .limit(limit)
+    .offset(offset)
+    .execute();
+
+  const assignments = rows.map((row: any) => ({
+    id: row.id,
+    assessmentId: row.assessmentId,
+    assessmentTitle: row.assessmentTitle,
+    studentId: row.studentId,
+    learnerName: row.learnerName,
+    learnerEmail: row.learnerEmail,
+    status: row.status,
+    attemptNumber: row.attemptNumber,
+    assignedAt: row.assignedAt,
+    dueDate: row.dueDate,
+    startedAt: row.startedAt,
+    submittedAt: row.submittedAt,
+    score: row.score == null ? null : Number(row.score),
+    pointsEarned: row.pointsEarned == null ? null : Number(row.pointsEarned),
+    totalPoints: row.totalPoints == null ? null : Number(row.totalPoints),
+    passed: row.passed,
+    reentryPolicy: row.reentryPolicy,
+    lastActivityAt: row.lastActivityAt,
+    allowReviewAfterSubmission: row.allowReviewAfterSubmission
+  }));
+
+  return {
+    assignments,
+    total: Number((countRow as any)?.count || 0),
+    page,
+    limit
+  };
+}
+
+export async function getStudentAssignmentById(db: any, id: string): Promise<any | null> {
+  const row = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .select([
+      'sa.*',
+      'a.organization_id as assessment_organization_id',
+      'a.title as assessment_title'
+    ])
+    .where('sa.id', '=', id)
+    .executeTakeFirst();
+
+  return row || null;
+}
+
+export async function updateStudentAssignment(
+  db: any,
+  id: string,
+  patch: { dueDate?: Date | null; reentryPolicy?: 'resume_allowed' | 'single_session' }
+): Promise<any> {
+  const values: any = {};
+  if (patch.dueDate !== undefined) values.due_date = patch.dueDate;
+  if (patch.reentryPolicy !== undefined) values.reentry_policy = patch.reentryPolicy;
+
+  const row = await db
+    .updateTable('student_assessments')
+    .set(values)
+    .where('id', '=', id)
+    .returningAll()
+    .executeTakeFirst();
+
+  return row;
+}
+
+export async function revokeStudentAssignment(db: any, id: string): Promise<boolean> {
+  const result = await db
+    .deleteFrom('student_assessments')
+    .where('id', '=', id)
+    .executeTakeFirst();
+
+  return Number(result.numDeletedRows || 0) > 0;
+}
+
+export async function getStudentAssignmentReviewById(db: any, id: string): Promise<any | null> {
+  const row = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .leftJoin('users as u', 'u.id', 'sa.student_id')
+    .select([
+      'sa.id as studentAssessmentId',
+      'sa.assessment_id as assessmentId',
+      'sa.student_id as studentId',
+      'sa.status',
+      'sa.score',
+      'sa.points_earned as pointsEarned',
+      'sa.total_points as totalPoints',
+      'sa.time_spent_minutes as timeSpentMinutes',
+      'sa.passed',
+      'sa.submitted_at as submittedAt',
+      'sa.review_payload as reviewPayload',
+      'sa.focus_events as focusEvents',
+      'sa.reentry_policy as reentryPolicy',
+      'a.organization_id as organizationId',
+      'a.title as assessmentTitle',
+      'a.description as assessmentDescription',
+      'a.show_results_immediately as showResultsImmediately',
+      'a.allow_review_after_submission as allowReviewAfterSubmission',
+      'u.full_name as learnerName',
+      'u.email as learnerEmail'
+    ])
+    .where('sa.id', '=', id)
+    .executeTakeFirst();
+
+  return row || null;
+}
+
+export async function getStudentAssignmentDetailById(db: any, id: string): Promise<any | null> {
+  const row = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .leftJoin('users as u', 'u.id', 'sa.student_id')
+    .select([
+      'sa.id as studentAssessmentId',
+      'sa.assessment_id as assessmentId',
+      'sa.student_id as studentId',
+      'sa.status',
+      'sa.attempt_number as attemptNumber',
+      'sa.assigned_at as assignedAt',
+      'sa.due_date as dueDate',
+      'sa.started_at as startedAt',
+      'sa.submitted_at as submittedAt',
+      'sa.score',
+      'sa.points_earned as pointsEarned',
+      'sa.total_points as totalPoints',
+      'sa.time_spent_minutes as timeSpentMinutes',
+      'sa.passed',
+      'sa.reentry_policy as reentryPolicy',
+      'sa.active_session_key as activeSessionKey',
+      'sa.session_locked_at as sessionLockedAt',
+      'sa.draft_updated_at as draftUpdatedAt',
+      'sa.last_activity_at as lastActivityAt',
+      'sa.focus_events as focusEvents',
+      'sa.review_payload as reviewPayload',
+      'a.organization_id as organizationId',
+      'a.title as assessmentTitle',
+      'a.description as assessmentDescription',
+      'a.time_limit_minutes as timeLimitMinutes',
+      'a.passing_score as passingScore',
+      'a.show_results_immediately as showResultsImmediately',
+      'a.allow_review_after_submission as allowReviewAfterSubmission',
+      'u.full_name as learnerName',
+      'u.email as learnerEmail'
+    ])
+    .where('sa.id', '=', id)
+    .executeTakeFirst();
+
+  return row || null;
+}

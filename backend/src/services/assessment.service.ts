@@ -237,6 +237,188 @@ export async function getAssessmentStatistics(db: any, assessmentId: string, con
   return stats;
 }
 
+export async function listStudentAssignments(db: any, filters: any, context: any) {
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Insufficient permissions to view assignments');
+  }
+
+  return assessmentModel.listStudentAssignments(db, context.organizationId, filters);
+}
+
+export async function updateStudentAssignment(db: any, assignmentId: string, data: any, context: any) {
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Insufficient permissions to update assignments');
+  }
+
+  const existing = await assessmentModel.getStudentAssignmentById(db, assignmentId);
+  if (!existing) {
+    throw new AssessmentNotFoundError(assignmentId);
+  }
+
+  if (existing.assessment_organization_id !== context.organizationId) {
+    throw new UnauthorizedError('Access denied to this assignment');
+  }
+
+  if (['submitted', 'graded'].includes(existing.status) && data.reentryPolicy) {
+    throw new ValidationError('Cannot change re-entry policy after submission');
+  }
+
+  const updated = await assessmentModel.updateStudentAssignment(db, assignmentId, {
+    dueDate: data.dueDate === undefined ? undefined : (data.dueDate ? new Date(data.dueDate) : null),
+    reentryPolicy: data.reentryPolicy
+  });
+
+  return updated;
+}
+
+export async function revokeStudentAssignment(db: any, assignmentId: string, context: any) {
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Insufficient permissions to revoke assignments');
+  }
+
+  const existing = await assessmentModel.getStudentAssignmentById(db, assignmentId);
+  if (!existing) {
+    throw new AssessmentNotFoundError(assignmentId);
+  }
+
+  if (existing.assessment_organization_id !== context.organizationId) {
+    throw new UnauthorizedError('Access denied to this assignment');
+  }
+
+  if (['submitted', 'graded'].includes(existing.status)) {
+    throw new ValidationError('Cannot revoke a submitted or graded assignment');
+  }
+
+  await assessmentModel.revokeStudentAssignment(db, assignmentId);
+}
+
+export async function getStudentAssignmentReview(db: any, assignmentId: string, context: any) {
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Insufficient permissions to view assignment review');
+  }
+
+  const row = await assessmentModel.getStudentAssignmentReviewById(db, assignmentId);
+  if (!row) {
+    throw new AssessmentNotFoundError(assignmentId);
+  }
+
+  if (row.organizationId !== context.organizationId) {
+    throw new UnauthorizedError('Access denied to this assignment review');
+  }
+
+  if (!['submitted', 'graded'].includes(row.status)) {
+    throw new ValidationError('Assignment has not been submitted yet');
+  }
+
+  const review = (() => {
+    if (!row.reviewPayload) return null;
+    if (typeof row.reviewPayload === 'string') {
+      try {
+        return JSON.parse(row.reviewPayload);
+      } catch {
+        return null;
+      }
+    }
+    return row.reviewPayload;
+  })();
+
+  return {
+    assignment: {
+      id: row.studentAssessmentId,
+      status: row.status,
+      score: row.score == null ? null : Number(row.score),
+      pointsEarned: row.pointsEarned == null ? null : Number(row.pointsEarned),
+      totalPoints: row.totalPoints == null ? null : Number(row.totalPoints),
+      timeSpentMinutes: row.timeSpentMinutes == null ? null : Number(row.timeSpentMinutes),
+      passed: row.passed,
+      submittedAt: row.submittedAt,
+      reentryPolicy: row.reentryPolicy
+    },
+    learner: {
+      id: row.studentId,
+      fullName: row.learnerName,
+      email: row.learnerEmail
+    },
+    assessment: {
+      id: row.assessmentId,
+      title: row.assessmentTitle,
+      description: row.assessmentDescription,
+      showResultsImmediately: row.showResultsImmediately,
+      allowReviewAfterSubmission: row.allowReviewAfterSubmission
+    },
+    review
+  };
+}
+
+export async function getStudentAssignmentDetail(db: any, assignmentId: string, context: any) {
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Insufficient permissions to view assignment details');
+  }
+
+  const row = await assessmentModel.getStudentAssignmentDetailById(db, assignmentId);
+  if (!row) {
+    throw new AssessmentNotFoundError(assignmentId);
+  }
+  if (row.organizationId !== context.organizationId) {
+    throw new UnauthorizedError('Access denied to this assignment');
+  }
+
+  const parseJson = (value: any, fallback: any) => {
+    if (value == null) return fallback;
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return fallback;
+      }
+    }
+    return value;
+  };
+
+  const focusEvents = parseJson(row.focusEvents, []);
+  const review = parseJson(row.reviewPayload, null);
+
+  return {
+    assignment: {
+      id: row.studentAssessmentId,
+      status: row.status,
+      attemptNumber: row.attemptNumber,
+      assignedAt: row.assignedAt,
+      dueDate: row.dueDate,
+      startedAt: row.startedAt,
+      submittedAt: row.submittedAt,
+      score: row.score == null ? null : Number(row.score),
+      pointsEarned: row.pointsEarned == null ? null : Number(row.pointsEarned),
+      totalPoints: row.totalPoints == null ? null : Number(row.totalPoints),
+      timeSpentMinutes: row.timeSpentMinutes == null ? null : Number(row.timeSpentMinutes),
+      passed: row.passed,
+      reentryPolicy: row.reentryPolicy,
+      sessionLockedAt: row.sessionLockedAt,
+      hasActiveSession: !!row.activeSessionKey,
+      draftUpdatedAt: row.draftUpdatedAt,
+      lastActivityAt: row.lastActivityAt,
+      focusEventCount: Array.isArray(focusEvents) ? focusEvents.length : 0,
+      reviewAvailable: ['submitted', 'graded'].includes(row.status)
+    },
+    learner: {
+      id: row.studentId,
+      fullName: row.learnerName,
+      email: row.learnerEmail
+    },
+    assessment: {
+      id: row.assessmentId,
+      title: row.assessmentTitle,
+      description: row.assessmentDescription,
+      timeLimitMinutes: row.timeLimitMinutes,
+      passingScore: row.passingScore == null ? null : Number(row.passingScore),
+      showResultsImmediately: row.showResultsImmediately,
+      allowReviewAfterSubmission: row.allowReviewAfterSubmission
+    },
+    focusEvents,
+    review
+  };
+}
+
 // ============================================================================
 // CLONE
 // ============================================================================

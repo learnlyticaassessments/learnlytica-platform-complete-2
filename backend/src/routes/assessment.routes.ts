@@ -12,7 +12,9 @@ import {
   createAssessmentSchema, 
   updateAssessmentSchema,
   assignStudentsSchema,
-  addQuestionsSchema
+  addQuestionsSchema,
+  assignmentFiltersSchema,
+  updateAssignmentSchema
 } from '../validators/assessment.validator';
 
 const router = Router();
@@ -22,6 +24,13 @@ router.use(authenticate);
 
 // List assessments
 router.get('/', assessmentController.listAssessments);
+
+// List student assignments (org scoped)
+router.get(
+  '/assignments',
+  validateRequest(assignmentFiltersSchema, 'query'),
+  assessmentController.listStudentAssignments
+);
 
 // Get single assessment
 router.get('/:id', assessmentController.getAssessment);
@@ -59,6 +68,17 @@ router.post(
   validateRequest(assignStudentsSchema, 'body'),
   assessmentController.assignToStudents
 );
+
+router.patch(
+  '/assignments/:assignmentId',
+  validateRequest(updateAssignmentSchema, 'body'),
+  assessmentController.updateStudentAssignment
+);
+
+router.get('/assignments/:assignmentId/review', assessmentController.getStudentAssignmentReview);
+router.get('/assignments/:assignmentId', assessmentController.getStudentAssignmentDetail);
+
+router.delete('/assignments/:assignmentId', assessmentController.revokeStudentAssignment);
 
 // Get assessment statistics
 router.get('/:id/stats', assessmentController.getStatistics);

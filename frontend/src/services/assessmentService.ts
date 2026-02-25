@@ -85,6 +85,34 @@ export const assessmentService = {
     return response.data;
   },
 
+  // List student assignments (org scoped)
+  listAssignments: async (params?: any) => {
+    const response = await client.get('/assessments/assignments', { params });
+    return response.data;
+  },
+
+  // Update a student assignment
+  updateAssignment: async (assignmentId: string, data: any) => {
+    const response = await client.patch(`/assessments/assignments/${assignmentId}`, data);
+    return response.data;
+  },
+
+  // Revoke a student assignment
+  revokeAssignment: async (assignmentId: string) => {
+    const response = await client.delete(`/assessments/assignments/${assignmentId}`);
+    return response.data;
+  },
+
+  getAssignmentReview: async (assignmentId: string) => {
+    const response = await client.get(`/assessments/assignments/${assignmentId}/review`);
+    return response.data;
+  },
+
+  getAssignmentDetail: async (assignmentId: string) => {
+    const response = await client.get(`/assessments/assignments/${assignmentId}`);
+    return response.data;
+  },
+
   // Get statistics
   getStats: async (id: string) => {
     const response = await client.get(`/assessments/${id}/stats`);

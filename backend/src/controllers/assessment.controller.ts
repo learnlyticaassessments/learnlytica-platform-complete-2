@@ -146,6 +146,89 @@ export async function assignToStudents(req: Request, res: Response, next: NextFu
   }
 }
 
+export async function listStudentAssignments(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const context = getContext(req);
+
+    const filters = {
+      assessmentId: req.query.assessmentId as string | undefined,
+      studentId: req.query.studentId as string | undefined,
+      status: req.query.status as string | undefined,
+      search: req.query.search as string | undefined,
+      page: req.query.page ? parseInt(req.query.page as string) : 1,
+      limit: req.query.limit ? parseInt(req.query.limit as string) : 20
+    };
+
+    const result = await assessmentService.listStudentAssignments(db, filters, context);
+
+    res.json({
+      success: true,
+      data: result.assignments,
+      pagination: {
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        hasMore: result.page * result.limit < result.total
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateStudentAssignment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const context = getContext(req);
+
+    const updated = await assessmentService.updateStudentAssignment(db, req.params.assignmentId, req.body, context);
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function revokeStudentAssignment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const context = getContext(req);
+
+    await assessmentService.revokeStudentAssignment(db, req.params.assignmentId, context);
+
+    res.json({ success: true, message: 'Assignment revoked successfully' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getStudentAssignmentReview(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const context = getContext(req);
+
+    const result = await assessmentService.getStudentAssignmentReview(db, req.params.assignmentId, context);
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getStudentAssignmentDetail(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const context = getContext(req);
+
+    const result = await assessmentService.getStudentAssignmentDetail(db, req.params.assignmentId, context);
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getStatistics(req: Request, res: Response, next: NextFunction) {
   try {
     const db = (req as any).db;
