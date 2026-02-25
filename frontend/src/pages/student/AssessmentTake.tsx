@@ -81,44 +81,6 @@ export function AssessmentTake() {
     return () => window.clearInterval(interval);
   }, [id]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const tag = target?.tagName?.toLowerCase();
-      const isTypingContext =
-        tag === 'input' ||
-        tag === 'textarea' ||
-        target?.getAttribute('role') === 'textbox' ||
-        !!target?.closest('.monaco-editor');
-
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        event.preventDefault();
-        if (!runningTests && !submitting) void runTests();
-        return;
-      }
-
-      if (event.altKey && event.key === 'ArrowRight') {
-        event.preventDefault();
-        goToQuestion(currentQuestionIndex + 1);
-        return;
-      }
-
-      if (event.altKey && event.key === 'ArrowLeft') {
-        event.preventDefault();
-        goToQuestion(currentQuestionIndex - 1);
-        return;
-      }
-
-      if (event.key.toLowerCase() === 'f' && !event.ctrlKey && !event.metaKey && !isTypingContext) {
-        event.preventDefault();
-        toggleFlag();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentQuestionIndex, runningTests, submitting, questionId]);
-
   const loadAssessment = async () => {
     if (!id) return;
     setLoading(true);
@@ -245,6 +207,44 @@ export function AssessmentTake() {
   const flaggedQuestions = questionSummaries.filter((q) => q.flagged);
   const untestedQuestions = questionSummaries.filter((q) => !q.tested);
   const incompleteQuestions = questionSummaries.filter((q) => !q.completed);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isTypingContext =
+        tag === 'input' ||
+        tag === 'textarea' ||
+        target?.getAttribute('role') === 'textbox' ||
+        !!target?.closest('.monaco-editor');
+
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        if (!runningTests && !submitting) void runTests();
+        return;
+      }
+
+      if (event.altKey && event.key === 'ArrowRight') {
+        event.preventDefault();
+        goToQuestion(currentQuestionIndex + 1);
+        return;
+      }
+
+      if (event.altKey && event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goToQuestion(currentQuestionIndex - 1);
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'f' && !event.ctrlKey && !event.metaKey && !isTypingContext) {
+        event.preventDefault();
+        toggleFlag();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [currentQuestionIndex, runningTests, submitting, questionId]);
 
   useEffect(() => {
     if (!id || loading || !assessment) return;
