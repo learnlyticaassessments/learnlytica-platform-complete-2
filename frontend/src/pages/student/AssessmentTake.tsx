@@ -44,7 +44,8 @@ export function AssessmentTake() {
   const runTests = async () => {
     setRunning(true);
     try {
-      const response = await studentService.runTests(id!, code, 'jest');
+      if (!question?.id) throw new Error('Question not found');
+      const response = await studentService.runTests(id!, question.id, code);
       setTestResults(response.data);
     } catch (error) {
       console.error(error);

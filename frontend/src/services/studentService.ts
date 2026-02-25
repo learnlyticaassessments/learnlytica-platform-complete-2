@@ -34,8 +34,8 @@ export const studentService = {
     return response.data;
   },
 
-  runTests: async (id: string, code: string, testFramework: string) => {
-    const response = await client.post(`/assessments/${id}/run-tests`, { code, testFramework });
+  runTests: async (id: string, questionId: string, code: string) => {
+    const response = await client.post(`/assessments/${id}/run-tests`, { questionId, code });
     return response.data;
   }
 };

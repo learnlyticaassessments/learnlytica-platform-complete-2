@@ -3,6 +3,7 @@
  */
 
 import { Router } from 'express';
+import { authenticate } from '../middleware/auth.middleware';
 import {
   generateQuestionHandler,
   generateAndCreateHandler,
@@ -17,7 +18,7 @@ const router = Router();
 router.post('/generate-question', generateQuestionHandler);
 
 // POST /api/v1/ai/generate-and-create
-router.post('/generate-and-create', generateAndCreateHandler);
+router.post('/generate-and-create', authenticate, generateAndCreateHandler);
 
 // POST /api/v1/ai/generate-tests
 router.post('/generate-tests', generateTestsHandler);

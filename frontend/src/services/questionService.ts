@@ -41,9 +41,8 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Redirect to login
+      // Clear stale token, but don't hard-redirect to a route that may not exist.
       localStorage.removeItem('auth_token');
-      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
