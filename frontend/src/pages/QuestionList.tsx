@@ -8,21 +8,20 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuestions, useDeleteQuestion, useUpdateQuestionStatus } from '../hooks/useQuestions';
 import type { QuestionFilters } from '../../../backend/shared/types/question.types';
+import { useAuth } from '../auth/AuthContext';
+import { can, getRoleLabel } from '../auth/permissions';
 import { 
   Search, 
   Plus, 
-  Filter, 
-  MoreVertical,
   Eye,
   Edit,
-  Copy,
   Trash,
   CheckCircle,
-  XCircle
 } from 'lucide-react';
 
 export function QuestionList() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [filters, setFilters] = useState<QuestionFilters>({
     page: 1,
     limit: 20,
@@ -33,6 +32,10 @@ export function QuestionList() {
   const { data, isLoading, isError, error } = useQuestions(filters);
   const deleteMutation = useDeleteQuestion();
   const updateStatusMutation = useUpdateQuestionStatus();
+  const canCreate = can(user?.role, 'questions.create');
+  const canEdit = can(user?.role, 'questions.edit');
+  const canPublish = can(user?.role, 'questions.publish');
+  const canDelete = can(user?.role, 'questions.delete');
 
   const handleSearch = (search: string) => {
     setFilters(prev => ({ ...prev, search, page: 1 }));
@@ -88,16 +91,20 @@ export function QuestionList() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Questions</h1>
           <p className="text-gray-600 mt-1">
-            Manage your question repository
+            {canCreate
+              ? 'Manage your organization question repository'
+              : `Question repository (${getRoleLabel(user?.role)})`}
           </p>
         </div>
-        <button
-          onClick={() => navigate('/questions/create')}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-        >
-          <Plus className="w-5 h-5" />
-          Create Question
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => navigate('/questions/create')}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          >
+            <Plus className="w-5 h-5" />
+            Create Question
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -258,29 +265,33 @@ export function QuestionList() {
                     >
                       <Eye className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => navigate(`/questions/${question.id}/edit`)}
-                      className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition"
-                      title="Edit"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    {question.status === 'draft' && (
+                    {canEdit && (
+                      <button
+                        onClick={() => navigate(`/questions/${question.id}/edit`)}
+                        className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                        title="Edit"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                    )}
+                    {canPublish && question.status === 'draft' && (
                       <button
                         onClick={() => handlePublish(question.id)}
                         className="p-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition"
-                        title="Publish"
+                        title="Publish (Platform Admin only)"
                       >
                         <CheckCircle className="w-4 h-4" />
                       </button>
                     )}
-                    <button
-                      onClick={() => handleDelete(question.id)}
-                      className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition"
-                      title="Delete"
-                    >
-                      <Trash className="w-4 h-4" />
-                    </button>
+                    {canDelete && (
+                      <button
+                        onClick={() => handleDelete(question.id)}
+                        className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition"
+                        title="Delete (Platform Admin only)"
+                      >
+                        <Trash className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -291,12 +302,14 @@ export function QuestionList() {
         {data && data.questions.length === 0 && (
           <div className="text-center py-12">
             <p className="text-gray-500">No questions found</p>
-            <button
-              onClick={() => navigate('/questions/create')}
-              className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
-            >
-              Create your first question
-            </button>
+            {canCreate && (
+              <button
+                onClick={() => navigate('/questions/create')}
+                className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Create your first question
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAssessments, useDeleteAssessment } from '../../hooks/useAssessments';
-import { Plus, Search, Eye, Edit, Trash, Copy } from 'lucide-react';
+import { Plus, Search, Eye, Edit, Trash } from 'lucide-react';
+import { useAuth } from '../../auth/AuthContext';
+import { can, getRoleLabel } from '../../auth/permissions';
 
 export function AssessmentList() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [filters, setFilters] = useState({
     search: '',
     status: '',
@@ -14,6 +17,9 @@ export function AssessmentList() {
 
   const { data, isLoading } = useAssessments(filters);
   const deleteMutation = useDeleteAssessment();
+  const canCreate = can(user?.role, 'assessments.create');
+  const canEdit = can(user?.role, 'assessments.edit');
+  const canDelete = can(user?.role, 'assessments.delete');
 
   const handleDelete = async (id: string, title: string) => {
     if (confirm(`Delete assessment "${title}"?`)) {
@@ -38,12 +44,18 @@ export function AssessmentList() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Assessments</h1>
-          <p className="text-gray-600 mt-1">Create and manage assessments</p>
+          <p className="text-gray-600 mt-1">
+            {canCreate
+              ? 'Create and manage assessments for your organization'
+              : `Assessment access (${getRoleLabel(user?.role)})`}
+          </p>
         </div>
-        <Link to="/assessments/create" className="btn-primary flex items-center gap-2">
-          <Plus className="w-5 h-5" />
-          Create Assessment
-        </Link>
+        {canCreate && (
+          <Link to="/assessments/create" className="btn-primary flex items-center gap-2">
+            <Plus className="w-5 h-5" />
+            Create Assessment
+          </Link>
+        )}
       </div>
 
       <div className="card">
@@ -112,20 +124,24 @@ export function AssessmentList() {
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => navigate(`/assessments/${assessment.id}/edit`)}
-                        className="p-2 text-gray-600 hover:bg-gray-50 rounded"
-                        title="Edit"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(assessment.id, assessment.title)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded"
-                        title="Delete"
-                      >
-                        <Trash className="w-4 h-4" />
-                      </button>
+                      {canEdit && (
+                        <button
+                          onClick={() => navigate(`/assessments/${assessment.id}/edit`)}
+                          className="p-2 text-gray-600 hover:bg-gray-50 rounded"
+                          title="Edit"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => handleDelete(assessment.id, assessment.title)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded"
+                          title={user?.role === 'admin' ? 'Delete' : 'Delete (Organization scope)'}
+                        >
+                          <Trash className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -137,9 +153,11 @@ export function AssessmentList() {
         {assessments.length === 0 && (
           <div className="text-center py-12">
             <p className="text-gray-500 text-lg">No assessments found</p>
-            <Link to="/assessments/create" className="text-blue-600 hover:underline mt-2 inline-block">
-              Create your first assessment
-            </Link>
+            {canCreate && (
+              <Link to="/assessments/create" className="text-blue-600 hover:underline mt-2 inline-block">
+                Create your first assessment
+              </Link>
+            )}
           </div>
         )}
       </div>

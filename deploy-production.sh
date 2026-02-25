@@ -91,6 +91,7 @@ psql -d $DB_NAME -f backend/migrations/001_create_questions.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/002_create_lab_templates.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/003_create_assessments.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/004_create_auth.sql || exit 1
+psql -d $DB_NAME -f backend/migrations/005_student_attempt_artifacts.sql || exit 1
 
 echo "✅ Database ready"
 echo ""

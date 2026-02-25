@@ -6,6 +6,9 @@ import App from './App';
 import { AuthProvider } from './auth/AuthContext';
 import './index.css';
 
+// Default to the more neutral/mature light token set. Dark mode tokens remain available.
+document.documentElement.setAttribute('data-theme', 'light');
+
 // Create React Query client
 const queryClient = new QueryClient({
   defaultOptions: {

@@ -24,6 +24,25 @@ client.interceptors.response.use(
   }
 );
 
+function attemptSessionStorageKey(assessmentId: string) {
+  return `learnlytica:attempt-session:${assessmentId}`;
+}
+
+function getOrCreateAttemptSessionKey(assessmentId: string) {
+  const key = attemptSessionStorageKey(assessmentId);
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const created = crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem(key, created);
+  return created;
+}
+
+function headersForAttempt(assessmentId: string) {
+  return {
+    'X-Attempt-Session-Key': getOrCreateAttemptSessionKey(assessmentId)
+  };
+}
+
 export const studentService = {
   getMyAssessments: async () => {
     const response = await client.get('/assessments');
@@ -31,22 +50,54 @@ export const studentService = {
   },
 
   getAssessment: async (id: string) => {
-    const response = await client.get(`/assessments/${id}`);
+    const response = await client.get(`/assessments/${id}`, {
+      headers: headersForAttempt(id)
+    });
     return response.data;
   },
 
   startAssessment: async (id: string) => {
-    const response = await client.post(`/assessments/${id}/start`);
+    const response = await client.post(`/assessments/${id}/start`, undefined, {
+      headers: headersForAttempt(id)
+    });
+    return response.data;
+  },
+
+  saveDraft: async (id: string, draftState: any, focusEvents: any[] = []) => {
+    const response = await client.put(
+      `/assessments/${id}/draft`,
+      { draftState, focusEvents },
+      { headers: headersForAttempt(id) }
+    );
     return response.data;
   },
 
   submitAssessment: async (id: string, code: any, timeSpentMinutes: number) => {
-    const response = await client.post(`/assessments/${id}/submit`, { code, timeSpentMinutes });
+    const response = await client.post(
+      `/assessments/${id}/submit`,
+      { code, timeSpentMinutes },
+      { headers: headersForAttempt(id) }
+    );
     return response.data;
   },
 
   runTests: async (id: string, questionId: string, code: string) => {
-    const response = await client.post(`/assessments/${id}/run-tests`, { questionId, code });
+    const response = await client.post(
+      `/assessments/${id}/run-tests`,
+      { questionId, code },
+      { headers: headersForAttempt(id) }
+    );
     return response.data;
+  },
+
+  getReview: async (id: string) => {
+    const response = await client.get(`/assessments/${id}/review`, {
+      headers: headersForAttempt(id)
+    });
+    return response.data;
+  },
+
+  clearAttemptSession: (id: string) => {
+    localStorage.removeItem(attemptSessionStorageKey(id));
   }
 };

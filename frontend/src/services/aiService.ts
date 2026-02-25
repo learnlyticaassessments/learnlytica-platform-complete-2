@@ -33,6 +33,18 @@ export interface GenerateQuestionRequest {
   timeLimit?: number;
 }
 
+export const AI_QUESTION_TYPE_OPTIONS: Array<{
+  value: GenerateQuestionRequest['questionType'];
+  label: string;
+  description: string;
+}> = [
+  { value: 'algorithm', label: 'Algorithms & Data Structures', description: 'Logic, arrays, strings, trees, graphs, complexity.' },
+  { value: 'api', label: 'Backend API', description: 'Endpoints, validation, business logic, error handling.' },
+  { value: 'component', label: 'Frontend UI Component', description: 'Reusable UI behavior, state, rendering, interactions.' },
+  { value: 'database', label: 'Database & SQL', description: 'Schema design, queries, constraints, indexing.' },
+  { value: 'fullstack', label: 'Full-Stack Workflow', description: 'Frontend + backend integration and data flow.' }
+];
+
 export const aiService = {
   // Generate question (preview only)
   generateQuestion: async (request: GenerateQuestionRequest) => {

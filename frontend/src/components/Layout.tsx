@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FileText, ClipboardList, User, BarChart3, Book, Sparkles, Settings, LogOut, Zap } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
+import { can, getRoleLabel } from '../auth/permissions';
 
 interface LayoutProps {
   children: ReactNode;
@@ -11,22 +12,26 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const roleLabel = getRoleLabel(user?.role);
 
-  const navigation = [
-    { name: 'Questions', href: '/questions', icon: FileText },
-    { name: 'AI Generator', href: '/ai/generate', icon: Sparkles, highlight: true },
-    { name: 'Assessments', href: '/assessments', icon: ClipboardList },
-    { name: 'My Assessments', href: '/student/assessments', icon: User },
-    { name: 'Library', href: '/library', icon: Book },
-    { name: 'Analytics', href: '/analytics', icon: BarChart3 }
+  const navigation: Array<{
+    name: string;
+    href: string;
+    icon: any;
+    highlight?: boolean;
+    canView: boolean;
+  }> = [
+    { name: 'Questions', href: '/questions', icon: FileText, canView: can(user?.role, 'questions.view') },
+    { name: 'AI Generator', href: '/ai/generate', icon: Sparkles, highlight: true, canView: can(user?.role, 'ai.generate') },
+    { name: 'Assessments', href: '/assessments', icon: ClipboardList, canView: can(user?.role, 'assessments.view') },
+    { name: 'My Assessments', href: '/student/assessments', icon: User, canView: can(user?.role, 'student.assessments.view') },
+    { name: 'Library', href: '/library', icon: Book, canView: can(user?.role, 'library.view') },
+    { name: 'Analytics', href: '/analytics', icon: BarChart3, canView: can(user?.role, 'analytics.view') }
   ];
 
   const visibleNavigation = navigation.filter((item) => {
     if (!user) return false;
-    if (user.role === 'student') {
-      return ['/student/assessments'].includes(item.href);
-    }
-    return true;
+    return item.canView;
   });
 
   return (
@@ -74,7 +79,7 @@ export function Layout({ children }: LayoutProps) {
             </div>
             <div className="flex items-center justify-between gap-3">
               <nav className="flex xl:hidden items-center gap-2 overflow-x-auto no-scrollbar">
-                {visibleNavigation.slice(0, 4).map((item) => {
+                {visibleNavigation.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname.startsWith(item.href);
                   return (
@@ -99,7 +104,7 @@ export function Layout({ children }: LayoutProps) {
               {user && (
                 <div className="hidden md:flex flex-col items-end mr-1">
                   <span className="text-xs font-semibold text-slate-800 leading-none">{user.fullName}</span>
-                  <span className="text-[10px] uppercase tracking-[0.16em] text-purple-600 font-semibold">{user.role}</span>
+                  <span className="text-[10px] uppercase tracking-[0.16em] text-purple-600 font-semibold">{roleLabel}</span>
                 </div>
               )}
               <button className="p-2 text-slate-600 hover:text-slate-900 rounded-xl hover:bg-white/90 transition">

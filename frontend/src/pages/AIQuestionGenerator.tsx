@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Loader2, Check, AlertCircle, Cpu, Star, TrendingUp, Wand2 } from 'lucide-react';
-import { aiService, GenerateQuestionRequest } from '../services/aiService';
+import { aiService, AI_QUESTION_TYPE_OPTIONS, GenerateQuestionRequest } from '../services/aiService';
 
 export function AIQuestionGenerator() {
   const navigate = useNavigate();
@@ -157,12 +157,18 @@ export function AIQuestionGenerator() {
                 onChange={(e) => setFormData({ ...formData, questionType: e.target.value as any })}
                 className="input-field"
               >
-                <option value="algorithm">Algorithm</option>
-                <option value="api">API Development</option>
-                <option value="component">UI Component</option>
-                <option value="database">Database</option>
-                <option value="fullstack">Full-Stack</option>
+                {AI_QUESTION_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
+              <p className="mt-2 text-xs" style={{ color: 'var(--text-dim)' }}>
+                {
+                  AI_QUESTION_TYPE_OPTIONS.find((option) => option.value === formData.questionType)
+                    ?.description
+                }
+              </p>
             </div>
 
             <div>

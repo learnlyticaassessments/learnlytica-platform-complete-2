@@ -1,6 +1,9 @@
+import { ReactElement } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './auth/ProtectedRoute';
+import { useAuth } from './auth/AuthContext';
+import { can } from './auth/permissions';
 import { Login } from './pages/Login';
 
 // Module 1: Questions
@@ -17,6 +20,7 @@ import { AssessmentDetail } from './pages/assessments/AssessmentDetail';
 // Module 3: Student Interface
 import { StudentDashboard } from './pages/student/StudentDashboard';
 import { AssessmentTake } from './pages/student/AssessmentTake';
+import { AssessmentReview } from './pages/student/AssessmentReview';
 
 // Module 5: Analytics
 import { Dashboard as AnalyticsDashboard } from './pages/analytics/Dashboard';
@@ -26,6 +30,32 @@ import { QuestionLibrary } from './pages/QuestionLibrary';
 
 // AI Question Generator ⭐ NEW
 import { AIQuestionGenerator } from './pages/AIQuestionGenerator';
+
+function RoleRoute({
+  allowedRoles,
+  children
+}: {
+  allowedRoles: Array<'admin' | 'client' | 'student'>;
+  children: ReactElement;
+}) {
+  const { user } = useAuth();
+
+  if (!user) return <Navigate to="/login" replace />;
+
+  if (!allowedRoles.includes(user.role)) {
+    const fallback = user.role === 'student' ? '/student/assessments' : '/questions';
+    return <Navigate to={fallback} replace />;
+  }
+
+  return children;
+}
+
+function RoleHomeRedirect() {
+  const { user } = useAuth();
+  if (can(user?.role, 'questions.view')) return <Navigate to="/questions" replace />;
+  if (can(user?.role, 'student.assessments.view')) return <Navigate to="/student/assessments" replace />;
+  return <Navigate to="/login" replace />;
+}
 
 function App() {
   return (
@@ -38,33 +68,34 @@ function App() {
           element={
             <Layout>
               <Routes>
-                <Route path="/" element={<Navigate to="/questions" replace />} />
+                <Route path="/" element={<RoleHomeRedirect />} />
                 
                 {/* Module 1: Questions */}
-                <Route path="/questions" element={<QuestionList />} />
-                <Route path="/questions/create" element={<QuestionCreate />} />
-                <Route path="/questions/:id" element={<QuestionDetail />} />
-                <Route path="/questions/:id/edit" element={<QuestionEdit />} />
+                <Route path="/questions" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionList /></RoleRoute>} />
+                <Route path="/questions/create" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionCreate /></RoleRoute>} />
+                <Route path="/questions/:id" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionDetail /></RoleRoute>} />
+                <Route path="/questions/:id/edit" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionEdit /></RoleRoute>} />
                 
                 {/* Module 2: Assessments */}
-                <Route path="/assessments" element={<AssessmentList />} />
-                <Route path="/assessments/create" element={<AssessmentCreate />} />
-                <Route path="/assessments/:id" element={<AssessmentDetail />} />
+                <Route path="/assessments" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentList /></RoleRoute>} />
+                <Route path="/assessments/create" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentCreate /></RoleRoute>} />
+                <Route path="/assessments/:id" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentDetail /></RoleRoute>} />
                 
                 {/* Module 3: Student Interface */}
-                <Route path="/student/assessments" element={<StudentDashboard />} />
-                <Route path="/student/take/:id" element={<AssessmentTake />} />
+                <Route path="/student/assessments" element={<RoleRoute allowedRoles={['student']}><StudentDashboard /></RoleRoute>} />
+                <Route path="/student/take/:id" element={<RoleRoute allowedRoles={['student']}><AssessmentTake /></RoleRoute>} />
+                <Route path="/student/review/:id" element={<RoleRoute allowedRoles={['student']}><AssessmentReview /></RoleRoute>} />
                 
                 {/* Module 5: Analytics */}
-                <Route path="/analytics" element={<AnalyticsDashboard />} />
+                <Route path="/analytics" element={<RoleRoute allowedRoles={['admin', 'client']}><AnalyticsDashboard /></RoleRoute>} />
                 
                 {/* Question Library */}
-                <Route path="/library" element={<QuestionLibrary />} />
+                <Route path="/library" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionLibrary /></RoleRoute>} />
                 
                 {/* AI Question Generator ⭐ NEW */}
-                <Route path="/ai/generate" element={<AIQuestionGenerator />} />
+                <Route path="/ai/generate" element={<RoleRoute allowedRoles={['admin', 'client']}><AIQuestionGenerator /></RoleRoute>} />
                 
-                <Route path="*" element={<Navigate to="/questions" replace />} />
+                <Route path="*" element={<RoleHomeRedirect />} />
               </Routes>
             </Layout>
           }
