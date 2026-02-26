@@ -41,6 +41,10 @@ export const projectEvaluationsService = {
     const res = await client.post('/assessments', payload);
     return res.data as { success: boolean; data: any };
   },
+  deleteAssessment: async (id: string) => {
+    const res = await client.delete(`/assessments/${id}`);
+    return res.data as { success: boolean; data: any };
+  },
   getAssessment: async (id: string) => {
     const res = await client.get(`/assessments/${id}`);
     return res.data as { success: boolean; data: any };

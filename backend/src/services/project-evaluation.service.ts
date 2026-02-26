@@ -468,6 +468,46 @@ export async function getAssessmentDetail(db: Kysely<any>, ctx: Ctx, assessmentI
   return { ...assessment, submissions };
 }
 
+export async function deleteAssessment(db: Kysely<any>, ctx: Ctx, assessmentId: string) {
+  const assessment = await db
+    .selectFrom('project_assessments')
+    .select(['id', 'organization_id as organizationId'])
+    .where('id', '=', assessmentId)
+    .executeTakeFirst();
+
+  if (!assessment || (assessment as any).organizationId !== ctx.organizationId) {
+    throw new Error('Project assessment not found');
+  }
+
+  // Collect submission ids first so we can clean stored ZIP artifacts after DB delete cascades.
+  const submissions = await db
+    .selectFrom('project_submissions')
+    .select(['id'])
+    .where('project_assessment_id', '=', assessmentId)
+    .execute();
+
+  const deleted = await db
+    .deleteFrom('project_assessments')
+    .where('id', '=', assessmentId)
+    .where('organization_id', '=', ctx.organizationId)
+    .returning(['id', 'title'])
+    .executeTakeFirst();
+
+  if (!deleted) throw new Error('Project assessment not found');
+
+  // Best-effort storage cleanup for uploaded ZIPs / extracted artifacts tied to submissions.
+  await Promise.all(
+    submissions.map((s: any) =>
+      fs.rm(path.join(projectEvalStorageRoot(), s.id), { recursive: true, force: true }).catch(() => {})
+    )
+  );
+
+  return {
+    ...deleted,
+    deletedSubmissionCount: submissions.length
+  };
+}
+
 function inferFrontendFramework(input: any) {
   const hint = String(input?.frameworkHint || input?.detectedFramework || '').toLowerCase();
   if (hint.includes('angular')) return 'angular';

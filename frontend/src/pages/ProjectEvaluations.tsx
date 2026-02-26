@@ -210,6 +210,30 @@ export function ProjectEvaluations() {
     }
   }
 
+  async function deleteSelectedAssessment() {
+    if (!selectedAssessmentId || !selectedAssessment) return;
+    const ok = window.confirm(
+      `Delete project assessment "${selectedAssessment.title}"?\n\nThis will also delete its reference submissions and evaluation runs.`
+    );
+    if (!ok) return;
+
+    setWorking(`delete-assessment:${selectedAssessmentId}`);
+    setError('');
+    setMsg('');
+    try {
+      const res = await projectEvaluationsService.deleteAssessment(selectedAssessmentId);
+      const deletedCount = res.data?.deletedSubmissionCount ?? 0;
+      setMsg(`Deleted project assessment (${deletedCount} reference submission${deletedCount === 1 ? '' : 's'} removed)`);
+      setSelectedAssessmentId('');
+      setAssessmentDetail(null);
+      await loadAll(false);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to delete project assessment');
+    } finally {
+      setWorking(null);
+    }
+  }
+
   async function submitProject() {
     if (!selectedAssessmentId || !newSubmission.studentId) return;
     setWorking('submission');
@@ -394,7 +418,7 @@ export function ProjectEvaluations() {
           </div>
 
           {selectedAssessment && (
-            <div className="card space-y-4">
+          <div className="card space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">{selectedAssessment.title}</h2>
@@ -402,9 +426,19 @@ export function ProjectEvaluations() {
                     {summarizeText(selectedAssessment.description) || 'No description'}
                   </p>
                 </div>
-                <div className="flex gap-2 text-xs">
+                <div className="flex gap-2 text-xs items-center flex-wrap justify-end">
                   <span className="px-2 py-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)]">{selectedAssessment.frameworkScope}</span>
                   <span className="px-2 py-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)]">{selectedAssessment.submissionMode}</span>
+                  <button
+                    type="button"
+                    className="btn-secondary !py-1.5 !px-2.5 text-[11px]"
+                    style={{ borderColor: 'var(--red-dim)', color: 'var(--red)' }}
+                    onClick={deleteSelectedAssessment}
+                    disabled={working === `delete-assessment:${selectedAssessmentId}`}
+                    title="Delete this project assessment and all its reference submissions/runs"
+                  >
+                    {working === `delete-assessment:${selectedAssessmentId}` ? 'Deleting...' : 'Delete Assessment'}
+                  </button>
                 </div>
               </div>
 

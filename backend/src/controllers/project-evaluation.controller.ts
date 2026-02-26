@@ -73,6 +73,15 @@ export async function getAssessmentDetail(req: Request, res: Response, next: Nex
   }
 }
 
+export async function deleteAssessment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await projectEvaluationService.deleteAssessment(asDb(req), getCtx(req), req.params.id);
+    res.json({ success: true, data });
+  } catch (error: any) {
+    handleError(res, error);
+  }
+}
+
 export async function createSubmission(req: Request, res: Response, next: NextFunction) {
   try {
     const data = await projectEvaluationService.createSubmission(asDb(req), getCtx(req), req.params.id, req.body);
