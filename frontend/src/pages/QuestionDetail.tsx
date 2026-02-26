@@ -5,6 +5,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import JSZip from 'jszip';
 import type { Question } from '../../../backend/shared/types/question.types';
+import { useAuth } from '../auth/AuthContext';
+import { can, getRoleLabel } from '../auth/permissions';
 
 const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
 
@@ -36,11 +38,13 @@ export function QuestionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
   const { data: question, isLoading, isError } = useQuestion(id!);
   const deleteMutation = useDeleteQuestion();
   const updateStatusMutation = useUpdateQuestionStatus();
   const createdFlow = searchParams.get('created') === '1';
   const draftVerified = searchParams.get('draftVerified') === '1';
+  const canPublishQuestion = can(user?.role, 'questions.publish');
 
   const handleDelete = async () => {
     if (confirm('Are you sure you want to delete this question?')) {
@@ -197,6 +201,12 @@ export function QuestionDetail() {
                   </div>
                 ))}
               </div>
+              {!canPublishQuestion && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-white/70 p-3 text-sm text-amber-900">
+                  Publishing requires <span className="font-semibold">Platform Admin</span> role. You are signed in as{' '}
+                  <span className="font-semibold">{getRoleLabel(user?.role)}</span>.
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -207,7 +217,7 @@ export function QuestionDetail() {
               </button>
               <button
                 onClick={handlePublish}
-                disabled={!checklistComplete || updateStatusMutation.isPending}
+                disabled={!canPublishQuestion || !checklistComplete || updateStatusMutation.isPending}
                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <CheckCircle className="w-4 h-4" />
@@ -268,10 +278,12 @@ export function QuestionDetail() {
           {question.status === 'draft' && (
             <button
               onClick={handlePublish}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+              disabled={!canPublishQuestion || updateStatusMutation.isPending}
+              title={!canPublishQuestion ? 'Publishing requires Platform Admin role' : undefined}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle className="w-4 h-4" />
-              Publish
+              {updateStatusMutation.isPending ? 'Publishing...' : 'Publish'}
             </button>
           )}
           <button
