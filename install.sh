@@ -29,6 +29,7 @@ echo "   psql -d learnlytica -f backend/migrations/006_assignment_audit_notes.sq
 echo "   psql -d learnlytica -f backend/migrations/007_certificates.sql"
 echo "   psql -d learnlytica -f backend/migrations/008_create_batches.sql"
 echo "   psql -d learnlytica -f backend/migrations/009_create_project_evaluations.sql"
+echo "   psql -d learnlytica -f backend/migrations/010_seed_phase1_project_flow_templates.sql"
 echo "3. Configure .env files in backend/ and frontend/"
 echo "4. Start platform: ./start-production.sh"
 echo "5. Access frontend at http://localhost:4666 (backend http://localhost:3666)"

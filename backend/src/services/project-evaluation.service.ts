@@ -52,42 +52,98 @@ function flattenPlaywrightTests(payload: any) {
   return results;
 }
 
-function buildPhase1TicketPortalPlaywrightSpec() {
+function regexI(text: string) {
+  return `new RegExp(${JSON.stringify(String(text))}, 'i')`;
+}
+
+function stepToPlaywrightCode(step: any) {
+  const type = String(step?.type || '').trim();
+  switch (type) {
+    case 'goto':
+      return `await page.goto(${JSON.stringify(step?.url || 'http://127.0.0.1:4173')});`;
+    case 'expect_heading':
+      return `await expect(page.getByRole('heading', { name: ${regexI(step?.text || '')} })).toBeVisible();`;
+    case 'expect_button':
+      return `await expect(page.getByRole('button', { name: ${regexI(step?.text || '')} })).toBeVisible();`;
+    case 'fill_label':
+      return `await page.getByLabel(${regexI(step?.label || '')}).fill(${JSON.stringify(step?.value || '')});`;
+    case 'select_label':
+      return `await page.getByLabel(${regexI(step?.label || '')}).selectOption(${JSON.stringify(step?.value || '')});`;
+    case 'click_button':
+      return `await page.getByRole('button', { name: ${regexI(step?.text || '')} }).click();`;
+    case 'expect_text':
+      return `await expect(page.getByText(${regexI(step?.text || '')})).toBeVisible();`;
+    case 'expect_table_contains':
+      return `await expect(page.getByRole('table')).toContainText(${JSON.stringify(step?.text || '')});`;
+    case 'expect_role_contains': {
+      const role = String(step?.role || 'table');
+      return `await expect(page.getByRole(${JSON.stringify(role)})).toContainText(${JSON.stringify(step?.text || '')});`;
+    }
+    default:
+      return `// Unsupported step: ${JSON.stringify(step)}`;
+  }
+}
+
+function defaultPhase1TicketPortalFlow() {
+  return {
+    baseUrl: 'http://127.0.0.1:4173',
+    tests: [
+      {
+        title: 'Loads ticket intake portal page',
+        steps: [
+          { type: 'goto', url: 'http://127.0.0.1:4173' },
+          { type: 'expect_heading', text: 'Support Ticket Intake Portal' },
+          { type: 'expect_button', text: 'Create Ticket' }
+        ]
+      },
+      {
+        title: 'Creates ticket with valid data and shows success feedback',
+        steps: [
+          { type: 'goto', url: 'http://127.0.0.1:4173' },
+          { type: 'fill_label', label: 'Customer Name', value: 'Riya Sharma' },
+          { type: 'fill_label', label: 'Customer Email', value: 'riya@example.com' },
+          { type: 'select_label', label: 'Issue Category', value: 'technical' },
+          { type: 'select_label', label: 'Priority', value: 'high' },
+          { type: 'fill_label', label: 'Issue Description', value: 'Customer cannot access billing dashboard after login.' },
+          { type: 'click_button', text: 'Create Ticket' },
+          { type: 'expect_text', text: 'Ticket created successfully' }
+        ]
+      },
+      {
+        title: 'Appends created ticket to Recent Tickets table with expected fields',
+        steps: [
+          { type: 'goto', url: 'http://127.0.0.1:4173' },
+          { type: 'fill_label', label: 'Customer Name', value: 'Riya Sharma' },
+          { type: 'fill_label', label: 'Customer Email', value: 'riya@example.com' },
+          { type: 'select_label', label: 'Issue Category', value: 'technical' },
+          { type: 'select_label', label: 'Priority', value: 'high' },
+          { type: 'fill_label', label: 'Issue Description', value: 'Customer cannot access billing dashboard after login.' },
+          { type: 'click_button', text: 'Create Ticket' },
+          { type: 'expect_table_contains', text: 'TKT-0001' },
+          { type: 'expect_table_contains', text: 'Riya Sharma' },
+          { type: 'expect_table_contains', text: 'technical' },
+          { type: 'expect_table_contains', text: 'high' },
+          { type: 'expect_table_contains', text: 'Open' }
+        ]
+      }
+    ]
+  };
+}
+
+function buildPhase1PlaywrightSpecFromTemplate(templateConfig: any) {
+  const flow = templateConfig?.phase1Flow || defaultPhase1TicketPortalFlow();
+  const tests = Array.isArray(flow?.tests) && flow.tests.length ? flow.tests : defaultPhase1TicketPortalFlow().tests;
+  const testBlocks = tests.map((t: any) => {
+    const title = String(t?.title || 'Phase 1 validation');
+    const steps = Array.isArray(t?.steps) ? t.steps : [];
+    const code = steps.map((s: any) => `  ${stepToPlaywrightCode(s)}`).join('\n');
+    return `test(${JSON.stringify(title)}, async ({ page }) => {\n${code}\n});`;
+  });
+
   return `
 import { test, expect } from 'playwright/test';
 
-test('Loads ticket intake portal page', async ({ page }) => {
-  await page.goto('http://127.0.0.1:4173');
-  await expect(page.getByRole('heading', { name: /support ticket intake portal/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /create ticket/i })).toBeVisible();
-});
-
-test('Creates ticket with valid data and shows success feedback', async ({ page }) => {
-  await page.goto('http://127.0.0.1:4173');
-  await page.getByLabel(/customer name/i).fill('Riya Sharma');
-  await page.getByLabel(/customer email/i).fill('riya@example.com');
-  await page.getByLabel(/issue category/i).selectOption('technical');
-  await page.getByLabel(/priority/i).selectOption('high');
-  await page.getByLabel(/issue description/i).fill('Customer cannot access billing dashboard after login.');
-  await page.getByRole('button', { name: /create ticket/i }).click();
-  await expect(page.getByText(/ticket created successfully/i)).toBeVisible();
-});
-
-test('Appends created ticket to Recent Tickets table with expected fields', async ({ page }) => {
-  await page.goto('http://127.0.0.1:4173');
-  await page.getByLabel(/customer name/i).fill('Riya Sharma');
-  await page.getByLabel(/customer email/i).fill('riya@example.com');
-  await page.getByLabel(/issue category/i).selectOption('technical');
-  await page.getByLabel(/priority/i).selectOption('high');
-  await page.getByLabel(/issue description/i).fill('Customer cannot access billing dashboard after login.');
-  await page.getByRole('button', { name: /create ticket/i }).click();
-  const table = page.getByRole('table');
-  await expect(table).toContainText('TKT-0001');
-  await expect(table).toContainText('Riya Sharma');
-  await expect(table).toContainText('technical');
-  await expect(table).toContainText('high');
-  await expect(table).toContainText('Open');
-});
+${testBlocks.join('\n\n')}
 `;
 }
 
@@ -107,7 +163,7 @@ module.exports = {
 `;
 }
 
-async function runPhase1ReactViteBrowserEvaluation(zipPath: string) {
+async function runPhase1ReactViteBrowserEvaluation(zipPath: string, templateConfig?: any) {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'phase1-project-eval-'));
   const workspaceDir = path.join(tmpRoot, 'workspace');
   await fs.mkdir(workspaceDir, { recursive: true });
@@ -129,7 +185,7 @@ async function runPhase1ReactViteBrowserEvaluation(zipPath: string) {
       })
     );
 
-    await fs.writeFile(path.join(workspaceDir, 'evaluator.phase1.spec.js'), buildPhase1TicketPortalPlaywrightSpec());
+    await fs.writeFile(path.join(workspaceDir, 'evaluator.phase1.spec.js'), buildPhase1PlaywrightSpecFromTemplate(templateConfig));
     await fs.writeFile(path.join(workspaceDir, 'playwright.config.cjs'), buildPhase1PlaywrightConfig());
     await fs.chmod(workspaceDir, 0o777);
 
@@ -642,6 +698,12 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
 
   if (!submission) throw new Error('Project submission not found');
 
+  const evaluatorTemplate = await db
+    .selectFrom('project_evaluator_templates')
+    .select(['id', 'slug', 'config_json as config'])
+    .where('id', '=', (submission as any).evaluatorTemplateId)
+    .executeTakeFirst();
+
   const existingSubmission = await db
     .selectFrom('project_submissions')
     .select(['id', 'metadata_json as metadata', 'detected_framework as detectedFramework'])
@@ -665,7 +727,7 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
   let actualRunResult: any = null;
   if (eligibleForActualPhase1) {
     try {
-      actualRunResult = await runPhase1ReactViteBrowserEvaluation(zipLocalPath);
+      actualRunResult = await runPhase1ReactViteBrowserEvaluation(zipLocalPath, (evaluatorTemplate as any)?.config || {});
     } catch (error: any) {
       actualRunResult = {
         success: false,

@@ -254,7 +254,7 @@ export function ProjectEvaluations() {
           setMsg(`ZIP uploaded and detected as ${d.detectedFramework} (${d.confidence})`);
         }
       }
-      setMsg('Project submission recorded (Phase 1 scaffold)');
+      setMsg('Reference submission recorded');
       setNewSubmission((prev) => ({ ...prev, zipFileName: '', sourceRef: '', notes: '' }));
       setZipFile(null);
       const detail = await projectEvaluationsService.getAssessment(selectedAssessmentId);
@@ -311,7 +311,7 @@ export function ProjectEvaluations() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Project Evaluations (Phase 1)</h1>
             <p className="page-subtle">
-              React/Vite ZIP + Playwright UI-flow evaluator scaffold. Queueing is wired; runner orchestration is the next step.
+              React/Vite ZIP + Playwright UI-flow evaluation using reusable business-flow templates.
             </p>
           </div>
         </div>
