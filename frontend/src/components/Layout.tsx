@@ -146,29 +146,30 @@ export function Layout({ children }: LayoutProps) {
                   );
                 })}
               </nav>
-            <div className="w-full xl:hidden">
-              <nav className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
-                {visibleNavigation.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname.startsWith(item.href);
-                  return (
-                    <Link
-                      key={item.name}
-                      to={item.href}
-                      className={`shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg ${
-                        item.highlight
-                          ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
-                          : isActive
-                          ? 'bg-[var(--surface-3)] text-[var(--accent-2)] border border-[var(--border-focus)]'
-                          : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </nav>
+              <div className="w-full xl:hidden">
+                <nav className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+                  {visibleNavigation.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location.pathname.startsWith(item.href);
+                    return (
+                      <Link
+                        key={item.name}
+                        to={item.href}
+                        className={`shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg ${
+                          item.highlight
+                            ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
+                            : isActive
+                            ? 'bg-[var(--surface-3)] text-[var(--accent-2)] border border-[var(--border-focus)]'
+                            : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        {item.name}
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </div>
             </div>
           </div>
         </div>
