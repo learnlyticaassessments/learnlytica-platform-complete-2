@@ -182,7 +182,7 @@ export function QuestionDetail() {
             <div>
               <div className="flex items-center gap-2 text-sm font-semibold mb-2">
                 {checklistComplete ? <CheckCircle className="w-4 h-4 text-green-700" /> : <AlertTriangle className="w-4 h-4 text-amber-700" />}
-                Create Question Success -> Author Checklist
+                Create Question Success Checklist
               </div>
               <p className="text-sm text-gray-700">
                 Question saved as draft. Review the checklist, then publish when ready. Passed {checklistPassed}/{checklist.length} checks.
