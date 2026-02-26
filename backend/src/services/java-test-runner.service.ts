@@ -35,7 +35,7 @@ export async function runJavaTests(
 ): Promise<JavaTestExecutionResult> {
   // Validate Java code
   validateJavaCode(code);
-  const sanitized = sanitizeCode(code);
+  const sanitized = sanitizeCode(normalizeJavaSolutionClassName(code));
 
   // Get Docker image
   const image = 'learnlytica/executor-java:latest';
@@ -99,6 +99,19 @@ export async function runJavaTests(
       compilationErrors: error.message
     };
   }
+}
+
+function normalizeJavaSolutionClassName(code: string): string {
+  if (!code) return code;
+
+  // The Java draft runner compiles the learner/solution file as Solution.java.
+  // Older sample packages used `public class Main`, which causes a compile
+  // error even when logic is correct. Normalize the common case for authoring.
+  if (/\bpublic\s+class\s+Solution\b/.test(code)) {
+    return code;
+  }
+
+  return code.replace(/\bpublic\s+class\s+Main\b/, 'public class Solution');
 }
 
 function validateJavaCode(code: string): void {
