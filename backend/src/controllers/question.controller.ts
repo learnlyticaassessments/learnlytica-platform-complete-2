@@ -90,6 +90,75 @@ export async function runDraftTests(
   }
 }
 
+export async function validateDraftPackage(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { question } = req.body as { question: CreateQuestionDTO };
+
+    const result = await questionService.validateDraftQuestionPackage(
+      req.app.locals.db,
+      question,
+      {
+        organizationId: req.user.organizationId,
+        userId: req.user.id,
+        userRole: req.user.role
+      }
+    );
+
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function importQuestionPackageZip(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file?.buffer) {
+      res.status(400).json({ success: false, error: 'ZIP file is required (multipart field: file)' });
+      return;
+    }
+
+    const question = await questionService.parseQuestionPackageZip(file.buffer);
+    const validation = await questionService.validateDraftQuestionPackage(
+      req.app.locals.db,
+      question,
+      {
+        organizationId: req.user.organizationId,
+        userId: req.user.id,
+        userRole: req.user.role
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        question,
+        validation
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 // ============================================================================
 // GET QUESTION BY ID
 // ============================================================================

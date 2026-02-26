@@ -311,6 +311,10 @@ export const draftTestRunSchema = z.object({
   useSolution: z.boolean().optional().default(true)
 });
 
+export const draftPackageValidateSchema = z.object({
+  question: createQuestionSchema
+});
+
 // ============================================================================
 // ID PARAMETER SCHEMA
 // ============================================================================
@@ -332,6 +336,7 @@ export type ReviewResponseInput = z.infer<typeof reviewResponseSchema>;
 export type BulkImportInput = z.infer<typeof bulkImportSchema>;
 export type BulkExportInput = z.infer<typeof bulkExportSchema>;
 export type DraftTestRunInput = z.infer<typeof draftTestRunSchema>;
+export type DraftPackageValidateInput = z.infer<typeof draftPackageValidateSchema>;
 
 // ============================================================================
 // VALIDATION HELPER FUNCTIONS

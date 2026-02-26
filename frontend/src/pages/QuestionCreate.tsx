@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Play, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Eye, Play, Plus, Trash2, Upload } from 'lucide-react';
 import Editor from '@monaco-editor/react';
+import JSZip from 'jszip';
 import { useCreateQuestion } from '../hooks/useQuestions';
 import { questionService } from '../services/questionService';
 import type { CreateQuestionDTO, TestFramework, QuestionCategory, QuestionDifficulty } from '../../../backend/shared/types/question.types';
@@ -34,6 +35,28 @@ type DraftCodeFile = {
   content: string;
   language: 'javascript' | 'python' | 'java';
 };
+
+type QuestionPackageManifest = {
+  schemaVersion?: number;
+  title?: string;
+  description?: string;
+  category?: QuestionCategory;
+  difficulty?: QuestionDifficulty;
+  testFramework?: TestFramework;
+  points?: number;
+  timeEstimate?: number;
+  skills?: string[];
+  tags?: string[];
+  starterCode?: {
+    files?: Array<{ path: string; source?: string; content?: string; language?: string }>;
+  };
+  solution?: {
+    files?: Array<{ path: string; source?: string; content?: string; language?: string }>;
+  };
+  testCases?: Array<Partial<DraftTestCase> & { testCodePath?: string }>;
+};
+
+const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
 
 function getMonacoTheme() {
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs';
@@ -138,7 +161,7 @@ function buildTestConfig(framework: TestFramework, points: number, testCases: Dr
   } else {
     base.environment = { node: '20' };
     base.setup.commands = ['npm install'];
-    base.execution.command = framework === 'supertest' ? 'npx jest --runInBand' : 'npx jest --runInBand';
+    base.execution.command = 'npx jest --runInBand';
   }
 
   return base;
@@ -154,9 +177,23 @@ function inferLanguage(framework: TestFramework): DraftCodeFile['language'] {
   return 'javascript';
 }
 
+function inferLanguageFromPath(path: string, fallback: DraftCodeFile['language']): DraftCodeFile['language'] {
+  const p = path.toLowerCase();
+  if (p.endsWith('.py')) return 'python';
+  if (p.endsWith('.java')) return 'java';
+  if (p.endsWith('.ts') || p.endsWith('.tsx') || p.endsWith('.js') || p.endsWith('.jsx')) return 'javascript';
+  return fallback;
+}
+
+function fileName(path: string) {
+  const parts = path.split('/');
+  return parts[parts.length - 1] || path;
+}
+
 export function QuestionCreate() {
   const navigate = useNavigate();
   const createMutation = useCreateQuestion();
+  const packageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -180,6 +217,13 @@ export function QuestionCreate() {
   const [draftRunLoading, setDraftRunLoading] = useState(false);
   const [draftRunResult, setDraftRunResult] = useState<DraftRunResult | null>(null);
   const [draftRunError, setDraftRunError] = useState<string | null>(null);
+  const [packageImportError, setPackageImportError] = useState<string | null>(null);
+  const [packageImportInfo, setPackageImportInfo] = useState<string | null>(null);
+  const [importingPackage, setImportingPackage] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [serverPackageValidation, setServerPackageValidation] = useState<any | null>(null);
+  const [templateFrameworkChoice, setTemplateFrameworkChoice] = useState<TestFramework>('jest');
 
   const syncFrameworkDefaults = (nextFramework: TestFramework, nextCategory = category, nextPoints = points) => {
     const starter = buildDefaultStarterCode(nextCategory, nextFramework);
@@ -343,6 +387,290 @@ export function QuestionCreate() {
     setDraftRunResult(null);
   };
 
+  const handleDownloadTemplatePackage = async (frameworkChoice?: TestFramework) => {
+    setDownloadingTemplate(true);
+    setPackageImportError(null);
+    setPackageImportInfo(null);
+
+    try {
+      const zip = new JSZip();
+      const targetFramework = frameworkChoice || templateFrameworkChoice || testFramework;
+      const targetCategory: QuestionCategory =
+        frameworkChoice
+          ? (targetFramework === 'playwright' || targetFramework === 'cypress'
+              ? 'frontend'
+              : targetFramework === 'pytest' || targetFramework === 'junit'
+              ? 'backend'
+              : category)
+          : category;
+      const defaultStarter = buildDefaultStarterCode(targetCategory, targetFramework);
+      const defaultTestCase = buildDefaultTestCase(targetFramework, Math.max(10, points || 100));
+      const language = inferLanguage(targetFramework);
+
+      const starterFilesForTemplate = ((!frameworkChoice && starterFiles.length) ? starterFiles : (defaultStarter.files as any[]).map((f) => ({
+        path: f.path,
+        content: f.content,
+        language
+      }))) as DraftCodeFile[];
+
+      const solutionFilesForTemplate = ((!frameworkChoice && solutionFiles.length) ? solutionFiles : [
+        {
+          path: starterFilesForTemplate[0]?.path || defaultStarter.files[0]?.path || 'solution.js',
+          content:
+            language === 'python'
+              ? '# Reference solution\n'
+              : language === 'java'
+              ? 'public class Main {\n  // Reference solution\n}\n'
+              : '// Reference solution\n',
+          language
+        }
+      ]) as DraftCodeFile[];
+
+      const testCasesForTemplate = ((!frameworkChoice && testCases.length) ? testCases : [defaultTestCase]).map((tc, index) => {
+        const testCodePath = `tests/${tc.id || `tc_${String(index + 1).padStart(3, '0')}`}.${language === 'python' ? 'py' : language === 'java' ? 'java' : 'js'}`;
+        return { tc, testCodePath };
+      });
+
+      for (const f of starterFilesForTemplate) {
+        zip.file(`starter/${f.path}`, f.content ?? '');
+      }
+      for (const f of solutionFilesForTemplate) {
+        zip.file(`solution/${f.path}`, f.content ?? '');
+      }
+      for (const { tc, testCodePath } of testCasesForTemplate) {
+        zip.file(testCodePath, tc.testCode || (language === 'python' ? 'assert True\n' : language === 'java' ? 'assertTrue(true);' : 'expect(true).toBe(true);'));
+      }
+
+      const manifest: QuestionPackageManifest = {
+        schemaVersion: QUESTION_PACKAGE_SCHEMA_VERSION,
+        title: title.trim() || 'Sample Question Title',
+        description:
+          description.trim() ||
+          'Describe the problem statement, constraints, expected behavior, and any input/output examples.',
+        category: targetCategory,
+        difficulty,
+        testFramework: targetFramework,
+        points: Math.max(10, Number(points) || 100),
+        timeEstimate: Math.max(5, Number(timeEstimate) || 45),
+        skills: parseCsvList(skillsInput),
+        tags: parseCsvList(tagsInput),
+        starterCode: {
+          files: starterFilesForTemplate.map((f) => ({
+            path: f.path,
+            source: `starter/${f.path}`,
+            language: f.language
+          }))
+        },
+        solution: solutionEnabled
+          ? {
+              files: solutionFilesForTemplate.map((f) => ({
+                path: f.path,
+                source: `solution/${f.path}`,
+                language: f.language
+              }))
+            }
+          : { files: [] },
+        testCases: testCasesForTemplate.map(({ tc, testCodePath }, index) => ({
+          id: tc.id || `tc_${String(index + 1).padStart(3, '0')}`,
+          name: tc.name || `Test Case ${index + 1}`,
+          file: tc.file || defaultTestCase.file,
+          testName: tc.testName || `test_case_${index + 1}`,
+          points: Number(tc.points) || 0,
+          visible: tc.visible ?? true,
+          category: tc.category || 'basic',
+          description: tc.description || '',
+          testCodePath
+        }))
+      };
+
+      zip.file('learnlytica-question.json', JSON.stringify(manifest, null, 2));
+      zip.file('README.txt', [
+        'Learnlytica Question Package Template',
+        '',
+        '1. Edit learnlytica-question.json metadata',
+        '2. Update starter/ files (learner-visible)',
+        '3. Update solution/ files (author-only)',
+        '4. Update tests/*.js|py|java assertions referenced by testCodePath',
+        '5. Upload ZIP in Question Authoring and run "Draft Tests (with Solution)"'
+      ].join('\n'));
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const safeTitle = (title.trim() || 'question-template').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      const filename = `${safeTitle || 'question-template'}-${targetFramework}.zip`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+
+      setPackageImportInfo(`Downloaded template package: ${filename}`);
+    } catch (err: any) {
+      setPackageImportError(err?.message || 'Failed to generate template package ZIP');
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  };
+
+  const handleDownloadCompleteSamplePackage = async () => {
+    setDownloadingTemplate(true);
+    setPackageImportError(null);
+    setPackageImportInfo(null);
+    try {
+      const zip = new JSZip();
+      const starterPath = 'src/sum.js';
+      const testFile = 'tests/sum.test.js';
+
+      const starterCode = `export function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n`;
+      const solutionCode = `export function sum(a, b) {\n  return a + b;\n}\n`;
+
+      zip.file(`starter/${starterPath}`, starterCode);
+      zip.file(`solution/${starterPath}`, solutionCode);
+      zip.file('tests/tc_001.js', "const { sum } = require('../src/sum');\nexpect(sum(1, 2)).toBe(3);");
+      zip.file('tests/tc_002.js', "const { sum } = require('../src/sum');\nexpect(sum(-5, 2)).toBe(-3);");
+      zip.file('tests/tc_003.js', "const { sum } = require('../src/sum');\nexpect(sum(0, 0)).toBe(0);");
+
+      const manifest: QuestionPackageManifest = {
+        schemaVersion: QUESTION_PACKAGE_SCHEMA_VERSION,
+        title: 'Implement sum(a, b)',
+        description:
+          'Implement a function `sum(a, b)` that returns the sum of two numbers. Handle positive, negative, and zero values.',
+        category: 'backend',
+        difficulty: 'easy',
+        testFramework: 'jest',
+        points: 100,
+        timeEstimate: 15,
+        skills: ['javascript', 'functions', 'unit-testing'],
+        tags: ['warmup', 'math', 'jest'],
+        starterCode: {
+          files: [{ path: starterPath, source: `starter/${starterPath}`, language: 'javascript' }]
+        },
+        solution: {
+          files: [{ path: starterPath, source: `solution/${starterPath}`, language: 'javascript' }]
+        },
+        testCases: [
+          { id: 'tc_001', name: 'Adds positive integers', file: testFile, testName: 'adds positive integers', points: 40, visible: true, category: 'basic', testCodePath: 'tests/tc_001.js' },
+          { id: 'tc_002', name: 'Adds negative and positive', file: testFile, testName: 'adds negative and positive', points: 30, visible: true, category: 'edge', testCodePath: 'tests/tc_002.js' },
+          { id: 'tc_003', name: 'Adds zeros', file: testFile, testName: 'adds zeros', points: 30, visible: false, category: 'edge', testCodePath: 'tests/tc_003.js' }
+        ]
+      };
+
+      zip.file('learnlytica-question.json', JSON.stringify(manifest, null, 2));
+      zip.file('README.txt', 'Complete sample package: import this ZIP, run Draft Tests with Solution, then create the question.\n');
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'sample-jest-sum-question.zip';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setPackageImportInfo('Downloaded complete sample package: sample-jest-sum-question.zip');
+    } catch (err: any) {
+      setPackageImportError(err?.message || 'Failed to generate complete sample package');
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  };
+
+  const handlePackageDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragActive(false);
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      setPackageImportError('Please drop a .zip file.');
+      return;
+    }
+    await importQuestionPackageFile(file);
+  };
+
+  const applyImportedQuestionToAuthoring = (question: CreateQuestionDTO, validation?: any, importedLabel?: string) => {
+    const nextFramework = question.testFramework;
+    const nextCategory = question.category;
+    setTitle(question.title || '');
+    setDescription(question.description || '');
+    setCategory(nextCategory);
+    setDifficulty(question.difficulty as QuestionDifficulty);
+    setTestFramework(nextFramework);
+    setPoints(Number(question.points || 100));
+    setTimeEstimate(Number(question.timeEstimate || 45));
+    setSkillsInput(Array.isArray(question.skills) ? question.skills.join(', ') : '');
+    setTagsInput(Array.isArray(question.tags) ? question.tags.join(', ') : '');
+    setStarterFiles(
+      (question.starterCode?.files || []).map((f: any) => ({
+        path: f.path,
+        content: f.content,
+        language: (f.language as any) || inferLanguage(nextFramework)
+      }))
+    );
+    setActiveStarterFileIndex(0);
+    const nextSolutionFiles = (question.solution?.files || []).map((f: any) => ({
+      path: f.path,
+      content: f.content,
+      language: (f.language as any) || inferLanguage(nextFramework)
+    }));
+    setSolutionEnabled(nextSolutionFiles.length > 0);
+    setSolutionFiles(nextSolutionFiles.length ? nextSolutionFiles : [{
+      path: question.starterCode?.files?.[0]?.path || 'solution.js',
+      content: '',
+      language: inferLanguage(nextFramework)
+    }]);
+    setActiveSolutionFileIndex(0);
+    setTestCases(
+      (question.testConfig?.testCases || []).map((tc: any, index: number) => ({
+        id: tc.id || `tc_${String(index + 1).padStart(3, '0')}`,
+        name: tc.name || `Test Case ${index + 1}`,
+        file: tc.file || '',
+        testName: tc.testName || '',
+        points: Number(tc.points || 0),
+        visible: !!tc.visible,
+        category: tc.category || 'basic',
+        description: tc.description || '',
+        testCode: tc.testCode || ''
+      }))
+    );
+    setServerPackageValidation(validation || null);
+    if (importedLabel) setPackageImportInfo(importedLabel);
+  };
+
+  const importQuestionPackageFile = async (file: File) => {
+    setImportingPackage(true);
+    setPackageImportError(null);
+    setPackageImportInfo(null);
+    setServerPackageValidation(null);
+    setDraftRunResult(null);
+    setDraftRunError(null);
+
+    try {
+      const { question, validation } = await questionService.importQuestionPackageZip(file);
+      applyImportedQuestionToAuthoring(
+        question,
+        validation,
+        `Imported package (server parsed): ${file.name} • ${question.starterCode?.files?.length || 0} starter file(s), ${question.solution?.files?.length || 0} solution file(s), ${question.testConfig?.testCases?.length || 0} test case(s)`
+      );
+    } catch (err: any) {
+      const backendError = err?.response?.data;
+      const detailMsg = Array.isArray(backendError?.details)
+        ? backendError.details.map((d: any) => `${d.field}: ${d.message}`).join('\n')
+        : backendError?.error || backendError?.message || err?.message;
+      setPackageImportError(detailMsg || 'Failed to import question package ZIP');
+    } finally {
+      setImportingPackage(false);
+    }
+  };
+
+  const handleImportQuestionPackage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await importQuestionPackageFile(file);
+    if (event.target) event.target.value = '';
+  };
+
   const updateStarterFile = (idx: number, patch: Partial<DraftCodeFile>) => {
     setStarterFiles((prev) => prev.map((f, i) => (i === idx ? { ...f, ...patch } : f)));
     setDraftRunResult(null);
@@ -409,6 +737,110 @@ export function QuestionCreate() {
               Author full question artifacts (skills, tags, starter code, test cases, solution) and verify draft tests before publishing.
             </p>
           </div>
+        </div>
+
+        <div
+          className={`card space-y-4 ${dragActive ? 'ring-2 ring-[var(--accent)]' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+          }}
+          onDrop={handlePackageDrop}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold">Import Question Package (ZIP)</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Upload a structured ZIP package to populate all authoring artifacts (metadata, skills/tags, starter code, test cases, solution), then review and run draft tests.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <input
+                ref={packageInputRef}
+                type="file"
+                accept=".zip,application/zip"
+                className="hidden"
+                onChange={handleImportQuestionPackage}
+              />
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => packageInputRef.current?.click()}
+                disabled={importingPackage}
+              >
+                <Upload className="w-4 h-4" />
+                {importingPackage ? 'Importing...' : 'Upload ZIP'}
+              </button>
+              <select
+                className="input-field !w-auto !py-2 text-sm"
+                value={templateFrameworkChoice}
+                onChange={(e) => setTemplateFrameworkChoice(e.target.value as TestFramework)}
+              >
+                <option value="jest">Jest</option>
+                <option value="pytest">Pytest</option>
+                <option value="playwright">Playwright</option>
+                <option value="junit">JUnit</option>
+              </select>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => handleDownloadTemplatePackage(templateFrameworkChoice)}
+                disabled={downloadingTemplate}
+              >
+                <Plus className="w-4 h-4" />
+                {downloadingTemplate ? 'Generating...' : 'Download Template ZIP'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleDownloadCompleteSamplePackage}
+                disabled={downloadingTemplate}
+              >
+                <Play className="w-4 h-4" />
+                {downloadingTemplate ? 'Generating...' : 'Download Complete Sample'}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm">
+            <div className="font-semibold mb-2">Recommended ZIP Structure (all categories/frameworks)</div>
+            <pre className="text-xs overflow-x-auto whitespace-pre-wrap"><code>{`my-question.zip
+├─ learnlytica-question.json
+├─ starter/
+│  └─ ... learner-visible starter files
+├─ solution/
+│  └─ ... author-only reference solution files
+└─ tests/
+   └─ ... optional assertion snippets (referenced via testCodePath)`}</code></pre>
+            <div className="mt-3 text-xs text-gray-600">
+              Manifest supports inline or external test assertions. External assertions use <code>testCodePath</code> (for example <code>tests/tc_001.js</code>).
+              Use <code>schemaVersion: {QUESTION_PACKAGE_SCHEMA_VERSION}</code> in the manifest.
+            </div>
+          </div>
+
+          <div className={`rounded-lg border border-dashed p-4 text-sm ${dragActive ? 'border-[var(--accent)] bg-[var(--surface-3)]' : 'border-[var(--border)] bg-[var(--surface-2)]'}`}>
+            Drag and drop a question ZIP here, or use <span className="font-semibold">Upload ZIP</span>.
+          </div>
+
+          {packageImportInfo && <div className="ll-toast ok">{packageImportInfo}</div>}
+          {packageImportError && <div className="ll-toast err whitespace-pre-wrap">{packageImportError}</div>}
+          {serverPackageValidation?.summary && (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm">
+              <div className="font-semibold mb-2">Server Package Validation</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <Metric label="Framework" value={String(serverPackageValidation.summary.framework)} />
+                <Metric label="Category" value={String(serverPackageValidation.summary.category)} />
+                <Metric label="Starter Files" value={String(serverPackageValidation.summary.starterFiles)} />
+                <Metric label="Solution Files" value={String(serverPackageValidation.summary.solutionFiles)} />
+                <Metric label="Test Cases" value={String(serverPackageValidation.summary.testCases)} />
+                <Metric label="Passing" value={`${serverPackageValidation.summary.passingPoints}/${serverPackageValidation.summary.totalPoints}`} />
+              </div>
+            </div>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-5 gap-6">

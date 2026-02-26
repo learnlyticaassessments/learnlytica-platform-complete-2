@@ -73,6 +73,29 @@ export const questionService = {
     return response.data.data;
   },
 
+  async validateDraftPackage(payload: { question: CreateQuestionDTO }): Promise<any> {
+    const response = await apiClient.post<{ success: boolean; data: any }>(
+      '/questions/package-validate',
+      payload
+    );
+    return response.data.data;
+  },
+
+  async importQuestionPackageZip(file: File): Promise<{ question: CreateQuestionDTO; validation: any }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post<{ success: boolean; data: { question: CreateQuestionDTO; validation: any } }>(
+      '/questions/package-import',
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    return response.data.data;
+  },
+
   /**
    * Get question by ID
    */

@@ -29,6 +29,7 @@
     "@radix-ui/react-tabs": "^1.0.4",
     "@radix-ui/react-toast": "^1.1.5",
     "@monaco-editor/react": "^4.6.0",
+    "jszip": "^3.10.1",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0"
   },

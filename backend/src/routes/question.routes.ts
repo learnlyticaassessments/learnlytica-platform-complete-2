@@ -5,6 +5,7 @@
  */
 
 import { Router } from 'express';
+import multer from 'multer';
 import * as questionController from '../controllers/question.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { validateRequest } from '../middleware/validation.middleware';
@@ -14,10 +15,12 @@ import {
   questionFiltersSchema,
   updateStatusSchema,
   bulkImportSchema,
-  draftTestRunSchema
+  draftTestRunSchema,
+  draftPackageValidateSchema
 } from '../validators/question.validator';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // All routes require authentication
 router.use(authenticate);
@@ -41,6 +44,18 @@ router.post(
   '/draft-test-run',
   validateRequest(draftTestRunSchema, 'body'),
   questionController.runDraftTests
+);
+
+router.post(
+  '/package-validate',
+  validateRequest(draftPackageValidateSchema, 'body'),
+  questionController.validateDraftPackage
+);
+
+router.post(
+  '/package-import',
+  upload.single('file'),
+  questionController.importQuestionPackageZip
 );
 
 /**
