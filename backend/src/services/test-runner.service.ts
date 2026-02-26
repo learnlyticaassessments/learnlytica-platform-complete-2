@@ -160,7 +160,10 @@ ${indentPy(tc.testCode || 'pass')}
       String(src || '')
         // Older sample snippets imported ./solution in Playwright mode.
         .replace(/const\s+\{\s*[^}]+\}\s*=\s*require\(['"]\.\/solution['"]\);\s*/g, '')
-        .replace(/require\(['"]\.\/solution['"]\)/g, "require('./implementation.js')");
+        .replace(/require\(['"]\.\/solution['"]\)/g, "require('./implementation.js')")
+        // If legacy snippets referenced `sum(...)` directly after destructuring,
+        // rewrite to use the injected `solution` object.
+        .replace(/\bsum\s*\(/g, 'solution.sum(');
 
     return `
       const { test, expect } = require('playwright/test');
