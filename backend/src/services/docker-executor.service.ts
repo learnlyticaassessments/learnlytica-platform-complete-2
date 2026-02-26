@@ -45,6 +45,10 @@ export async function executeInDocker(
       await setupPytestExecution(workDir, code, testCode);
     }
 
+    // Containers run as non-root (coderunner). mkdtemp creates a private dir,
+    // so make the mounted workspace writable/readable by the container user.
+    await fs.chmod(workDir, 0o777);
+
     // Build Docker command
     const dockerCmd = buildDockerCommand(image, framework, workDir);
 
