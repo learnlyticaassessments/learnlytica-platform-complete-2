@@ -229,6 +229,9 @@ async function executeJavaInDocker(
       path.join(workDir, 'src/test/java/SolutionTest.java')
     );
 
+    // Containers run as non-root; make mounted workspace accessible.
+    await fs.chmod(workDir, 0o777);
+
     // Run Maven test in Docker
     const dockerCmd = [
       'docker run',
@@ -239,7 +242,7 @@ async function executeJavaInDocker(
       `--volume "${workDir}:/workspace"`,
       '--workdir /workspace',
       image,
-      'sh -c "mvn clean test -B"'
+      'sh -c "cd /workspace && mvn clean test -B"'
     ].join(' ');
 
     const { stdout, stderr } = await execAsync(dockerCmd, {
