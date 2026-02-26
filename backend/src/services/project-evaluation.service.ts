@@ -303,7 +303,9 @@ async function parseZipAndDetect(buffer: Buffer): Promise<ZipDetectSummary> {
   let packageJson: any = null;
   if (packageJsonEntry) {
     try {
-      packageJson = JSON.parse(await zip.file(packageJsonEntry)!.async('string'));
+      const packageJsonZipKey = rootPrefix ? `${rootPrefix}${packageJsonEntry}` : packageJsonEntry;
+      const packageJsonFile = zip.file(packageJsonZipKey) || zip.file(packageJsonEntry);
+      packageJson = JSON.parse(await packageJsonFile!.async('string'));
       packageName = packageJson?.name || null;
       scripts = packageJson?.scripts || {};
     } catch {
