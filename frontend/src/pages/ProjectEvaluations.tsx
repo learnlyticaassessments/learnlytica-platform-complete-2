@@ -10,6 +10,68 @@ function parseLines(input: string) {
     .filter(Boolean);
 }
 
+function summarizeText(text?: string | null, max = 180) {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  if (value.length <= max) return value;
+  return `${value.slice(0, max).trimEnd()}...`;
+}
+
+function parseLegacyDescriptionSections(description?: string | null) {
+  const raw = String(description || '').trim();
+  if (!raw) return null;
+
+  const headings = [
+    'Business Context',
+    'Your Task',
+    'Task Summary',
+    'Expected Business Flow',
+    'Expected User Flow',
+    'Minimum UI Requirements',
+    'Functional Requirements',
+    'Suggested Data Model',
+    'Acceptance Criteria',
+    'Submission Instructions',
+    'Framework/Submission Guidance',
+    'Evaluation Notes',
+    'Stretch Goals'
+  ];
+
+  let working = raw;
+  headings.forEach((h) => {
+    const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`\\s*${escaped}(?:\\s*\\([^)]*\\))?\\s*:?\\s*`, 'gi');
+    working = working.replace(re, `\n## ${h}\n`);
+  });
+
+  if (!working.includes('## ')) return null;
+
+  const chunks = working
+    .split('\n## ')
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  const sections = chunks.map((chunk) => {
+    const lines = chunk.split('\n').map((l) => l.trim()).filter(Boolean);
+    const firstLine = lines.shift() || '';
+    const title = firstLine.replace(/^##\s*/, '').trim();
+    const body = lines.join(' ').trim();
+
+    const items = body
+      .split(/\s+(?=(?:Agent|App|On success|Ticket list|Preferred stack|Submission for Phase 1|No backend required|One page is enough|Clear form labels|Required field validation|Submit button disabled|Recent Tickets|Clean readable layout|Filter tickets|Inline status change|Character counter|Persist tickets|Customer Name|Customer Email|Issue Category|Priority|Issue Description|Ticket ID|Category|Status)\b)/g)
+      .map((i) => i.trim())
+      .filter(Boolean);
+
+    return {
+      title,
+      body,
+      items: items.length >= 2 ? items : []
+    };
+  });
+
+  return sections.length ? sections : null;
+}
+
 export function ProjectEvaluations() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [assessments, setAssessments] = useState<any[]>([]);
@@ -104,6 +166,8 @@ export function ProjectEvaluations() {
     () => assessments.find((a) => a.id === selectedAssessmentId) || null,
     [assessments, selectedAssessmentId]
   );
+  const structuredBrief = assessmentDetail?.config?.brief || null;
+  const legacyDescriptionSections = !structuredBrief ? parseLegacyDescriptionSections(selectedAssessment?.description) : null;
 
   async function createAssessment() {
     if (!newAssessment.title.trim() || !newAssessment.evaluatorTemplateId) return;
@@ -321,7 +385,9 @@ export function ProjectEvaluations() {
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">{selectedAssessment.title}</h2>
-                  <p className="text-sm text-[var(--text-muted)]">{selectedAssessment.description || 'No description'}</p>
+                  <p className="text-sm text-[var(--text-muted)]">
+                    {summarizeText(selectedAssessment.description) || 'No description'}
+                  </p>
                 </div>
                 <div className="flex gap-2 text-xs">
                   <span className="px-2 py-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)]">{selectedAssessment.frameworkScope}</span>
@@ -329,31 +395,31 @@ export function ProjectEvaluations() {
                 </div>
               </div>
 
-              {!!assessmentDetail?.config?.brief && (
+              {!!structuredBrief && (
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold">Learner Brief Preview</h3>
                     <span className="text-xs text-[var(--text-muted)]">Structured format (learner-facing)</span>
                   </div>
-                  {assessmentDetail.config.brief.businessContext && (
+                  {structuredBrief.businessContext && (
                     <section>
                       <h4 className="text-sm font-semibold mb-1">Business Context</h4>
-                      <p className="text-sm text-[var(--text-muted)] whitespace-pre-wrap">{assessmentDetail.config.brief.businessContext}</p>
+                      <p className="text-sm text-[var(--text-muted)] whitespace-pre-wrap">{structuredBrief.businessContext}</p>
                     </section>
                   )}
-                  {assessmentDetail.config.brief.taskSummary && (
+                  {structuredBrief.taskSummary && (
                     <section>
                       <h4 className="text-sm font-semibold mb-1">Your Task</h4>
-                      <p className="text-sm text-[var(--text-muted)] whitespace-pre-wrap">{assessmentDetail.config.brief.taskSummary}</p>
+                      <p className="text-sm text-[var(--text-muted)] whitespace-pre-wrap">{structuredBrief.taskSummary}</p>
                     </section>
                   )}
                   {[
-                    ['Expected User Flow', assessmentDetail.config.brief.expectedFlow],
-                    ['Functional Requirements', assessmentDetail.config.brief.requirements],
-                    ['Acceptance Criteria', assessmentDetail.config.brief.acceptanceCriteria],
-                    ['Submission Instructions', assessmentDetail.config.brief.submissionInstructions],
-                    ['Evaluation Notes', assessmentDetail.config.brief.evaluationNotes],
-                    ['Stretch Goals', assessmentDetail.config.brief.stretchGoals]
+                    ['Expected User Flow', structuredBrief.expectedFlow],
+                    ['Functional Requirements', structuredBrief.requirements],
+                    ['Acceptance Criteria', structuredBrief.acceptanceCriteria],
+                    ['Submission Instructions', structuredBrief.submissionInstructions],
+                    ['Evaluation Notes', structuredBrief.evaluationNotes],
+                    ['Stretch Goals', structuredBrief.stretchGoals]
                   ].map(([label, items]: any) => Array.isArray(items) && items.length ? (
                     <section key={label}>
                       <h4 className="text-sm font-semibold mb-1">{label}</h4>
@@ -362,6 +428,29 @@ export function ProjectEvaluations() {
                       </ul>
                     </section>
                   ) : null)}
+                </div>
+              )}
+
+              {!structuredBrief && legacyDescriptionSections && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold">Learner Brief Preview</h3>
+                    <span className="text-xs text-[var(--text-muted)]">Parsed from legacy description</span>
+                  </div>
+                  {legacyDescriptionSections.map((section) => (
+                    <section key={section.title}>
+                      <h4 className="text-sm font-semibold mb-1">{section.title}</h4>
+                      {section.items.length ? (
+                        <ul className="space-y-1 text-sm text-[var(--text-muted)] list-disc pl-5">
+                          {section.items.map((item, i) => (
+                            <li key={`${section.title}-${i}`}>{item}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-[var(--text-muted)] whitespace-pre-wrap">{section.body}</p>
+                      )}
+                    </section>
+                  ))}
                 </div>
               )}
 
