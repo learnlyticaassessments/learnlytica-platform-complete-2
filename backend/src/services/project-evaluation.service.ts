@@ -54,7 +54,7 @@ function flattenPlaywrightTests(payload: any) {
 
 function buildPhase1TicketPortalPlaywrightSpec() {
   return `
-const { test, expect } = require('playwright/test');
+import { test, expect } from 'playwright/test';
 
 test('Loads ticket intake portal page', async ({ page }) => {
   await page.goto('http://127.0.0.1:4173');
