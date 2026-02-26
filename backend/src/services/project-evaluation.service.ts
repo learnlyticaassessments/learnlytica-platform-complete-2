@@ -141,8 +141,8 @@ async function runPhase1ReactViteBrowserEvaluation(zipPath: string) {
       `--volume "${workspaceDir}:/workspace"`,
       '--workdir /workspace',
       'learnlytica/executor-playwright:latest',
-      `sh -lc "mkdir -p node_modules && ln -sfn /usr/lib/node_modules/playwright ./node_modules/playwright && \
-npm install --no-fund --no-audit >/tmp/npm-install.log 2>&1 && \
+      `sh -lc "npm install --no-fund --no-audit >/tmp/npm-install.log 2>&1 && \
+mkdir -p node_modules/@playwright && ln -sfn /usr/lib/node_modules/playwright ./node_modules/playwright && ln -sfn /usr/lib/node_modules/@playwright/test ./node_modules/@playwright/test >/dev/null 2>&1 || true && \
 (npm run dev -- --host 0.0.0.0 --port 4173 >/tmp/app.log 2>&1 &) && APP_PID=\\$! && \
 for i in \\$(seq 1 45); do node -e \\"require('http').get('http://127.0.0.1:4173',r=>process.exit(r.statusCode?0:1)).on('error',()=>process.exit(1))\\" && break; sleep 1; done && \
 playwright test evaluator.phase1.spec.js --config playwright.config.cjs; CODE=\\$?; \
