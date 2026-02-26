@@ -5,6 +5,7 @@ import Editor from '@monaco-editor/react';
 import JSZip from 'jszip';
 import { useCreateQuestion } from '../hooks/useQuestions';
 import { questionService } from '../services/questionService';
+import { useTheme } from '../theme/ThemeProvider';
 import type { CreateQuestionDTO, TestFramework, QuestionCategory, QuestionDifficulty } from '../../../backend/shared/types/question.types';
 
 type DraftTestCase = {
@@ -58,10 +59,6 @@ type QuestionPackageManifest = {
 
 const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
 const DRAFT_RUN_SUPPORTED_FRAMEWORKS = new Set<TestFramework>(['jest', 'pytest', 'playwright', 'junit']);
-
-function getMonacoTheme() {
-  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs-light';
-}
 
 function buildDefaultStarterCode(category: QuestionCategory, framework: TestFramework) {
   if (framework === 'junit') {
@@ -193,6 +190,7 @@ function fileName(path: string) {
 
 export function QuestionCreate() {
   const navigate = useNavigate();
+  const { resolvedTheme } = useTheme();
   const createMutation = useCreateQuestion();
   const packageInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -234,6 +232,22 @@ export function QuestionCreate() {
     tests: true,
     solution: true,
   });
+
+  const isLightTheme = resolvedTheme === 'light';
+  const monacoTheme = isLightTheme ? 'vs-light' : 'vs-dark';
+  const editorShellClass = isLightTheme
+    ? 'rounded-lg overflow-hidden border bg-white border-[#c0d4ea]'
+    : 'rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)]';
+  const codeSurfaceClass = isLightTheme
+    ? 'rounded-lg border p-3 bg-[#f7fbff] border-[#c0d4ea]'
+    : 'rounded-lg border p-3 bg-[#0b1930] border-[#204164]';
+  const codeWarnSurfaceClass = isLightTheme
+    ? 'rounded-lg border p-3 bg-[#fff9e8] border-[#facc15]/50'
+    : 'rounded-lg border p-3 bg-[#1a1a0f] border-yellow-500/30';
+  const codeLabelClass = isLightTheme ? 'text-xs text-[#40658e] mb-2' : 'text-xs text-[var(--text-muted)] mb-2';
+  const codeTextClass = isLightTheme
+    ? 'text-xs text-[#0f2743] overflow-x-auto whitespace-pre-wrap font-mono'
+    : 'text-xs text-[var(--text)] overflow-x-auto whitespace-pre-wrap font-mono';
 
   const syncFrameworkDefaults = (nextFramework: TestFramework, nextCategory = category, nextPoints = points) => {
     const starter = buildDefaultStarterCode(nextCategory, nextFramework);
@@ -1167,11 +1181,11 @@ export function QuestionCreate() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">File Content</label>
-                    <div className="rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
+                    <div className={editorShellClass}>
                       <Editor
                         height="260px"
                         language={activeStarterFile.language}
-                        theme={getMonacoTheme()}
+                        theme={monacoTheme}
                         value={activeStarterFile.content}
                         onChange={(value) => updateStarterFile(activeStarterFileIndex, { content: value ?? '' })}
                         options={{ minimap: { enabled: false }, fontSize: 14, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true, fontFamily: 'JetBrains Mono, monospace' }}
@@ -1219,11 +1233,11 @@ export function QuestionCreate() {
                     <textarea className="input-field min-h-[70px]" placeholder="Optional test case description" value={tc.description || ''} onChange={(e) => updateTestCase(idx, { description: e.target.value })} />
                     <div>
                       <label className="block text-xs font-medium mb-1">Test Code (author-only assertions)</label>
-                      <div className="rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
+                      <div className={editorShellClass}>
                         <Editor
                           height="150px"
                           language={testFramework === 'pytest' ? 'python' : testFramework === 'junit' ? 'java' : 'javascript'}
-                          theme={getMonacoTheme()}
+                          theme={monacoTheme}
                           value={tc.testCode || ''}
                           onChange={(value) => updateTestCase(idx, { testCode: value ?? '' })}
                           options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true, fontFamily: 'JetBrains Mono, monospace' }}
@@ -1306,11 +1320,11 @@ export function QuestionCreate() {
                           </button>
                         </div>
                       </div>
-                      <div className="rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
+                      <div className={editorShellClass}>
                         <Editor
                           height="260px"
                           language={activeSolutionFile.language}
-                          theme={getMonacoTheme()}
+                          theme={monacoTheme}
                           value={activeSolutionFile.content}
                           onChange={(value) => updateSolutionFile(activeSolutionFileIndex, { content: value ?? '' })}
                           options={{ minimap: { enabled: false }, fontSize: 14, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true, fontFamily: 'JetBrains Mono, monospace' }}
@@ -1376,7 +1390,7 @@ export function QuestionCreate() {
                           {rawOutputCopied ? 'Copied' : 'Copy Raw Output'}
                         </button>
                       </div>
-                      <pre className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-3)] text-[var(--text)] p-3 text-xs leading-5 overflow-x-auto whitespace-pre-wrap font-mono"><code>{draftRunResult.output}</code></pre>
+                      <pre className={`${codeSurfaceClass} mt-2 text-xs leading-5 overflow-x-auto whitespace-pre-wrap font-mono ${isLightTheme ? 'text-[#0f2743]' : 'text-[var(--text)]'}`}><code>{draftRunResult.output}</code></pre>
                     </details>
                   )}
                 </div>
@@ -1477,9 +1491,9 @@ export function QuestionCreate() {
                     <div className="text-sm font-semibold mb-2">Starter Code ({payload.starterCode.files.length} file{payload.starterCode.files.length === 1 ? '' : 's'})</div>
                     <div className="space-y-2">
                       {payload.starterCode.files.map((f, idx) => (
-                        <div key={`${f.path}-${idx}`} className="rounded-lg bg-gray-900 p-3">
-                          <div className="text-xs text-gray-400 mb-2">{f.path}</div>
-                          <pre className="text-xs text-gray-100 overflow-x-auto whitespace-pre-wrap"><code>{f.content}</code></pre>
+                        <div key={`${f.path}-${idx}`} className={codeSurfaceClass}>
+                          <div className={codeLabelClass}>{f.path}</div>
+                          <pre className={codeTextClass}><code>{f.content}</code></pre>
                         </div>
                       ))}
                     </div>
@@ -1488,14 +1502,14 @@ export function QuestionCreate() {
                     <div>
                       <div className="text-sm font-semibold mb-2">Solution (Author Only Preview)</div>
                       <div className="space-y-2">
-                        <div className="rounded-lg bg-gray-900 p-3 border border-yellow-500/30">
-                          <div className="text-xs text-yellow-300 mb-2">Hidden from learners after assignment</div>
-                          <div className="text-xs text-gray-300">Author-only reference + validation artifact</div>
+                        <div className={codeWarnSurfaceClass}>
+                          <div className={`text-xs mb-2 ${isLightTheme ? 'text-amber-800' : 'text-yellow-300'}`}>Hidden from learners after assignment</div>
+                          <div className={isLightTheme ? 'text-xs text-[#40658e]' : 'text-xs text-[var(--text-muted)]'}>Author-only reference + validation artifact</div>
                         </div>
                         {payload.solution.files.map((f, idx) => (
-                          <div key={`${f.path}-${idx}`} className="rounded-lg bg-gray-900 p-3 border border-yellow-500/20">
-                            <div className="text-xs text-gray-400 mb-2">{f.path}</div>
-                            <pre className="text-xs text-gray-100 overflow-x-auto whitespace-pre-wrap"><code>{f.content}</code></pre>
+                          <div key={`${f.path}-${idx}`} className={codeSurfaceClass}>
+                            <div className={codeLabelClass}>{f.path}</div>
+                            <pre className={codeTextClass}><code>{f.content}</code></pre>
                           </div>
                         ))}
                       </div>
