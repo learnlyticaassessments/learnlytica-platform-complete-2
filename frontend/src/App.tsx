@@ -27,6 +27,7 @@ import { ClientAssignmentReview } from './pages/ClientAssignmentReview';
 import { ClientAssignmentDetail } from './pages/ClientAssignmentDetail';
 import { ClientSkillMatrix } from './pages/ClientSkillMatrix';
 import { Certificates } from './pages/Certificates';
+import { ProjectEvaluations } from './pages/ProjectEvaluations';
 
 // Module 5: Analytics
 import { Dashboard as AnalyticsDashboard } from './pages/analytics/Dashboard';
@@ -86,6 +87,7 @@ function App() {
                 <Route path="/assessments" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentList /></RoleRoute>} />
                 <Route path="/assessments/create" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentCreate /></RoleRoute>} />
                 <Route path="/assessments/:id" element={<RoleRoute allowedRoles={['admin', 'client']}><AssessmentDetail /></RoleRoute>} />
+                <Route path="/project-evaluations" element={<RoleRoute allowedRoles={['admin', 'client']}><ProjectEvaluations /></RoleRoute>} />
                 <Route path="/learners" element={<RoleRoute allowedRoles={['admin', 'client']}><Learners /></RoleRoute>} />
                 <Route path="/batches" element={<RoleRoute allowedRoles={['admin', 'client']}><Batches /></RoleRoute>} />
                 <Route path="/learners/:studentId/skill-matrix" element={<RoleRoute allowedRoles={['admin', 'client']}><ClientSkillMatrix /></RoleRoute>} />

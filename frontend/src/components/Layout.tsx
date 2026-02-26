@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { FileText, ClipboardList, User, Users, BarChart3, Book, Sparkles, LogOut, Zap, Award, Layers3, Sun, Moon, Monitor } from 'lucide-react';
+import { FileText, ClipboardList, User, Users, BarChart3, Book, Sparkles, LogOut, Zap, Award, Layers3, Sun, Moon, Monitor, FolderKanban } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can, getRoleLabel } from '../auth/permissions';
 import { useTheme } from '../theme/ThemeProvider';
@@ -26,6 +26,7 @@ export function Layout({ children }: LayoutProps) {
     { name: 'Questions', href: '/questions', icon: FileText, canView: can(user?.role, 'questions.view') },
     { name: 'AI Generator', href: '/ai/generate', icon: Sparkles, highlight: true, canView: can(user?.role, 'ai.generate') },
     { name: 'Assessments', href: '/assessments', icon: ClipboardList, canView: can(user?.role, 'assessments.view') },
+    { name: 'Projects', href: '/project-evaluations', icon: FolderKanban, canView: can(user?.role, 'projectEvaluations.view') },
     { name: 'Batches', href: '/batches', icon: Layers3, canView: can(user?.role, 'batches.view') },
     { name: 'Learners', href: '/learners', icon: Users, canView: can(user?.role, 'learners.view') },
     { name: 'Certificates', href: '/certificates', icon: Award, canView: can(user?.role, 'certificates.view') },

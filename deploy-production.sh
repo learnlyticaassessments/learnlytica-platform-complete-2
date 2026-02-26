@@ -95,6 +95,7 @@ psql -d $DB_NAME -f backend/migrations/005_student_attempt_artifacts.sql || exit
 psql -d $DB_NAME -f backend/migrations/006_assignment_audit_notes.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/007_certificates.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/008_create_batches.sql || exit 1
+psql -d $DB_NAME -f backend/migrations/009_create_project_evaluations.sql || exit 1
 
 echo "✅ Database ready"
 echo ""

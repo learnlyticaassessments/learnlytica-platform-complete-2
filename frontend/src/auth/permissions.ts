@@ -7,6 +7,8 @@ export type AppAction =
   | 'batches.manage'
   | 'learners.view'
   | 'learners.manage'
+  | 'projectEvaluations.view'
+  | 'projectEvaluations.manage'
   | 'questions.view'
   | 'questions.create'
   | 'questions.edit'
@@ -37,6 +39,8 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'batches.manage',
     'learners.view',
     'learners.manage',
+    'projectEvaluations.view',
+    'projectEvaluations.manage',
     'questions.view',
     'questions.create',
     'questions.edit',
@@ -60,6 +64,8 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'batches.manage',
     'learners.view',
     'learners.manage',
+    'projectEvaluations.view',
+    'projectEvaluations.manage',
     'questions.view',
     'questions.create',
     'questions.edit',
