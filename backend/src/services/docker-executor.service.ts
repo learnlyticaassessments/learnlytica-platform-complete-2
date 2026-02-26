@@ -86,8 +86,10 @@ export async function executeInDocker(
 }
 
 async function setupPlaywrightExecution(workDir: string, code: string, testCode: string) {
+  const normalizedCode = normalizePlaywrightImplementationModule(code);
+
   // Write the implementation
-  await fs.writeFile(path.join(workDir, 'implementation.js'), code);
+  await fs.writeFile(path.join(workDir, 'implementation.js'), normalizedCode);
   
   // Write the test file
   await fs.writeFile(path.join(workDir, 'test.spec.js'), testCode);
@@ -115,6 +117,24 @@ async function setupPlaywrightExecution(workDir: string, code: string, testCode:
     "type": "module"
   };
   await fs.writeFile(path.join(workDir, 'package.json'), JSON.stringify(packageJson));
+}
+
+function normalizePlaywrightImplementationModule(code: string): string {
+  if (!code) return code;
+
+  // Playwright draft workspaces run in ESM mode ("type": "module"). Older
+  // sample packages may still export with CommonJS syntax.
+  let next = String(code);
+
+  // Common case used by our earlier samples.
+  next = next.replace(/\bmodule\.exports\s*=\s*\{\s*sum\s*\}\s*;?/g, 'export { sum };');
+
+  // Generic fallback: convert `module.exports = { a, b }` => `export { a, b };`
+  next = next.replace(/\bmodule\.exports\s*=\s*\{\s*([^}]+)\s*\}\s*;?/g, (_m, names) => {
+    return `export { ${String(names).trim()} };`;
+  });
+
+  return next;
 }
 
 async function setupJestExecution(workDir: string, code: string, testCode: string) {
