@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Play, Plus, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Eye, Play, Plus, Trash2, Upload } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import JSZip from 'jszip';
 import { useCreateQuestion } from '../hooks/useQuestions';
@@ -60,7 +60,7 @@ const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
 const DRAFT_RUN_SUPPORTED_FRAMEWORKS = new Set<TestFramework>(['jest', 'pytest', 'playwright', 'junit']);
 
 function getMonacoTheme() {
-  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs';
+  return document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs-light';
 }
 
 function buildDefaultStarterCode(category: QuestionCategory, framework: TestFramework) {
@@ -218,6 +218,7 @@ export function QuestionCreate() {
   const [draftRunLoading, setDraftRunLoading] = useState(false);
   const [draftRunResult, setDraftRunResult] = useState<DraftRunResult | null>(null);
   const [draftRunError, setDraftRunError] = useState<string | null>(null);
+  const [rawOutputCopied, setRawOutputCopied] = useState(false);
   const [packageImportError, setPackageImportError] = useState<string | null>(null);
   const [packageImportInfo, setPackageImportInfo] = useState<string | null>(null);
   const [importingPackage, setImportingPackage] = useState(false);
@@ -319,6 +320,25 @@ export function QuestionCreate() {
     testCases
   ]);
   const draftRunSupported = DRAFT_RUN_SUPPORTED_FRAMEWORKS.has(testFramework);
+  const hasVerifiedDraftRun = !!(
+    draftRunResult?.success &&
+    draftRunResult.testsRun > 0 &&
+    draftRunResult.testsPassed === draftRunResult.testsRun
+  );
+  const hasDraftRunAttempt = !!draftRunResult;
+  const hasPartialDraftPass = !!(
+    draftRunResult &&
+    draftRunResult.testsRun > 0 &&
+    draftRunResult.testsPassed > 0 &&
+    draftRunResult.testsPassed < draftRunResult.testsRun
+  );
+  const createBlockedReason = !solutionEnabled
+    ? 'Enable a solution and run draft tests before creating the question.'
+    : !draftRunSupported
+    ? `Draft execution is not supported for ${testFramework}. Select a supported framework (Jest, Pytest, Playwright, JUnit).`
+    : !hasVerifiedDraftRun
+    ? 'Run Draft Tests (with Solution) and ensure all tests pass before creating the question.'
+    : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -362,6 +382,17 @@ export function QuestionCreate() {
       setDraftRunError(detailMsg || 'Failed to run draft tests');
     } finally {
       setDraftRunLoading(false);
+    }
+  };
+
+  const copyRawOutputToClipboard = async () => {
+    if (!draftRunResult?.output) return;
+    try {
+      await navigator.clipboard.writeText(draftRunResult.output);
+      setRawOutputCopied(true);
+      window.setTimeout(() => setRawOutputCopied(false), 1500);
+    } catch {
+      setDraftRunError('Unable to copy raw output to clipboard. Please copy manually.');
     }
   };
 
@@ -810,74 +841,119 @@ export function QuestionCreate() {
           }}
           onDrop={handlePackageDrop}
         >
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <h2 className="text-xl font-semibold">Import Question Package (ZIP)</h2>
-              <p className="text-sm text-gray-600 mt-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <h2 className="text-xl font-semibold">Import Question Package (ZIP)</h2>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-medium border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)]">
+                  Server Parsed
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-medium border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)]">
+                  schemaVersion {QUESTION_PACKAGE_SCHEMA_VERSION}
+                </span>
+              </div>
+              <p className="text-sm text-gray-600 mt-1 max-w-3xl">
                 Upload a structured ZIP package to populate all authoring artifacts (metadata, skills/tags, starter code, test cases, solution), then review and run draft tests.
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <input
-                ref={packageInputRef}
-                type="file"
-                accept=".zip,application/zip"
-                className="hidden"
-                onChange={handleImportQuestionPackage}
-              />
+          </div>
+
+          <input
+            ref={packageInputRef}
+            type="file"
+            accept=".zip,application/zip"
+            className="hidden"
+            onChange={handleImportQuestionPackage}
+          />
+
+          <div className={`rounded-xl border border-dashed p-5 md:p-6 ${dragActive ? 'border-[var(--accent)] bg-[var(--surface-3)]' : 'border-[var(--border)] bg-[var(--surface-2)]'}`}>
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-sm font-semibold">Import</div>
+                <div className="text-xs text-gray-600 mt-1">
+                  Drag and drop a question ZIP here, or upload it manually to populate authoring fields.
+                </div>
+                <div className="mt-2 text-xs text-[var(--text-muted)]">
+                  Supported draft runners after import: Jest, Pytest, Playwright, JUnit
+                </div>
+              </div>
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn-primary whitespace-nowrap"
                 onClick={() => packageInputRef.current?.click()}
                 disabled={importingPackage}
               >
                 <Upload className="w-4 h-4" />
-                {importingPackage ? 'Importing...' : 'Upload ZIP'}
-              </button>
-              <select
-                className="input-field !w-auto !py-2 text-sm"
-                value={templateFrameworkChoice}
-                onChange={(e) => setTemplateFrameworkChoice(e.target.value as TestFramework)}
-              >
-                <option value="jest">Jest</option>
-                <option value="pytest">Pytest</option>
-                <option value="playwright">Playwright</option>
-                <option value="junit">JUnit</option>
-              </select>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => handleDownloadTemplatePackage(templateFrameworkChoice)}
-                disabled={downloadingTemplate}
-              >
-                <Plus className="w-4 h-4" />
-                {downloadingTemplate ? 'Generating...' : 'Download Template ZIP'}
-              </button>
-              <select
-                className="input-field !w-auto !py-2 text-sm"
-                value={completeSampleFrameworkChoice}
-                onChange={(e) => setCompleteSampleFrameworkChoice(e.target.value as TestFramework)}
-              >
-                <option value="jest">Jest Sample</option>
-                <option value="pytest">Pytest Sample</option>
-                <option value="playwright">Playwright Sample</option>
-                <option value="junit">JUnit Sample</option>
-              </select>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => handleDownloadCompleteSamplePackage(completeSampleFrameworkChoice)}
-                disabled={downloadingTemplate}
-              >
-                <Play className="w-4 h-4" />
-                {downloadingTemplate ? 'Generating...' : 'Download Complete Sample'}
+                {importingPackage ? 'Importing ZIP...' : 'Upload ZIP'}
               </button>
             </div>
           </div>
 
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm">
-            <div className="font-semibold mb-2">Recommended ZIP Structure (all categories/frameworks)</div>
-            <pre className="text-xs overflow-x-auto whitespace-pre-wrap"><code>{`my-question.zip
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-3">
+              <div>
+                <div className="text-sm font-semibold">Template ZIP</div>
+                <div className="text-xs text-gray-600 mt-1">
+                  Download a clean package skeleton for the selected framework.
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <select
+                  className="input-field sm:max-w-[220px]"
+                  value={templateFrameworkChoice}
+                  onChange={(e) => setTemplateFrameworkChoice(e.target.value as TestFramework)}
+                >
+                  <option value="jest">Jest</option>
+                  <option value="pytest">Pytest</option>
+                  <option value="playwright">Playwright</option>
+                  <option value="junit">JUnit</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => handleDownloadTemplatePackage(templateFrameworkChoice)}
+                  disabled={downloadingTemplate}
+                >
+                  <Plus className="w-4 h-4" />
+                  {downloadingTemplate ? 'Generating...' : 'Download Template ZIP'}
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-3">
+              <div>
+                <div className="text-sm font-semibold">Complete Sample</div>
+                <div className="text-xs text-gray-600 mt-1">
+                  Download a ready package with starter code, solution, and test cases for quick validation.
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <select
+                  className="input-field sm:max-w-[220px]"
+                  value={completeSampleFrameworkChoice}
+                  onChange={(e) => setCompleteSampleFrameworkChoice(e.target.value as TestFramework)}
+                >
+                  <option value="jest">Jest Sample</option>
+                  <option value="pytest">Pytest Sample</option>
+                  <option value="playwright">Playwright Sample</option>
+                  <option value="junit">JUnit Sample</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => handleDownloadCompleteSamplePackage(completeSampleFrameworkChoice)}
+                  disabled={downloadingTemplate}
+                >
+                  <Play className="w-4 h-4" />
+                  {downloadingTemplate ? 'Generating...' : 'Download Complete Sample'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <details className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm">
+            <summary className="cursor-pointer font-semibold">Recommended ZIP Structure (all categories/frameworks)</summary>
+            <pre className="mt-3 text-xs overflow-x-auto whitespace-pre-wrap"><code>{`my-question.zip
 ├─ learnlytica-question.json
 ├─ starter/
 │  └─ ... learner-visible starter files
@@ -889,11 +965,7 @@ export function QuestionCreate() {
               Manifest supports inline or external test assertions. External assertions use <code>testCodePath</code> (for example <code>tests/tc_001.js</code>).
               Use <code>schemaVersion: {QUESTION_PACKAGE_SCHEMA_VERSION}</code> in the manifest.
             </div>
-          </div>
-
-          <div className={`rounded-lg border border-dashed p-4 text-sm ${dragActive ? 'border-[var(--accent)] bg-[var(--surface-3)]' : 'border-[var(--border)] bg-[var(--surface-2)]'}`}>
-            Drag and drop a question ZIP here, or use <span className="font-semibold">Upload ZIP</span>.
-          </div>
+          </details>
 
           {packageImportInfo && <div className="ll-toast ok">{packageImportInfo}</div>}
           {packageImportError && <div className="ll-toast err whitespace-pre-wrap">{packageImportError}</div>}
@@ -1059,14 +1131,14 @@ export function QuestionCreate() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">File Content</label>
-                    <div className="rounded-lg overflow-hidden border border-[var(--border)]">
+                    <div className="rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
                       <Editor
                         height="260px"
                         language={activeStarterFile.language}
                         theme={getMonacoTheme()}
                         value={activeStarterFile.content}
                         onChange={(value) => updateStarterFile(activeStarterFileIndex, { content: value ?? '' })}
-                        options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', scrollBeyondLastLine: false }}
+                        options={{ minimap: { enabled: false }, fontSize: 14, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true, fontFamily: 'JetBrains Mono, monospace' }}
                       />
                     </div>
                   </div>
@@ -1101,14 +1173,14 @@ export function QuestionCreate() {
                     <textarea className="input-field min-h-[70px]" placeholder="Optional test case description" value={tc.description || ''} onChange={(e) => updateTestCase(idx, { description: e.target.value })} />
                     <div>
                       <label className="block text-xs font-medium mb-1">Test Code (author-only assertions)</label>
-                      <div className="rounded-lg overflow-hidden border border-[var(--border)]">
+                      <div className="rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
                         <Editor
                           height="150px"
                           language={testFramework === 'pytest' ? 'python' : testFramework === 'junit' ? 'java' : 'javascript'}
                           theme={getMonacoTheme()}
                           value={tc.testCode || ''}
                           onChange={(value) => updateTestCase(idx, { testCode: value ?? '' })}
-                          options={{ minimap: { enabled: false }, fontSize: 12, wordWrap: 'on', scrollBeyondLastLine: false }}
+                          options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true, fontFamily: 'JetBrains Mono, monospace' }}
                         />
                       </div>
                     </div>
@@ -1178,14 +1250,14 @@ export function QuestionCreate() {
                           </button>
                         </div>
                       </div>
-                      <div className="rounded-lg overflow-hidden border border-[var(--border)]">
+                      <div className="rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--surface)]">
                         <Editor
                           height="260px"
                           language={activeSolutionFile.language}
                           theme={getMonacoTheme()}
                           value={activeSolutionFile.content}
                           onChange={(value) => updateSolutionFile(activeSolutionFileIndex, { content: value ?? '' })}
-                          options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', scrollBeyondLastLine: false }}
+                          options={{ minimap: { enabled: false }, fontSize: 14, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true, fontFamily: 'JetBrains Mono, monospace' }}
                         />
                       </div>
                     </>
@@ -1221,6 +1293,11 @@ export function QuestionCreate() {
                     <Metric label="Points" value={`${draftRunResult.pointsEarned}/${draftRunResult.totalPoints}`} />
                     <Metric label="Exec Time" value={`${Math.round((draftRunResult.executionTime || 0))} ms`} />
                   </div>
+                  {!hasVerifiedDraftRun && (
+                    <div className="text-xs rounded-lg border border-amber-300/60 bg-amber-50 text-amber-800 px-3 py-2">
+                      Create Question stays disabled until a real draft run executes and all tests pass.
+                    </div>
+                  )}
                   <div className="space-y-2">
                     {draftRunResult.results?.map((r, i) => (
                       <div key={`${r.name}-${i}`} className="rounded-lg border border-[var(--border)] p-3 text-sm">
@@ -1237,19 +1314,55 @@ export function QuestionCreate() {
                   {draftRunResult.output && (
                     <details>
                       <summary className="cursor-pointer text-sm font-medium">Raw Output</summary>
-                      <pre className="mt-2 rounded-lg bg-gray-900 text-gray-100 p-3 text-xs overflow-x-auto"><code>{draftRunResult.output}</code></pre>
+                      <div className="mt-2 flex items-center justify-end">
+                        <button type="button" className="btn-secondary !py-1.5 !px-2.5 text-xs" onClick={copyRawOutputToClipboard}>
+                          {rawOutputCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          {rawOutputCopied ? 'Copied' : 'Copy Raw Output'}
+                        </button>
+                      </div>
+                      <pre className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface-3)] text-[var(--text)] p-3 text-xs leading-5 overflow-x-auto whitespace-pre-wrap font-mono"><code>{draftRunResult.output}</code></pre>
                     </details>
                   )}
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end gap-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div>
+                {hasVerifiedDraftRun ? (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/70 bg-emerald-50 text-emerald-800 px-3 py-1.5 text-xs font-semibold">
+                    <Check className="w-3.5 h-3.5" />
+                    Verified Draft Run • {String(testFramework).toUpperCase()} • {draftRunResult?.testsPassed}/{draftRunResult?.testsRun}
+                  </div>
+                ) : hasPartialDraftPass ? (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/70 bg-amber-50 text-amber-800 px-3 py-1.5 text-xs font-semibold">
+                    <Play className="w-3.5 h-3.5" />
+                    Draft Run Partial • {String(testFramework).toUpperCase()} • {draftRunResult?.testsPassed}/{draftRunResult?.testsRun} passed
+                  </div>
+                ) : hasDraftRunAttempt ? (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-rose-300/70 bg-rose-50 text-rose-800 px-3 py-1.5 text-xs font-semibold">
+                    <Play className="w-3.5 h-3.5" />
+                    Draft Run Failed • {String(testFramework).toUpperCase()} • {draftRunResult?.testsPassed}/{draftRunResult?.testsRun}
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)] px-3 py-1.5 text-xs">
+                    <Play className="w-3.5 h-3.5" />
+                    Run draft tests and pass all cases to enable creation
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end gap-4">
               <button type="button" onClick={() => navigate('/questions')} className="btn-secondary">Cancel</button>
-              <button type="submit" disabled={createMutation.isPending} className="btn-primary">
+              <button type="submit" disabled={createMutation.isPending || !!createBlockedReason} className="btn-primary" title={createBlockedReason || undefined}>
                 {createMutation.isPending ? 'Creating...' : 'Create Question'}
               </button>
+              </div>
             </div>
+            {createBlockedReason && (
+              <div className="text-xs text-[var(--text-muted)] text-right">
+                {createBlockedReason}
+              </div>
+            )}
           </div>
 
           <div className="xl:col-span-2">
