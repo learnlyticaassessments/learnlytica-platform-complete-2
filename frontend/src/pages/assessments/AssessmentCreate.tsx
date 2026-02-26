@@ -95,13 +95,15 @@ export function AssessmentCreate() {
   return (
     <div className="p-6">
       <div className="max-w-5xl mx-auto">
-        <div className="flex items-center gap-4 mb-6">
-          <button onClick={() => navigate('/assessments')} className="p-2 hover:bg-gray-100 rounded-lg">
+        <div className="page-header mb-6">
+          <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/assessments')} className="icon-btn">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
             <h1 className="text-3xl font-bold">Create Assessment</h1>
-            <p className="text-sm text-gray-600 mt-1">Select a lab template and published questions. Preflight checks help avoid framework/template mismatches.</p>
+            <p className="text-sm page-subtle mt-1">Select a lab template and published questions. Preflight checks help avoid framework/template mismatches.</p>
+          </div>
           </div>
         </div>
 
@@ -168,7 +170,7 @@ export function AssessmentCreate() {
             </div>
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {questions.map((question: any) => (
-                <label key={question.id} className="flex items-center p-3 hover:bg-gray-50 rounded cursor-pointer">
+                <label key={question.id} className="flex items-center p-3 hover:bg-gray-50 rounded-xl cursor-pointer border border-transparent hover:border-[var(--border)] transition">
                   <input
                     type="checkbox"
                     className="mr-3"

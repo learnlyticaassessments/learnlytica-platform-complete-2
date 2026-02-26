@@ -561,14 +561,14 @@ export function Learners() {
 
   return (
     <div className="p-6 space-y-6 fade-in">
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+      <div className="page-header flex-col md:flex-row md:items-end">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Learners</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-3xl font-bold text-[var(--text)]">Learners</h1>
+          <p className="page-subtle mt-1">
             Create learners and assign published assessments with re-entry rules.
           </p>
         </div>
-        <div className="flex gap-3 text-sm">
+        <div className="flex flex-wrap gap-3 text-sm">
           <div className="card px-4 py-3 min-w-[120px]">
             <div className="text-gray-500">Learners</div>
             <div className="text-xl font-bold">{learners.length}</div>
@@ -718,7 +718,7 @@ export function Learners() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-[var(--border)] overflow-hidden">
+            <div className="table-shell">
               <div className="flex items-center justify-between px-4 py-3 bg-[var(--surface-2)] border-b border-[var(--border)]">
                 <div className="flex items-center gap-2">
                   <Users className="w-4 h-4" />
@@ -906,7 +906,7 @@ export function Learners() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+          <div className="overflow-x-auto table-shell">
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                 <tr>
@@ -1110,7 +1110,7 @@ export function Learners() {
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+        <div className="overflow-x-auto table-shell">
           <table className="w-full text-sm">
             <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
               <tr>

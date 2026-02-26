@@ -410,7 +410,7 @@ export function AssessmentTake() {
   }
 
   return (
-    <div className="min-h-screen p-4 sm:p-6">
+    <div className="min-h-screen p-4 sm:p-6 fade-in">
       <div className="max-w-[1600px] mx-auto space-y-4">
         <section className="card p-4 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

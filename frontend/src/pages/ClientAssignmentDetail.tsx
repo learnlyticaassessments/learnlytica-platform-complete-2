@@ -157,7 +157,7 @@ export function ClientAssignmentDetail() {
   };
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6 fade-in">
       <section className="card">
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="space-y-3">
@@ -222,7 +222,7 @@ export function ClientAssignmentDetail() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <div className="text-sm font-semibold">Certificate Issued</div>
-              <div className="text-xs text-gray-600 mt-1">
+              <div className="text-xs page-subtle mt-1">
                 #{issuedCertificate.certificate_number || issuedCertificate.certificateNumber} · Verify code {issuedCertificate.verification_code || issuedCertificate.verificationCode}
               </div>
             </div>
@@ -289,7 +289,7 @@ export function ClientAssignmentDetail() {
       <section className="card space-y-4">
         <div>
           <h2 className="text-lg font-semibold">Assignment Actions</h2>
-          <p className="text-sm text-gray-600">Update due date and re-entry policy, or revoke if not submitted.</p>
+          <p className="text-sm page-subtle">Update due date and re-entry policy, or revoke if not submitted.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-1">

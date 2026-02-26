@@ -229,11 +229,11 @@ export function QuestionDetail() {
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="page-header">
         <div className="flex items-start space-x-4">
           <button
             onClick={() => navigate('/questions')}
-            className="p-2 hover:bg-gray-100 rounded-lg transition"
+            className="icon-btn"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -267,10 +267,10 @@ export function QuestionDetail() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <button
             onClick={handleExportPackage}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-black transition"
+            className="btn-secondary"
           >
             <Download className="w-4 h-4" />
             Export ZIP

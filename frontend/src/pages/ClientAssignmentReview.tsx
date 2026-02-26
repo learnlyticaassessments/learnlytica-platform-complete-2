@@ -50,7 +50,7 @@ export function ClientAssignmentReview() {
   const focusEvents = review?.focusEvents || [];
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6 fade-in">
       <section className="card">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
@@ -79,7 +79,7 @@ export function ClientAssignmentReview() {
               </span>
             </div>
           </div>
-          <Link to="/learners" className="btn-secondary">
+          <Link to="/learners" className="btn-secondary self-start">
             <ArrowLeft className="w-4 h-4" />
             Back to Learners
           </Link>

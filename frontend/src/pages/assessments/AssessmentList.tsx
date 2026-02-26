@@ -41,17 +41,17 @@ export function AssessmentList() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="page-header">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Assessments</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-3xl font-bold text-[var(--text)]">Assessments</h1>
+          <p className="page-subtle mt-1">
             {canCreate
               ? 'Create and manage assessments for your organization'
               : `Assessment access (${getRoleLabel(user?.role)})`}
           </p>
         </div>
         {canCreate && (
-          <Link to="/assessments/create" className="btn-primary flex items-center gap-2">
+          <Link to="/assessments/create" className="btn-primary">
             <Plus className="w-5 h-5" />
             Create Assessment
           </Link>
@@ -61,7 +61,7 @@ export function AssessmentList() {
       <div className="card">
         <div className="flex gap-4 mb-6">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[var(--text-dim)] w-5 h-5" />
             <input
               type="text"
               placeholder="Search assessments..."
@@ -82,9 +82,9 @@ export function AssessmentList() {
           </select>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto table-shell">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b">
+            <thead className="border-b">
               <tr>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Title</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">Status</th>
@@ -119,7 +119,7 @@ export function AssessmentList() {
                     <div className="flex justify-end gap-2">
                       <button
                         onClick={() => navigate(`/assessments/${assessment.id}`)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                        className="icon-btn"
                         title="View"
                       >
                         <Eye className="w-4 h-4" />
@@ -127,7 +127,7 @@ export function AssessmentList() {
                       {canEdit && (
                         <button
                           onClick={() => navigate(`/assessments/${assessment.id}/edit`)}
-                          className="p-2 text-gray-600 hover:bg-gray-50 rounded"
+                          className="icon-btn"
                           title="Edit"
                         >
                           <Edit className="w-4 h-4" />
@@ -136,7 +136,7 @@ export function AssessmentList() {
                       {canDelete && (
                         <button
                           onClick={() => handleDelete(assessment.id, assessment.title)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
+                          className="icon-btn"
                           title={user?.role === 'admin' ? 'Delete' : 'Delete (Organization scope)'}
                         >
                           <Trash className="w-4 h-4" />
@@ -154,7 +154,7 @@ export function AssessmentList() {
           <div className="text-center py-12">
             <p className="text-gray-500 text-lg">No assessments found</p>
             {canCreate && (
-              <Link to="/assessments/create" className="text-blue-600 hover:underline mt-2 inline-block">
+              <Link to="/assessments/create" className="text-[var(--accent)] hover:text-[var(--accent-2)] mt-2 inline-block font-semibold">
                 Create your first assessment
               </Link>
             )}

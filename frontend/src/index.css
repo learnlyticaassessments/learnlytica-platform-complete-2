@@ -333,6 +333,11 @@ body,
     border-color: var(--border) !important;
   }
 
+  .border-gray-300,
+  .border-slate-300 {
+    border-color: color-mix(in srgb, var(--border) 82%, var(--border-focus)) !important;
+  }
+
   .text-gray-900,
   .text-slate-900 {
     color: var(--text) !important;
@@ -357,6 +362,180 @@ body,
   .text-slate-500 {
     color: var(--text-dim) !important;
   }
+
+  .bg-blue-50 {
+    background-color: color-mix(in srgb, var(--accent) 10%, var(--surface)) !important;
+  }
+
+  .bg-green-50 {
+    background-color: var(--green-bg) !important;
+  }
+
+  .bg-red-50 {
+    background-color: color-mix(in srgb, var(--red) 10%, var(--surface)) !important;
+  }
+
+  .bg-yellow-50 {
+    background-color: var(--amber-bg) !important;
+  }
+
+  .border-blue-200 {
+    border-color: color-mix(in srgb, var(--accent) 25%, var(--border)) !important;
+  }
+
+  .border-green-200 {
+    border-color: color-mix(in srgb, var(--green) 25%, var(--border)) !important;
+  }
+
+  .border-red-200 {
+    border-color: color-mix(in srgb, var(--red) 25%, var(--border)) !important;
+  }
+
+  .border-yellow-200 {
+    border-color: color-mix(in srgb, var(--amber) 25%, var(--border)) !important;
+  }
+
+  .text-blue-800 {
+    color: color-mix(in srgb, var(--accent) 75%, var(--text)) !important;
+  }
+
+  .text-blue-700 {
+    color: color-mix(in srgb, var(--accent) 65%, var(--text)) !important;
+  }
+
+  .text-blue-600 {
+    color: color-mix(in srgb, var(--accent) 58%, var(--text)) !important;
+  }
+
+  .text-green-800 {
+    color: color-mix(in srgb, var(--green) 78%, var(--text)) !important;
+  }
+
+  .text-green-700 {
+    color: color-mix(in srgb, var(--green) 70%, var(--text)) !important;
+  }
+
+  .text-red-800 {
+    color: color-mix(in srgb, var(--red) 78%, var(--text)) !important;
+  }
+
+  .text-red-600 {
+    color: color-mix(in srgb, var(--red) 68%, var(--text)) !important;
+  }
+
+  .text-yellow-800 {
+    color: color-mix(in srgb, var(--amber) 78%, var(--text)) !important;
+  }
+
+  .text-yellow-100 {
+    color: color-mix(in srgb, var(--amber) 28%, white) !important;
+  }
+
+  .text-green-100,
+  .text-red-100,
+  .text-gray-100 {
+    color: color-mix(in srgb, var(--text) 92%, white) !important;
+  }
+
+  .hover\:bg-gray-50:hover {
+    background-color: var(--surface-2) !important;
+  }
+
+  .hover\:bg-blue-50:hover {
+    background-color: color-mix(in srgb, var(--accent) 12%, var(--surface)) !important;
+  }
+
+  .hover\:bg-green-50:hover {
+    background-color: var(--green-bg) !important;
+  }
+
+  .hover\:bg-red-50:hover {
+    background-color: color-mix(in srgb, var(--red) 10%, var(--surface)) !important;
+  }
+
+  .hover\:text-blue-600:hover {
+    color: color-mix(in srgb, var(--accent) 65%, var(--text)) !important;
+  }
+
+  .hover\:text-blue-700:hover {
+    color: color-mix(in srgb, var(--accent) 72%, var(--text)) !important;
+  }
+
+  .hover\:text-green-600:hover {
+    color: color-mix(in srgb, var(--green) 70%, var(--text)) !important;
+  }
+
+  .hover\:text-red-600:hover {
+    color: color-mix(in srgb, var(--red) 70%, var(--text)) !important;
+  }
+
+  .focus\:ring-blue-500:focus {
+    --tw-ring-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+  }
+
+  .focus\:border-transparent:focus {
+    border-color: transparent !important;
+  }
+
+  .shadow {
+    box-shadow: 0 12px 28px rgba(2, 8, 23, 0.08) !important;
+  }
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, transparent), color-mix(in srgb, var(--surface-2) 98%, transparent));
+  box-shadow: 0 10px 26px rgba(2, 8, 23, 0.08);
+}
+
+.page-subtle {
+  color: var(--text-muted);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  padding: 0.5rem;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-focus);
+  transform: translateY(-1px);
+}
+
+.table-shell {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  box-shadow: 0 12px 28px rgba(2, 8, 23, 0.08);
+}
+
+.table-shell thead {
+  background: color-mix(in srgb, var(--surface-3) 78%, var(--surface));
+}
+
+.table-shell th {
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+}
+
+.table-shell td {
+  color: var(--text);
 }
 
 .fade-in {

@@ -87,10 +87,10 @@ export function QuestionList() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="page-header">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Questions</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-3xl font-bold text-[var(--text)]">Questions</h1>
+          <p className="page-subtle mt-1">
             {canCreate
               ? 'Manage your organization question repository'
               : `Question repository (${getRoleLabel(user?.role)})`}
@@ -99,7 +99,7 @@ export function QuestionList() {
         {canCreate && (
           <button
             onClick={() => navigate('/questions/create')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            className="btn-primary"
           >
             <Plus className="w-5 h-5" />
             Create Question
@@ -108,16 +108,16 @@ export function QuestionList() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-4 space-y-4">
+      <div className="card space-y-4">
         {/* Search */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[var(--text-dim)] w-5 h-5" />
           <input
             type="text"
             placeholder="Search questions..."
             value={filters.search || ''}
             onChange={(e) => handleSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="input-field pl-10"
           />
         </div>
 
@@ -126,7 +126,7 @@ export function QuestionList() {
           <select
             value={filters.category || ''}
             onChange={(e) => handleFilterChange('category', e.target.value || undefined)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="input-field"
           >
             <option value="">All Categories</option>
             <option value="frontend">Frontend</option>
@@ -139,7 +139,7 @@ export function QuestionList() {
           <select
             value={filters.difficulty || ''}
             onChange={(e) => handleFilterChange('difficulty', e.target.value || undefined)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="input-field"
           >
             <option value="">All Difficulties</option>
             <option value="easy">Easy</option>
@@ -150,7 +150,7 @@ export function QuestionList() {
           <select
             value={filters.status || ''}
             onChange={(e) => handleFilterChange('status', e.target.value || undefined)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="input-field"
           >
             <option value="">All Statuses</option>
             <option value="draft">Draft</option>
@@ -162,7 +162,7 @@ export function QuestionList() {
           <select
             value={filters.testFramework || ''}
             onChange={(e) => handleFilterChange('testFramework', e.target.value || undefined)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="input-field"
           >
             <option value="">All Frameworks</option>
             <option value="playwright">Playwright</option>
@@ -175,16 +175,16 @@ export function QuestionList() {
 
       {/* Results Count */}
       {data && (
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-[var(--text-muted)]">
           Showing {(data.page - 1) * data.limit + 1} to{' '}
           {Math.min(data.page * data.limit, data.total)} of {data.total} questions
         </div>
       )}
 
       {/* Questions Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="table-shell">
         <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
+          <thead className="border-b border-gray-200">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Title
@@ -260,7 +260,7 @@ export function QuestionList() {
                   <div className="flex items-center justify-end gap-2">
                     <button
                       onClick={() => navigate(`/questions/${question.id}`)}
-                      className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                      className="icon-btn"
                       title="View"
                     >
                       <Eye className="w-4 h-4" />
@@ -268,7 +268,7 @@ export function QuestionList() {
                     {canEdit && (
                       <button
                         onClick={() => navigate(`/questions/${question.id}/edit`)}
-                        className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                        className="icon-btn"
                         title="Edit"
                       >
                         <Edit className="w-4 h-4" />
@@ -277,7 +277,7 @@ export function QuestionList() {
                     {canPublish && question.status === 'draft' && (
                       <button
                         onClick={() => handlePublish(question.id)}
-                        className="p-2 text-gray-600 hover:text-green-600 hover:bg-green-50 rounded transition"
+                        className="icon-btn"
                         title="Publish (Platform Admin only)"
                       >
                         <CheckCircle className="w-4 h-4" />
@@ -286,7 +286,7 @@ export function QuestionList() {
                     {canDelete && (
                       <button
                         onClick={() => handleDelete(question.id)}
-                        className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition"
+                        className="icon-btn"
                         title="Delete (Platform Admin only)"
                       >
                         <Trash className="w-4 h-4" />
@@ -305,7 +305,7 @@ export function QuestionList() {
             {canCreate && (
               <button
                 onClick={() => navigate('/questions/create')}
-                className="mt-4 text-blue-600 hover:text-blue-700 font-medium"
+                className="mt-4 text-[var(--accent)] hover:text-[var(--accent-2)] font-semibold"
               >
                 Create your first question
               </button>
@@ -320,17 +320,17 @@ export function QuestionList() {
           <button
             onClick={() => handlePageChange(data.page - 1)}
             disabled={data.page === 1}
-            className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            className="btn-secondary"
           >
             Previous
           </button>
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-[var(--text-muted)]">
             Page {data.page} of {data.totalPages}
           </span>
           <button
             onClick={() => handlePageChange(data.page + 1)}
             disabled={!data.hasMore}
-            className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            className="btn-secondary"
           >
             Next
           </button>

@@ -457,14 +457,14 @@ export function Batches() {
 
   return (
     <div className="p-6 space-y-6 fade-in">
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+      <div className="page-header flex-col md:flex-row md:items-end">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Batches</h1>
-          <p className="text-gray-600 mt-1">
+          <h1 className="text-3xl font-bold text-[var(--text)]">Batches</h1>
+          <p className="page-subtle mt-1">
             Organize learners into cohorts/teams, assign assessments in bulk, and track batch-level outcomes.
           </p>
         </div>
-        <div className="flex gap-3 text-sm">
+        <div className="flex flex-wrap gap-3 text-sm">
           <div className="card px-4 py-3 min-w-[120px]">
             <div className="text-gray-500">Batches</div>
             <div className="text-xl font-bold">{batches.length}</div>
@@ -843,7 +843,7 @@ export function Batches() {
                         Refresh
                       </button>
                     </div>
-                    <div className="max-h-[320px] overflow-auto rounded-lg border border-[var(--border)]">
+                    <div className="max-h-[320px] overflow-auto table-shell">
                       <table className="w-full text-sm">
                         <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                           <tr>

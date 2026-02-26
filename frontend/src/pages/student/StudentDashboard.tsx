@@ -63,8 +63,8 @@ export function StudentDashboard() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
-      <section className="card">
+    <div className="p-4 sm:p-6 space-y-6 max-w-7xl mx-auto fade-in">
+      <section className="page-header flex-col">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="text-xs font-semibold tracking-wide" style={{ color: 'var(--text-dim)' }}>

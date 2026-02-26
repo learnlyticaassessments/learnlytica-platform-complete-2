@@ -40,9 +40,9 @@ export function Layout({ children }: LayoutProps) {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 relative overflow-x-hidden">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_15%_10%,rgba(99,102,241,0.12),transparent_55%),radial-gradient(circle_at_85%_15%,rgba(236,72,153,0.10),transparent_50%)]" />
-      <header className="sticky top-0 z-50 border-b border-white/30 bg-white/70 backdrop-blur-xl shadow-[0_1px_0_rgba(255,255,255,0.7),0_8px_30px_rgba(15,23,42,0.06)]">
+    <div className="min-h-screen relative overflow-x-hidden bg-[var(--bg)] text-[var(--text)]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 opacity-90 bg-[radial-gradient(circle_at_15%_10%,rgba(124,58,237,0.14),transparent_55%),radial-gradient(circle_at_85%_15%,rgba(139,92,246,0.12),transparent_50%)]" />
+      <header className="sticky top-0 z-50 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_88%,transparent)] backdrop-blur-xl shadow-[0_10px_30px_rgba(2,8,23,0.12)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 py-3 lg:h-20 lg:flex-row lg:items-center lg:justify-between lg:py-0">
             <div className="flex items-center gap-4">
@@ -51,8 +51,8 @@ export function Layout({ children }: LayoutProps) {
                   <Zap className="w-5 h-5" />
                 </div>
                 <div className="leading-tight">
-                  <div className="text-lg font-bold tracking-tight text-slate-900">Learnlytica</div>
-                  <div className="text-[10px] font-semibold tracking-[0.18em] text-purple-600">AI-POWERED PLATFORM</div>
+                  <div className="text-lg font-bold tracking-tight text-[var(--text)]">Learnlytica</div>
+                  <div className="text-[10px] font-semibold tracking-[0.18em] text-[var(--accent)]">AI-POWERED PLATFORM</div>
                 </div>
               </Link>
               <nav className="hidden xl:flex items-center gap-2">
@@ -67,15 +67,15 @@ export function Layout({ children }: LayoutProps) {
                         item.highlight
                           ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25 hover:-translate-y-0.5 hover:shadow-purple-500/35'
                           : isActive
-                          ? 'bg-indigo-50 text-indigo-700'
-                          : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                          ? 'bg-[var(--surface-3)] text-[var(--accent-2)] border border-[var(--border-focus)]'
+                          : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] border border-transparent'
                       }`}
                     >
                       <Icon className="w-4 h-4 mr-2" />
                       {item.name}
                       {item.highlight && <Sparkles className="w-3 h-3 ml-1" />}
                       {!item.highlight && isActive && (
-                        <span className="absolute left-3 right-3 -bottom-0.5 h-0.5 rounded-full bg-indigo-500" />
+                        <span className="absolute left-3 right-3 -bottom-0.5 h-0.5 rounded-full bg-[var(--accent)]" />
                       )}
                     </Link>
                   );
@@ -95,8 +95,8 @@ export function Layout({ children }: LayoutProps) {
                         item.highlight
                           ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
                           : isActive
-                          ? 'bg-indigo-50 text-indigo-700'
-                          : 'bg-white/80 text-slate-600'
+                          ? 'bg-[var(--surface-3)] text-[var(--accent-2)] border border-[var(--border-focus)]'
+                          : 'bg-[var(--surface)] text-[var(--text-muted)] border border-[var(--border)]'
                       }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
@@ -108,8 +108,8 @@ export function Layout({ children }: LayoutProps) {
               <div className="flex items-center gap-2 ml-auto">
               {user && (
                 <div className="hidden md:flex flex-col items-end mr-1">
-                  <span className="text-xs font-semibold text-slate-800 leading-none">{user.fullName}</span>
-                  <span className="text-[10px] uppercase tracking-[0.16em] text-purple-600 font-semibold">{roleLabel}</span>
+                  <span className="text-xs font-semibold text-[var(--text)] leading-none">{user.fullName}</span>
+                  <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--accent)] font-semibold">{roleLabel}</span>
                 </div>
               )}
               <div className="hidden sm:flex items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
@@ -151,7 +151,18 @@ export function Layout({ children }: LayoutProps) {
                   logout();
                   navigate('/login');
                 }}
-                className="p-2 text-slate-600 hover:text-slate-900 rounded-xl hover:bg-white/90 transition"
+                className="hidden md:inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold text-[var(--text-2)] hover:text-[var(--text)] rounded-xl hover:bg-[var(--surface-2)] border border-[var(--border)] bg-[var(--surface)] transition"
+                title="Logout"
+              >
+                <LogOut className="w-5 h-5" />
+                Logout
+              </button>
+              <button
+                onClick={() => {
+                  logout();
+                  navigate('/login');
+                }}
+                className="md:hidden p-2 text-[var(--text-2)] hover:text-[var(--text)] rounded-xl hover:bg-[var(--surface-2)] border border-[var(--border)] bg-[var(--surface)] transition"
                 title="Logout"
               >
                 <LogOut className="w-5 h-5" />
@@ -161,7 +172,7 @@ export function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto relative z-10">{children}</main>
+      <main className="max-w-7xl mx-auto relative z-10 pb-8">{children}</main>
     </div>
   );
 }
