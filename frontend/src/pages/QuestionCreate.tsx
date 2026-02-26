@@ -224,6 +224,7 @@ export function QuestionCreate() {
   const [dragActive, setDragActive] = useState(false);
   const [serverPackageValidation, setServerPackageValidation] = useState<any | null>(null);
   const [templateFrameworkChoice, setTemplateFrameworkChoice] = useState<TestFramework>('jest');
+  const [completeSampleFrameworkChoice, setCompleteSampleFrameworkChoice] = useState<TestFramework>('jest');
 
   const syncFrameworkDefaults = (nextFramework: TestFramework, nextCategory = category, nextPoints = points) => {
     const starter = buildDefaultStarterCode(nextCategory, nextFramework);
@@ -321,7 +322,12 @@ export function QuestionCreate() {
     e.preventDefault();
     try {
       const question = await createMutation.mutateAsync(payload);
-      navigate(`/questions/${question.id}`);
+      const params = new URLSearchParams();
+      params.set('created', '1');
+      if (draftRunResult?.success && draftRunResult.testsRun > 0 && draftRunResult.testsRun === draftRunResult.testsPassed) {
+        params.set('draftVerified', '1');
+      }
+      navigate(`/questions/${question.id}?${params.toString()}`);
     } catch (error: any) {
       const backendError = error?.response?.data;
       const detailMsg = Array.isArray(backendError?.details)
@@ -514,46 +520,84 @@ export function QuestionCreate() {
     }
   };
 
-  const handleDownloadCompleteSamplePackage = async () => {
+  const handleDownloadCompleteSamplePackage = async (frameworkChoice?: TestFramework) => {
     setDownloadingTemplate(true);
     setPackageImportError(null);
     setPackageImportInfo(null);
     try {
       const zip = new JSZip();
-      const starterPath = 'solution.js';
-      const testFile = 'tests/sum.test.js';
+      const sampleFramework = frameworkChoice || completeSampleFrameworkChoice || 'jest';
+      const isJs = sampleFramework === 'jest' || sampleFramework === 'playwright';
+      const isPy = sampleFramework === 'pytest';
+      const isJava = sampleFramework === 'junit';
 
-      const starterCode = `function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n\nmodule.exports = { sum };\n`;
-      const solutionCode = `function sum(a, b) {\n  return a + b;\n}\n\nmodule.exports = { sum };\n`;
+      const starterPath = isPy ? 'solution.py' : isJava ? 'src/main/java/Main.java' : 'solution.js';
+      const testFile = isPy
+        ? 'tests/test_solution.py'
+        : isJava
+        ? 'src/test/java/MainTest.java'
+        : sampleFramework === 'playwright'
+        ? 'tests/question.spec.js'
+        : 'tests/sum.test.js';
+
+      const starterCode = isPy
+        ? "def sum_numbers(a, b):\n    # TODO: return the sum of two numbers\n    return 0\n"
+        : isJava
+        ? "public class Main {\n    public static int sumNumbers(int a, int b) {\n        // TODO: return the sum of two numbers\n        return 0;\n    }\n}\n"
+        : "function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n\nmodule.exports = { sum };\n";
+      const solutionCode = isPy
+        ? "def sum_numbers(a, b):\n    return a + b\n"
+        : isJava
+        ? "public class Main {\n    public static int sumNumbers(int a, int b) {\n        return a + b;\n    }\n}\n"
+        : "function sum(a, b) {\n  return a + b;\n}\n\nmodule.exports = { sum };\n";
+
+      const tc1 = isPy
+        ? "from solution import sum_numbers\nassert sum_numbers(1, 2) == 3\n"
+        : isJava
+        ? "assertEquals(3, Main.sumNumbers(1, 2));"
+        : sampleFramework === 'playwright'
+        ? "const { sum } = require('./solution');\nexpect(sum(1, 2)).toBe(3);"
+        : "const { sum } = require('./solution');\nexpect(sum(1, 2)).toBe(3);";
+      const tc2 = isPy
+        ? "from solution import sum_numbers\nassert sum_numbers(-5, 2) == -3\n"
+        : isJava
+        ? "assertEquals(-3, Main.sumNumbers(-5, 2));"
+        : "const { sum } = require('./solution');\nexpect(sum(-5, 2)).toBe(-3);";
+      const tc3 = isPy
+        ? "from solution import sum_numbers\nassert sum_numbers(0, 0) == 0\n"
+        : isJava
+        ? "assertEquals(0, Main.sumNumbers(0, 0));"
+        : "const { sum } = require('./solution');\nexpect(sum(0, 0)).toBe(0);";
 
       zip.file(`starter/${starterPath}`, starterCode);
       zip.file(`solution/${starterPath}`, solutionCode);
-      zip.file('tests/tc_001.js', "const { sum } = require('./solution');\nexpect(sum(1, 2)).toBe(3);");
-      zip.file('tests/tc_002.js', "const { sum } = require('./solution');\nexpect(sum(-5, 2)).toBe(-3);");
-      zip.file('tests/tc_003.js', "const { sum } = require('./solution');\nexpect(sum(0, 0)).toBe(0);");
+      zip.file(`tests/tc_001.${isPy ? 'py' : isJava ? 'java' : 'js'}`, tc1);
+      zip.file(`tests/tc_002.${isPy ? 'py' : isJava ? 'java' : 'js'}`, tc2);
+      zip.file(`tests/tc_003.${isPy ? 'py' : isJava ? 'java' : 'js'}`, tc3);
 
       const manifest: QuestionPackageManifest = {
         schemaVersion: QUESTION_PACKAGE_SCHEMA_VERSION,
-        title: 'Implement sum(a, b)',
-        description:
-          'Implement a function `sum(a, b)` that returns the sum of two numbers. Handle positive, negative, and zero values.',
-        category: 'backend',
+        title: sampleFramework === 'playwright' ? 'Implement sum() utility and verify basic flow' : 'Implement sum(a, b)',
+        description: sampleFramework === 'playwright'
+          ? 'Implement a simple `sum(a, b)` utility and validate the provided test assertions. This is a Playwright-compatible sample package for authoring flow validation.'
+          : 'Implement a function that returns the sum of two numbers. Handle positive, negative, and zero values.',
+        category: sampleFramework === 'playwright' ? 'frontend' : 'backend',
         difficulty: 'easy',
-        testFramework: 'jest',
+        testFramework: sampleFramework,
         points: 100,
         timeEstimate: 15,
-        skills: ['javascript', 'functions', 'unit-testing'],
-        tags: ['warmup', 'math', 'jest'],
+        skills: isPy ? ['python', 'functions', 'unit-testing'] : isJava ? ['java', 'methods', 'unit-testing'] : ['javascript', 'functions', 'unit-testing'],
+        tags: ['warmup', 'math', sampleFramework],
         starterCode: {
-          files: [{ path: starterPath, source: `starter/${starterPath}`, language: 'javascript' }]
+          files: [{ path: starterPath, source: `starter/${starterPath}`, language: isPy ? 'python' : isJava ? 'java' : 'javascript' }]
         },
         solution: {
-          files: [{ path: starterPath, source: `solution/${starterPath}`, language: 'javascript' }]
+          files: [{ path: starterPath, source: `solution/${starterPath}`, language: isPy ? 'python' : isJava ? 'java' : 'javascript' }]
         },
         testCases: [
-          { id: 'tc_001', name: 'Adds positive integers', file: testFile, testName: 'adds positive integers', points: 40, visible: true, category: 'basic', testCodePath: 'tests/tc_001.js' },
-          { id: 'tc_002', name: 'Adds negative and positive', file: testFile, testName: 'adds negative and positive', points: 30, visible: true, category: 'edge', testCodePath: 'tests/tc_002.js' },
-          { id: 'tc_003', name: 'Adds zeros', file: testFile, testName: 'adds zeros', points: 30, visible: false, category: 'edge', testCodePath: 'tests/tc_003.js' }
+          { id: 'tc_001', name: 'Adds positive integers', file: testFile, testName: isPy ? 'test_adds_positive_integers' : isJava ? 'addsPositiveIntegers' : 'adds positive integers', points: 40, visible: true, category: 'basic', testCodePath: `tests/tc_001.${isPy ? 'py' : isJava ? 'java' : 'js'}` },
+          { id: 'tc_002', name: 'Adds negative and positive', file: testFile, testName: isPy ? 'test_adds_negative_and_positive' : isJava ? 'addsNegativeAndPositive' : 'adds negative and positive', points: 30, visible: true, category: 'edge', testCodePath: `tests/tc_002.${isPy ? 'py' : isJava ? 'java' : 'js'}` },
+          { id: 'tc_003', name: 'Adds zeros', file: testFile, testName: isPy ? 'test_adds_zeros' : isJava ? 'addsZeros' : 'adds zeros', points: 30, visible: false, category: 'edge', testCodePath: `tests/tc_003.${isPy ? 'py' : isJava ? 'java' : 'js'}` }
         ]
       };
 
@@ -564,12 +608,12 @@ export function QuestionCreate() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'sample-jest-sum-question.zip';
+      anchor.download = `sample-${sampleFramework}-sum-question.zip`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      setPackageImportInfo('Downloaded complete sample package: sample-jest-sum-question.zip');
+      setPackageImportInfo(`Downloaded complete sample package: sample-${sampleFramework}-sum-question.zip`);
     } catch (err: any) {
       setPackageImportError(err?.message || 'Failed to generate complete sample package');
     } finally {
@@ -794,10 +838,20 @@ export function QuestionCreate() {
                 <Plus className="w-4 h-4" />
                 {downloadingTemplate ? 'Generating...' : 'Download Template ZIP'}
               </button>
+              <select
+                className="input-field !w-auto !py-2 text-sm"
+                value={completeSampleFrameworkChoice}
+                onChange={(e) => setCompleteSampleFrameworkChoice(e.target.value as TestFramework)}
+              >
+                <option value="jest">Jest Sample</option>
+                <option value="pytest">Pytest Sample</option>
+                <option value="playwright">Playwright Sample</option>
+                <option value="junit">JUnit Sample</option>
+              </select>
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={handleDownloadCompleteSamplePackage}
+                onClick={() => handleDownloadCompleteSamplePackage(completeSampleFrameworkChoice)}
                 disabled={downloadingTemplate}
               >
                 <Play className="w-4 h-4" />

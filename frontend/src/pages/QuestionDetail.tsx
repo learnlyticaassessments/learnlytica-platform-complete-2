@@ -1,15 +1,46 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuestion, useDeleteQuestion, useUpdateQuestionStatus } from '../hooks/useQuestions';
-import { ArrowLeft, Edit, Trash, CheckCircle, Eye } from 'lucide-react';
+import { ArrowLeft, Edit, Trash, CheckCircle, Eye, Download, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import JSZip from 'jszip';
+import type { Question } from '../../../backend/shared/types/question.types';
+
+const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
+
+function exportLanguageFromPath(path: string) {
+  const p = path.toLowerCase();
+  if (p.endsWith('.py')) return 'python';
+  if (p.endsWith('.java')) return 'java';
+  return 'javascript';
+}
+
+function buildAuthorChecklist(question: Question, draftVerified: boolean) {
+  const testCases = question.testConfig?.testCases || [];
+  const visibleTestCases = testCases.filter((t) => t.visible);
+  const totalTestPoints = testCases.reduce((sum, tc) => sum + (Number(tc.points) || 0), 0);
+  return [
+    { label: 'Description is sufficiently detailed', ok: (question.description || '').trim().length >= 20 },
+    { label: 'At least one skill added', ok: (question.skills || []).length > 0 },
+    { label: 'At least one tag added', ok: (question.tags || []).length > 0 },
+    { label: 'Starter code files present', ok: (question.starterCode?.files || []).length > 0 },
+    { label: 'Test cases configured', ok: testCases.length > 0 },
+    { label: 'Test case points total > 0', ok: totalTestPoints > 0 },
+    { label: 'At least one visible test case', ok: visibleTestCases.length > 0 },
+    { label: 'Reference solution present', ok: (question.solution?.files || []).length > 0 },
+    { label: 'Draft tests verified in authoring flow', ok: draftVerified }
+  ];
+}
 
 export function QuestionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: question, isLoading, isError } = useQuestion(id!);
   const deleteMutation = useDeleteQuestion();
   const updateStatusMutation = useUpdateQuestionStatus();
+  const createdFlow = searchParams.get('created') === '1';
+  const draftVerified = searchParams.get('draftVerified') === '1';
 
   const handleDelete = async () => {
     if (confirm('Are you sure you want to delete this question?')) {
@@ -25,8 +56,99 @@ export function QuestionDetail() {
   const handlePublish = async () => {
     try {
       await updateStatusMutation.mutateAsync({ id: id!, status: 'published' });
+      if (createdFlow) {
+        searchParams.delete('created');
+        searchParams.delete('draftVerified');
+        setSearchParams(searchParams, { replace: true });
+      }
     } catch (error) {
       alert('Failed to publish question');
+    }
+  };
+
+  const handleExportPackage = async () => {
+    if (!question) return;
+    try {
+      const zip = new JSZip();
+
+      for (const file of question.starterCode.files || []) {
+        zip.file(`starter/${file.path}`, file.content ?? '');
+      }
+      for (const file of question.solution?.files || []) {
+        zip.file(`solution/${file.path}`, file.content ?? '');
+      }
+
+      const testCases = question.testConfig?.testCases || [];
+      const manifestTestCases = testCases.map((tc, idx) => {
+        const ext = question.testFramework === 'pytest' ? 'py' : question.testFramework === 'junit' ? 'java' : 'js';
+        const path = `tests/${tc.id || `tc_${String(idx + 1).padStart(3, '0')}`}.${ext}`;
+        if (tc.testCode) {
+          zip.file(path, tc.testCode);
+        }
+        return {
+          id: tc.id,
+          name: tc.name,
+          description: tc.description,
+          file: tc.file,
+          testName: tc.testName,
+          points: tc.points,
+          visible: tc.visible,
+          category: tc.category,
+          ...(tc.testCode ? { testCodePath: path } : {})
+        };
+      });
+
+      const manifest = {
+        schemaVersion: QUESTION_PACKAGE_SCHEMA_VERSION,
+        title: question.title,
+        description: question.description,
+        category: question.category,
+        difficulty: question.difficulty,
+        testFramework: question.testFramework,
+        points: question.points,
+        timeEstimate: question.timeEstimate,
+        skills: question.skills || [],
+        tags: question.tags || [],
+        starterCode: {
+          files: (question.starterCode.files || []).map((f) => ({
+            path: f.path,
+            source: `starter/${f.path}`,
+            language: f.language || exportLanguageFromPath(f.path)
+          }))
+        },
+        solution: question.solution
+          ? {
+              files: (question.solution.files || []).map((f) => ({
+                path: f.path,
+                source: `solution/${f.path}`,
+                language: f.language || exportLanguageFromPath(f.path)
+              }))
+            }
+          : { files: [] },
+        testCases: manifestTestCases
+      };
+
+      zip.file('learnlytica-question.json', JSON.stringify(manifest, null, 2));
+      zip.file('README.txt', [
+        'Learnlytica Question Package (Exported)',
+        '',
+        'This package can be re-imported into Question Authoring for round-trip editing.',
+        `Question ID: ${question.id}`,
+        `Version: ${question.version}`
+      ].join('\n'));
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const safeTitle = (question.title || 'question').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${safeTitle || 'question'}-${question.testFramework}-v${question.version}.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alert(error?.message || 'Failed to export question package ZIP');
     }
   };
 
@@ -48,8 +170,54 @@ export function QuestionDetail() {
     );
   }
 
+  const checklist = buildAuthorChecklist(question, draftVerified);
+  const checklistPassed = checklist.filter((item) => item.ok).length;
+  const checklistComplete = checklist.every((item) => item.ok);
+
   return (
     <div className="p-6 space-y-6">
+      {createdFlow && question.status === 'draft' && (
+        <div className={`rounded-xl border p-5 ${checklistComplete ? 'border-green-300 bg-green-50' : 'border-amber-300 bg-amber-50'}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold mb-2">
+                {checklistComplete ? <CheckCircle className="w-4 h-4 text-green-700" /> : <AlertTriangle className="w-4 h-4 text-amber-700" />}
+                Create Question Success -> Author Checklist
+              </div>
+              <p className="text-sm text-gray-700">
+                Question saved as draft. Review the checklist, then publish when ready. Passed {checklistPassed}/{checklist.length} checks.
+              </p>
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                {checklist.map((item) => (
+                  <div key={item.label} className="flex items-center gap-2">
+                    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${item.ok ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-700'}`}>
+                      {item.ok ? '✓' : '•'}
+                    </span>
+                    <span className={item.ok ? 'text-gray-800' : 'text-gray-600'}>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate(`/questions/${id}/edit`)}
+                className="btn-secondary"
+              >
+                Edit First
+              </button>
+              <button
+                onClick={handlePublish}
+                disabled={!checklistComplete || updateStatusMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle className="w-4 h-4" />
+                {updateStatusMutation.isPending ? 'Publishing...' : 'Publish Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-start space-x-4">
@@ -90,6 +258,13 @@ export function QuestionDetail() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportPackage}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-black transition"
+          >
+            <Download className="w-4 h-4" />
+            Export ZIP
+          </button>
           {question.status === 'draft' && (
             <button
               onClick={handlePublish}
