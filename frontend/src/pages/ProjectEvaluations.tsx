@@ -247,8 +247,21 @@ export function ProjectEvaluations() {
     setError('');
     setMsg('');
     try {
-      await projectEvaluationsService.queueRun(submissionId, { triggerType: 'manual' });
-      setMsg('Evaluation run queued (Phase 1 scaffold)');
+      const res = await projectEvaluationsService.queueRun(submissionId, { triggerType: 'manual' });
+      const run = res.data;
+      const summary = run?.summary_json || {};
+      if (run?.runner_kind === 'phase1_react_vite_playwright') {
+        const score = typeof run?.score === 'number' ? `${run.score}/100` : 'n/a';
+        const testsPassed = summary?.testsPassed ?? '?';
+        const testsTotal = summary?.testsTotal ?? '?';
+        setMsg(run?.status === 'completed'
+          ? `Browser evaluation completed (${testsPassed}/${testsTotal} tests passed, score ${score})`
+          : `Browser evaluation failed (${testsPassed}/${testsTotal} tests passed, score ${score})`);
+      } else if (summary?.state === 'preflight_complete') {
+        setMsg(`Preflight validation completed (${summary?.checksPassed ?? 0}/${summary?.checksTotal ?? 0} checks passed)`);
+      } else {
+        setMsg('Evaluation run queued');
+      }
       if (selectedAssessmentId) {
         const detail = await projectEvaluationsService.getAssessment(selectedAssessmentId);
         setAssessmentDetail(detail.data);
