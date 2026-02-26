@@ -480,6 +480,8 @@ export async function createAssessment(db: Kysely<any>, ctx: Ctx, payload: any) 
       due_date: payload?.dueDate ? new Date(payload.dueDate).toISOString() : null,
       allow_review: payload?.allowReview !== false,
       config_json: payload?.config || {},
+      published_at: payload?.status === 'published' ? nowIso() : null,
+      published_by: payload?.status === 'published' ? (ctx.userId || null) : null,
       created_by: ctx.userId || null
     })
     .returningAll()
@@ -503,13 +505,16 @@ export async function getAssessmentDetail(db: Kysely<any>, ctx: Ctx, assessmentI
       'pa.time_limit_minutes as timeLimitMinutes',
       'pa.due_date as dueDate',
       'pa.allow_review as allowReview',
+      'pa.published_at as publishedAt',
+      'pa.published_by as publishedBy',
       'pa.config_json as config',
       'pa.created_at as createdAt',
       'pet.id as evaluatorTemplateId',
       'pet.name as evaluatorTemplateName',
       'pet.description as evaluatorTemplateDescription',
       'pet.framework_family as evaluatorFrameworkFamily',
-      'pet.target_kind as evaluatorTargetKind'
+      'pet.target_kind as evaluatorTargetKind',
+      'pet.config_json as evaluatorTemplateConfig'
     ])
     .where('pa.id', '=', assessmentId)
     .where('pa.organization_id', '=', ctx.organizationId)
@@ -533,6 +538,10 @@ export async function getAssessmentDetail(db: Kysely<any>, ctx: Ctx, assessmentI
       'ps.detected_framework as detectedFramework',
       'ps.detected_backend as detectedBackend',
       'ps.status',
+      'ps.submission_kind as submissionKind',
+      'ps.due_date as dueDate',
+      'ps.assigned_at as assignedAt',
+      'ps.assigned_by as assignedBy',
       'ps.submitted_at as submittedAt',
       'ps.latest_score as latestScore',
       'ps.latest_summary_json as latestSummary',
@@ -543,13 +552,18 @@ export async function getAssessmentDetail(db: Kysely<any>, ctx: Ctx, assessmentI
       'per.score as latestRunScore',
       'per.max_score as latestRunMaxScore',
       'per.summary_json as latestRunSummary',
-      'per.result_json as latestRunResult'
+      'per.result_json as latestRunResult',
+      'per.logs_text as latestRunLogs',
+      'per.runner_kind as latestRunRunnerKind',
+      'per.framework_detected as latestRunFrameworkDetected'
     ])
     .where('ps.project_assessment_id', '=', assessmentId)
     .orderBy('ps.submitted_at', 'desc')
     .execute();
+  const referenceSubmissions = submissions.filter((s: any) => (s.submissionKind || 'reference_validation') === 'reference_validation');
+  const learnerAssignments = submissions.filter((s: any) => (s.submissionKind || 'reference_validation') === 'learner_assignment');
 
-  return { ...assessment, submissions };
+  return { ...assessment, submissions: referenceSubmissions, referenceSubmissions, learnerAssignments };
 }
 
 export async function deleteAssessment(db: Kysely<any>, ctx: Ctx, assessmentId: string) {
@@ -602,6 +616,10 @@ function inferFrontendFramework(input: any) {
   return 'react_vite';
 }
 
+function normalizeSubmissionKind(kind: any): 'reference_validation' | 'learner_assignment' {
+  return String(kind || '').trim() === 'learner_assignment' ? 'learner_assignment' : 'reference_validation';
+}
+
 export async function createSubmission(db: Kysely<any>, ctx: Ctx, assessmentId: string, payload: any) {
   const assessment = await db
     .selectFrom('project_assessments')
@@ -622,6 +640,7 @@ export async function createSubmission(db: Kysely<any>, ctx: Ctx, assessmentId: 
     throw new Error('Learner not found in this organization');
   }
 
+  const submissionKind = normalizeSubmissionKind(payload?.submissionKind);
   const sourceType = payload?.sourceType === 'github' ? 'github' : 'zip_upload';
   const row = await db
     .insertInto('project_submissions')
@@ -637,11 +656,17 @@ export async function createSubmission(db: Kysely<any>, ctx: Ctx, assessmentId: 
       repo_commit_sha: payload?.repoCommitSha || null,
       detected_framework: inferFrontendFramework(payload),
       detected_backend: payload?.detectedBackend || null,
-      status: 'submitted',
+      status: submissionKind === 'learner_assignment' ? 'assigned' : 'submitted',
+      submission_kind: submissionKind,
+      assigned_at: submissionKind === 'learner_assignment' ? nowIso() : null,
+      assigned_by: submissionKind === 'learner_assignment' ? (ctx.userId || null) : null,
+      due_date: payload?.dueDate ? new Date(payload.dueDate).toISOString() : null,
+      assignment_notes: payload?.assignmentNotes || null,
       metadata_json: {
         phase: 1,
         zipFileName: payload?.zipFileName || null,
         notes: payload?.notes || null,
+        submissionKind,
         createdAt: nowIso()
       }
     })
@@ -649,6 +674,114 @@ export async function createSubmission(db: Kysely<any>, ctx: Ctx, assessmentId: 
     .executeTakeFirst();
 
   return row;
+}
+
+export async function publishAssessment(db: Kysely<any>, ctx: Ctx, assessmentId: string) {
+  const updated = await db
+    .updateTable('project_assessments')
+    .set({
+      status: 'published',
+      published_at: nowIso(),
+      published_by: ctx.userId || null,
+      updated_at: nowIso()
+    })
+    .where('id', '=', assessmentId)
+    .where('organization_id', '=', ctx.organizationId)
+    .returning(['id', 'title', 'status', 'published_at as publishedAt'])
+    .executeTakeFirst();
+
+  if (!updated) throw new Error('Project assessment not found');
+  return updated;
+}
+
+export async function assignAssessment(db: Kysely<any>, ctx: Ctx, assessmentId: string, payload: any) {
+  const assessment = await db
+    .selectFrom('project_assessments')
+    .select(['id', 'organization_id as organizationId', 'status', 'due_date as dueDate'])
+    .where('id', '=', assessmentId)
+    .executeTakeFirst();
+  if (!assessment || (assessment as any).organizationId !== ctx.organizationId) throw new Error('Project assessment not found');
+  if ((assessment as any).status !== 'published') throw new Error('Project assessment must be published before assignment');
+
+  const learnerIds = Array.isArray(payload?.learnerIds) ? payload.learnerIds.map((x: any) => String(x)).filter(Boolean) : [];
+  const batchId = payload?.batchId ? String(payload.batchId) : '';
+
+  let batchLearnerIds: string[] = [];
+  if (batchId) {
+    const rows = await db
+      .selectFrom('batch_memberships as bm')
+      .innerJoin('users as u', 'u.id', 'bm.student_id')
+      .select(['bm.student_id as studentId'])
+      .where('bm.batch_id', '=', batchId)
+      .where('bm.status', '=', 'active')
+      .where('u.organization_id', '=', ctx.organizationId)
+      .execute();
+    batchLearnerIds = rows.map((r: any) => r.studentId);
+  }
+
+  const targetLearnerIds = Array.from(new Set([...learnerIds, ...batchLearnerIds]));
+  if (!targetLearnerIds.length) throw new Error('At least one learner or batch is required');
+
+  const validLearners = await db
+    .selectFrom('users')
+    .select(['id'])
+    .where('organization_id', '=', ctx.organizationId)
+    .where('role', '=', 'student')
+    .where('id', 'in', targetLearnerIds)
+    .execute();
+  const validSet = new Set(validLearners.map((l: any) => l.id));
+  const finalLearners = targetLearnerIds.filter((id) => validSet.has(id));
+  if (!finalLearners.length) throw new Error('No valid learners found for assignment');
+
+  const existing = await db
+    .selectFrom('project_submissions')
+    .select(['student_id as studentId'])
+    .where('project_assessment_id', '=', assessmentId)
+    .where('submission_kind', '=', 'learner_assignment')
+    .where('student_id', 'in', finalLearners)
+    .where('status', 'in', ['assigned', 'submitted', 'preflight_completed', 'evaluation_queued', 'evaluation_completed', 'evaluation_failed'])
+    .execute();
+  const existingSet = new Set(existing.map((e: any) => e.studentId));
+  const createLearners = finalLearners.filter((id) => !existingSet.has(id));
+
+  if (createLearners.length) {
+    await db
+      .insertInto('project_submissions')
+      .values(createLearners.map((studentId) => ({
+        project_assessment_id: assessmentId,
+        organization_id: ctx.organizationId,
+        student_id: studentId,
+        assigned_batch_id: batchId || null,
+        source_type: 'zip_upload',
+        source_ref: null,
+        repo_url: null,
+        repo_branch: null,
+        repo_commit_sha: null,
+        detected_framework: null,
+        detected_backend: null,
+        status: 'assigned',
+        submission_kind: 'learner_assignment',
+        assigned_at: nowIso(),
+        assigned_by: ctx.userId || null,
+        due_date: payload?.dueDate ? new Date(payload.dueDate).toISOString() : ((assessment as any).dueDate || null),
+        assignment_notes: payload?.assignmentNotes || null,
+        metadata_json: {
+          phase: 1,
+          submissionKind: 'learner_assignment',
+          assignmentSource: batchId ? 'batch' : 'manual',
+          createdAt: nowIso()
+        }
+      })))
+      .execute();
+  }
+
+  return {
+    assessmentId,
+    createdCount: createLearners.length,
+    skippedCount: finalLearners.length - createLearners.length,
+    assignedLearnerIds: finalLearners,
+    batchId: batchId || null
+  };
 }
 
 export async function getSubmission(db: Kysely<any>, ctx: Ctx, submissionId: string) {
@@ -672,6 +805,11 @@ export async function getSubmission(db: Kysely<any>, ctx: Ctx, submissionId: str
       'ps.detected_framework as detectedFramework',
       'ps.detected_backend as detectedBackend',
       'ps.status',
+      'ps.submission_kind as submissionKind',
+      'ps.due_date as dueDate',
+      'ps.assigned_at as assignedAt',
+      'ps.assigned_by as assignedBy',
+      'ps.assignment_notes as assignmentNotes',
       'ps.submitted_at as submittedAt',
       'ps.latest_run_id as latestRunId',
       'ps.latest_score as latestScore',
@@ -704,6 +842,135 @@ export async function getSubmission(db: Kysely<any>, ctx: Ctx, submissionId: str
     .execute();
 
   return { ...submission, runs };
+}
+
+async function getLearnerOwnedSubmissionRow(db: Kysely<any>, ctx: Ctx, submissionId: string) {
+  return db
+    .selectFrom('project_submissions')
+    .select([
+      'id',
+      'organization_id as organizationId',
+      'student_id as studentId',
+      'submission_kind as submissionKind',
+      'status'
+    ])
+    .where('id', '=', submissionId)
+    .executeTakeFirst();
+}
+
+export async function listLearnerAssignments(db: Kysely<any>, ctx: Ctx) {
+  const rows = await db
+    .selectFrom('project_submissions as ps')
+    .innerJoin('project_assessments as pa', 'pa.id', 'ps.project_assessment_id')
+    .innerJoin('project_evaluator_templates as pet', 'pet.id', 'pa.evaluator_template_id')
+    .leftJoin('project_evaluation_runs as per', 'per.id', 'ps.latest_run_id')
+    .select([
+      'ps.id',
+      'ps.project_assessment_id as projectAssessmentId',
+      'pa.title as projectAssessmentTitle',
+      'pa.description as projectAssessmentDescription',
+      'pa.status as assessmentStatus',
+      'pa.allow_review as allowReview',
+      'pa.due_date as assessmentDueDate',
+      'pa.config_json as assessmentConfig',
+      'pet.name as evaluatorTemplateName',
+      'ps.status',
+      'ps.submission_kind as submissionKind',
+      'ps.source_type as sourceType',
+      'ps.detected_framework as detectedFramework',
+      'ps.assigned_batch_id as assignedBatchId',
+      'ps.assigned_at as assignedAt',
+      'ps.due_date as dueDate',
+      'ps.assignment_notes as assignmentNotes',
+      'ps.submitted_at as submittedAt',
+      'ps.latest_score as latestScore',
+      'ps.latest_summary_json as latestSummary',
+      'per.id as latestRunId',
+      'per.status as latestRunStatus',
+      'per.score as latestRunScore',
+      'per.max_score as latestRunMaxScore',
+      'per.summary_json as latestRunSummary'
+    ])
+    .where('ps.organization_id', '=', ctx.organizationId)
+    .where('ps.student_id', '=', ctx.userId || '')
+    .where('ps.submission_kind', '=', 'learner_assignment')
+    .orderBy('ps.assigned_at', 'desc')
+    .execute();
+  return rows;
+}
+
+export async function getLearnerAssignmentDetail(db: Kysely<any>, ctx: Ctx, submissionId: string) {
+  const detail = await db
+    .selectFrom('project_submissions as ps')
+    .innerJoin('project_assessments as pa', 'pa.id', 'ps.project_assessment_id')
+    .innerJoin('project_evaluator_templates as pet', 'pet.id', 'pa.evaluator_template_id')
+    .leftJoin('project_evaluation_runs as per', 'per.id', 'ps.latest_run_id')
+    .select([
+      'ps.id',
+      'ps.project_assessment_id as projectAssessmentId',
+      'ps.organization_id as organizationId',
+      'ps.student_id as studentId',
+      'ps.status',
+      'ps.submission_kind as submissionKind',
+      'ps.source_type as sourceType',
+      'ps.source_ref as sourceRef',
+      'ps.detected_framework as detectedFramework',
+      'ps.assigned_batch_id as assignedBatchId',
+      'ps.assigned_at as assignedAt',
+      'ps.due_date as dueDate',
+      'ps.assignment_notes as assignmentNotes',
+      'ps.submitted_at as submittedAt',
+      'ps.latest_score as latestScore',
+      'ps.latest_summary_json as latestSummary',
+      'ps.metadata_json as metadata',
+      'pa.title as assessmentTitle',
+      'pa.description as assessmentDescription',
+      'pa.status as assessmentStatus',
+      'pa.allow_review as allowReview',
+      'pa.config_json as assessmentConfig',
+      'pet.name as evaluatorTemplateName',
+      'pet.description as evaluatorTemplateDescription',
+      'pet.config_json as evaluatorTemplateConfig',
+      'per.id as latestRunId',
+      'per.status as latestRunStatus',
+      'per.created_at as latestRunCreatedAt',
+      'per.score as latestRunScore',
+      'per.max_score as latestRunMaxScore',
+      'per.summary_json as latestRunSummary',
+      'per.result_json as latestRunResult',
+      'per.logs_text as latestRunLogs'
+    ])
+    .where('ps.id', '=', submissionId)
+    .where('ps.organization_id', '=', ctx.organizationId)
+    .where('ps.student_id', '=', ctx.userId || '')
+    .where('ps.submission_kind', '=', 'learner_assignment')
+    .executeTakeFirst();
+
+  if (!detail) return null;
+  return detail;
+}
+
+export async function learnerUploadSubmissionZip(
+  db: Kysely<any>,
+  ctx: Ctx,
+  submissionId: string,
+  file: { originalname?: string; buffer?: Buffer; size?: number }
+) {
+  const row = await getLearnerOwnedSubmissionRow(db, ctx, submissionId);
+  if (!row || (row as any).organizationId !== ctx.organizationId || (row as any).studentId !== (ctx.userId || '')) {
+    throw new Error('Project submission not found');
+  }
+  if ((row as any).submissionKind !== 'learner_assignment') throw new Error('Invalid learner project submission');
+  return uploadSubmissionZip(db, ctx, submissionId, file);
+}
+
+export async function learnerSubmitAndEvaluate(db: Kysely<any>, ctx: Ctx, submissionId: string) {
+  const row = await getLearnerOwnedSubmissionRow(db, ctx, submissionId);
+  if (!row || (row as any).organizationId !== ctx.organizationId || (row as any).studentId !== (ctx.userId || '')) {
+    throw new Error('Project submission not found');
+  }
+  if ((row as any).submissionKind !== 'learner_assignment') throw new Error('Invalid learner project submission');
+  return queueRun(db, ctx, submissionId, { triggerType: 'learner_submit' });
 }
 
 export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, payload: any) {
@@ -900,6 +1167,7 @@ export async function uploadSubmissionZip(
       source_ref: `inline_zip:${file.originalname || 'submission.zip'}`,
       detected_framework: detection.detectedFramework,
       status: 'submitted',
+      submitted_at: nowIso(),
       metadata_json: nextMetadata
     })
     .where('id', '=', submissionId)

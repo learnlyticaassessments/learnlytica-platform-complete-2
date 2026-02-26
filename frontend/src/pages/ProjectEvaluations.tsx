@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Layers3, Play, Plus, UploadCloud } from 'lucide-react';
 import { projectEvaluationsService } from '../services/projectEvaluationsService';
 import { learnersService } from '../services/learnersService';
+import { batchesService } from '../services/batchesService';
 
 function parseLines(input: string) {
   return input
@@ -15,6 +16,42 @@ function summarizeText(text?: string | null, max = 180) {
   if (!value) return '';
   if (value.length <= max) return value;
   return `${value.slice(0, max).trimEnd()}...`;
+}
+
+function normalizeNumber(value: any, fallback: number | null = null) {
+  if (value == null) return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function extractTemplateTips(templateConfig: any) {
+  const tests = templateConfig?.phase1Flow?.tests;
+  if (!Array.isArray(tests)) return [];
+
+  const labels = new Set<string>();
+  const buttons = new Set<string>();
+  const texts = new Set<string>();
+
+  for (const test of tests) {
+    for (const step of test?.steps || []) {
+      if (step?.type === 'expect_heading' && step?.text) texts.add(`Heading: ${step.text}`);
+      if (step?.type === 'expect_text' && step?.text) texts.add(`Text: ${step.text}`);
+      if ((step?.type === 'fill_label' || step?.type === 'select_label') && step?.label) labels.add(step.label);
+      if ((step?.type === 'click_button' || step?.type === 'expect_button') && step?.text) buttons.add(step.text);
+      if (step?.type === 'expect_table_contains' && Array.isArray(step?.values)) {
+        step.values.forEach((v: any) => v && texts.add(`Table contains: ${String(v)}`));
+      }
+      if (step?.type === 'expect_role_contains' && step?.name) {
+        texts.add(`Role "${step.role || 'element'}" contains: ${step.name}`);
+      }
+    }
+  }
+
+  return [
+    labels.size ? { title: 'Form Labels', items: Array.from(labels) } : null,
+    buttons.size ? { title: 'Buttons', items: Array.from(buttons) } : null,
+    texts.size ? { title: 'Expected UI Text', items: Array.from(texts).slice(0, 12) } : null
+  ].filter(Boolean) as Array<{ title: string; items: string[] }>;
 }
 
 function parseLegacyDescriptionSections(description?: string | null) {
@@ -76,6 +113,7 @@ export function ProjectEvaluations() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [assessments, setAssessments] = useState<any[]>([]);
   const [learners, setLearners] = useState<any[]>([]);
+  const [batches, setBatches] = useState<any[]>([]);
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<string>('');
   const [assessmentDetail, setAssessmentDetail] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,6 +121,8 @@ export function ProjectEvaluations() {
   const [msg, setMsg] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [zipFile, setZipFile] = useState<File | null>(null);
+  const [selectedRunDetails, setSelectedRunDetails] = useState<any | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string>('');
 
   const [newAssessment, setNewAssessment] = useState({
     title: '',
@@ -112,19 +152,27 @@ export function ProjectEvaluations() {
     frameworkHint: 'react_vite',
     notes: ''
   });
+  const [assignmentForm, setAssignmentForm] = useState({
+    learnerIds: [] as string[],
+    batchId: '',
+    dueDate: '',
+    assignmentNotes: ''
+  });
 
   async function loadAll(preserveSelected = true) {
     setLoading(true);
     setError('');
     try {
-      const [t, a, l] = await Promise.all([
+      const [t, a, l, b] = await Promise.all([
         projectEvaluationsService.listTemplates(),
         projectEvaluationsService.listAssessments(),
-        learnersService.list()
+        learnersService.list(),
+        batchesService.list()
       ]);
       setTemplates(t.data || []);
       setAssessments(a.data || []);
       setLearners(l.data || []);
+      setBatches(b.data || []);
 
       const fallbackAssessmentId = preserveSelected && selectedAssessmentId
         ? selectedAssessmentId
@@ -168,6 +216,20 @@ export function ProjectEvaluations() {
   );
   const structuredBrief = assessmentDetail?.config?.brief || null;
   const legacyDescriptionSections = !structuredBrief ? parseLegacyDescriptionSections(selectedAssessment?.description) : null;
+  const templateTips = useMemo(
+    () => extractTemplateTips(assessmentDetail?.evaluatorTemplateConfig),
+    [assessmentDetail?.evaluatorTemplateConfig]
+  );
+
+  async function copyText(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey((prev) => (prev === key ? '' : prev)), 1200);
+    } catch {
+      setError('Failed to copy to clipboard');
+    }
+  }
 
   async function createAssessment() {
     if (!newAssessment.title.trim() || !newAssessment.evaluatorTemplateId) return;
@@ -205,6 +267,47 @@ export function ProjectEvaluations() {
       await loadAll(false);
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to create project assessment');
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function publishSelectedAssessment() {
+    if (!selectedAssessmentId) return;
+    setWorking(`publish:${selectedAssessmentId}`);
+    setError('');
+    setMsg('');
+    try {
+      await projectEvaluationsService.publishAssessment(selectedAssessmentId);
+      setMsg('Project assessment published');
+      await loadAll();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to publish project assessment');
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function assignProjectAssessment() {
+    if (!selectedAssessmentId) return;
+    setWorking(`assign:${selectedAssessmentId}`);
+    setError('');
+    setMsg('');
+    try {
+      const res = await projectEvaluationsService.assignAssessment(selectedAssessmentId, {
+        learnerIds: assignmentForm.learnerIds,
+        batchId: assignmentForm.batchId || undefined,
+        dueDate: assignmentForm.dueDate || undefined,
+        assignmentNotes: assignmentForm.assignmentNotes || undefined
+      });
+      setMsg(`Assignments created: ${res.data?.createdCount ?? 0}${(res.data?.skippedCount ?? 0) ? `, skipped: ${res.data.skippedCount}` : ''}`);
+      setAssignmentForm((p) => ({ ...p, learnerIds: [], batchId: '', assignmentNotes: '' }));
+      if (selectedAssessmentId) {
+        const detail = await projectEvaluationsService.getAssessment(selectedAssessmentId);
+        setAssessmentDetail(detail.data);
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to assign project assessment');
     } finally {
       setWorking(null);
     }
@@ -431,8 +534,18 @@ export function ProjectEvaluations() {
                   </p>
                 </div>
                 <div className="flex gap-2 text-xs items-center flex-wrap justify-end">
+                  <span className="px-2 py-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)]">{selectedAssessment.status}</span>
                   <span className="px-2 py-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)]">{selectedAssessment.frameworkScope}</span>
                   <span className="px-2 py-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)]">{selectedAssessment.submissionMode}</span>
+                  <button
+                    type="button"
+                    className="btn-secondary !py-1.5 !px-2.5 text-[11px]"
+                    onClick={publishSelectedAssessment}
+                    disabled={selectedAssessment.status === 'published' || working === `publish:${selectedAssessmentId}`}
+                    title="Publish this project assessment before assigning to learners"
+                  >
+                    {working === `publish:${selectedAssessmentId}` ? 'Publishing...' : selectedAssessment.status === 'published' ? 'Published' : 'Publish'}
+                  </button>
                   <button
                     type="button"
                     className="btn-secondary !py-1.5 !px-2.5 text-[11px]"
@@ -482,6 +595,27 @@ export function ProjectEvaluations() {
                 </div>
               )}
 
+              {!!templateTips.length && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-semibold">Template Compatibility Tips</h3>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Match these labels/texts to avoid template mismatch failures
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {templateTips.map((group) => (
+                      <div key={group.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-2">{group.title}</div>
+                        <ul className="space-y-1 text-xs text-[var(--text)] list-disc pl-4">
+                          {group.items.map((item, i) => <li key={`${group.title}-${i}`}>{item}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {!structuredBrief && legacyDescriptionSections && (
                 <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-4">
                   <div className="flex items-center justify-between">
@@ -504,6 +638,47 @@ export function ProjectEvaluations() {
                   ))}
                 </div>
               )}
+
+              <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="text-sm font-semibold">Publish + Assign to Learners/Batches</div>
+                  <span className="text-xs text-[var(--text-muted)]">Required before learner submissions</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <select
+                    className="input-field"
+                    multiple
+                    value={assignmentForm.learnerIds}
+                    onChange={(e) => setAssignmentForm((p) => ({
+                      ...p,
+                      learnerIds: Array.from(e.target.selectedOptions).map((o) => o.value)
+                    }))}
+                    style={{ minHeight: 120 }}
+                  >
+                    {learners.map((l) => (
+                      <option key={l.id} value={l.id}>{l.fullName} ({l.email})</option>
+                    ))}
+                  </select>
+                  <div className="space-y-3">
+                    <select className="input-field" value={assignmentForm.batchId} onChange={(e) => setAssignmentForm((p) => ({ ...p, batchId: e.target.value }))}>
+                      <option value="">Optional batch assignment</option>
+                      {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                    <input type="datetime-local" className="input-field" value={assignmentForm.dueDate} onChange={(e) => setAssignmentForm((p) => ({ ...p, dueDate: e.target.value }))} />
+                    <input className="input-field" placeholder="Assignment notes (optional)" value={assignmentForm.assignmentNotes} onChange={(e) => setAssignmentForm((p) => ({ ...p, assignmentNotes: e.target.value }))} />
+                    <button
+                      className="btn-primary w-full"
+                      onClick={assignProjectAssessment}
+                      disabled={selectedAssessment.status !== 'published' || working === `assign:${selectedAssessmentId}` || (!assignmentForm.batchId && assignmentForm.learnerIds.length === 0)}
+                    >
+                      {working === `assign:${selectedAssessmentId}` ? 'Assigning...' : 'Assign Project Assessment'}
+                    </button>
+                    {selectedAssessment.status !== 'published' && (
+                      <div className="text-xs text-[var(--text-muted)]">Publish the assessment first to enable learner assignments.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-3">
                 <div className="flex items-center gap-2 font-semibold">
@@ -556,7 +731,7 @@ export function ProjectEvaluations() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-semibold">Reference Validation Submissions</h3>
-                  <span className="text-xs text-[var(--text-muted)]">{assessmentDetail?.submissions?.length || 0} recorded</span>
+                  <span className="text-xs text-[var(--text-muted)]">{assessmentDetail?.referenceSubmissions?.length || assessmentDetail?.submissions?.length || 0} recorded</span>
                 </div>
                 <div className="table-shell overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -571,7 +746,7 @@ export function ProjectEvaluations() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(assessmentDetail?.submissions || []).map((s: any) => (
+                      {(assessmentDetail?.referenceSubmissions || assessmentDetail?.submissions || []).map((s: any) => (
                         <Fragment key={s.id}>
                           <tr key={s.id} className="border-t border-[var(--border)]">
                             <td className="px-3 py-2">
@@ -600,14 +775,28 @@ export function ProjectEvaluations() {
                               )}
                             </td>
                             <td className="px-3 py-2">
-                              <button
-                                className="btn-secondary !py-1.5 !px-2.5 text-xs"
-                                onClick={() => queueRun(s.id)}
-                                disabled={working === `run:${s.id}`}
-                              >
-                                <Play className="w-3.5 h-3.5" />
-                                {working === `run:${s.id}` ? 'Running...' : 'Run Preflight Validation'}
-                              </button>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                  className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                                  onClick={() => queueRun(s.id)}
+                                  disabled={working === `run:${s.id}`}
+                                >
+                                  <Play className="w-3.5 h-3.5" />
+                                  {working === `run:${s.id}` ? 'Running...' : 'Run Preflight Validation'}
+                                </button>
+                                {s.latestRunId && (
+                                  <button
+                                    className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                                    onClick={() => setSelectedRunDetails({
+                                      submission: s,
+                                      assessmentTitle: selectedAssessment?.title,
+                                      templateName: selectedAssessment?.evaluatorTemplateName
+                                    })}
+                                  >
+                                    View Details
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
                           {Array.isArray(s?.latestRunResult?.tests) && s.latestRunResult.tests.length > 0 && (
@@ -643,6 +832,58 @@ export function ProjectEvaluations() {
                       {!assessmentDetail?.submissions?.length && (
                         <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={6}>No reference validation submissions yet.</td></tr>
                       )}
+                      {!assessmentDetail?.referenceSubmissions?.length && !assessmentDetail?.submissions?.length && (
+                        <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={6}>No reference validation submissions yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-semibold">Learner Assignments</h3>
+                  <span className="text-xs text-[var(--text-muted)]">{assessmentDetail?.learnerAssignments?.length || 0} assigned</span>
+                </div>
+                <div className="table-shell overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left">
+                        <th className="px-3 py-2">Learner</th>
+                        <th className="px-3 py-2">Assigned</th>
+                        <th className="px-3 py-2">Due</th>
+                        <th className="px-3 py-2">Status</th>
+                        <th className="px-3 py-2">Latest Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(assessmentDetail?.learnerAssignments || []).map((s: any) => (
+                        <tr key={`learner-${s.id}`} className="border-t border-[var(--border)]">
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{s.studentName || s.studentEmail}</div>
+                            <div className="text-xs text-[var(--text-muted)]">{s.studentEmail}</div>
+                          </td>
+                          <td className="px-3 py-2 text-xs">{s.assignedAt ? new Date(s.assignedAt).toLocaleString() : '-'}</td>
+                          <td className="px-3 py-2 text-xs">{s.dueDate ? new Date(s.dueDate).toLocaleString() : '-'}</td>
+                          <td className="px-3 py-2">{s.status}</td>
+                          <td className="px-3 py-2">
+                            <div className="text-xs">{s.latestRunStatus || '—'}</div>
+                            {s.latestRunSummary && (
+                              <div className="text-xs text-[var(--text-muted)]">
+                                {s.latestRunSummary.testsPassed ?? '?'} / {s.latestRunSummary.testsTotal ?? '?'} tests
+                              </div>
+                            )}
+                            {(s.latestRunScore != null || s.latestScore != null) && (
+                              <div className="text-xs text-[var(--text-muted)]">
+                                score {Number(s.latestRunScore ?? s.latestScore)}/{Number(s.latestRunMaxScore ?? 100)}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {!assessmentDetail?.learnerAssignments?.length && (
+                        <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={5}>No learner assignments yet. Publish and assign above.</td></tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -651,6 +892,122 @@ export function ProjectEvaluations() {
           )}
         </div>
       </div>
+
+      {selectedRunDetails && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex justify-end" onClick={() => setSelectedRunDetails(null)}>
+          <div
+            className="h-full w-full max-w-3xl bg-[var(--surface)] border-l border-[var(--border)] p-4 sm:p-6 overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold">Run Details</h3>
+                <div className="text-sm text-[var(--text-muted)]">
+                  {selectedRunDetails.assessmentTitle} • {selectedRunDetails.templateName}
+                </div>
+                <div className="text-xs text-[var(--text-muted)] mt-1">
+                  {selectedRunDetails.submission?.studentName || selectedRunDetails.submission?.studentEmail} • {selectedRunDetails.submission?.latestRunRunnerKind || selectedRunDetails.submission?.latestRunStatus}
+                </div>
+              </div>
+              <button className="btn-secondary !py-1.5 !px-2.5 text-xs" onClick={() => setSelectedRunDetails(null)}>Close</button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Status</div>
+                <div className="text-sm font-semibold mt-1">{selectedRunDetails.submission?.latestRunStatus || 'unknown'}</div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Tests</div>
+                <div className="text-sm font-semibold mt-1">
+                  {selectedRunDetails.submission?.latestRunSummary?.testsPassed ?? '?'}
+                  /
+                  {selectedRunDetails.submission?.latestRunSummary?.testsTotal ?? '?'}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Score</div>
+                <div className="text-sm font-semibold mt-1">
+                  {normalizeNumber(selectedRunDetails.submission?.latestRunScore, null) ?? 'n/a'}
+                  /
+                  {normalizeNumber(selectedRunDetails.submission?.latestRunMaxScore, 100) ?? 100}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Framework</div>
+                <div className="text-sm font-semibold mt-1">{selectedRunDetails.submission?.latestRunFrameworkDetected || selectedRunDetails.submission?.detectedFramework || '-'}</div>
+              </div>
+            </div>
+
+            {Array.isArray(selectedRunDetails.submission?.latestRunResult?.tests) && selectedRunDetails.submission.latestRunResult.tests.length > 0 && (
+              <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+                <div className="font-semibold mb-2">Test Results</div>
+                <div className="space-y-2">
+                  {selectedRunDetails.submission.latestRunResult.tests.map((t: any, idx: number) => (
+                    <div key={`detail-test-${idx}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="font-medium text-sm">{t.name || `Test ${idx + 1}`}</div>
+                        <span
+                          className="px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide"
+                          style={{
+                            borderColor: t.passed ? 'var(--green-dim)' : 'var(--red-dim)',
+                            color: t.passed ? 'var(--green)' : 'var(--red)'
+                          }}
+                        >
+                          {t.passed ? 'Passed' : 'Failed'}
+                        </span>
+                      </div>
+                      {t.error && (
+                        <pre className="mt-2 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2 text-xs whitespace-pre-wrap break-words text-[var(--text)]">
+                          {String(t.error)}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="font-semibold">Raw Evaluation JSON</div>
+                <button
+                  className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                  onClick={() => copyText('run-json', JSON.stringify(selectedRunDetails.submission?.latestRunResult || {}, null, 2))}
+                >
+                  {copiedKey === 'run-json' ? 'Copied' : 'Copy JSON'}
+                </button>
+              </div>
+              <pre className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-xs whitespace-pre-wrap break-words text-[var(--text)] max-h-80 overflow-auto">
+                {JSON.stringify(selectedRunDetails.submission?.latestRunResult || {}, null, 2)}
+              </pre>
+            </div>
+
+            <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="font-semibold">Runner Logs</div>
+                <button
+                  className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                  onClick={() => copyText('run-logs', String(selectedRunDetails.submission?.latestRunLogs || ''))}
+                  disabled={!selectedRunDetails.submission?.latestRunLogs}
+                >
+                  {copiedKey === 'run-logs' ? 'Copied' : 'Copy Logs'}
+                </button>
+              </div>
+              <pre className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-xs whitespace-pre-wrap break-words text-[var(--text)] max-h-80 overflow-auto">
+                {selectedRunDetails.submission?.latestRunLogs || 'No logs captured for this run.'}
+              </pre>
+            </div>
+
+            <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-4">
+              <div className="font-semibold mb-1">Artifacts (Screenshots/Trace)</div>
+              <div className="text-sm text-[var(--text-muted)]">
+                Screenshot/trace artifact capture is not stored yet in Phase 1. This drawer is ready to display them once artifact persistence is added.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

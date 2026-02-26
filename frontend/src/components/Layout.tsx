@@ -31,6 +31,7 @@ export function Layout({ children }: LayoutProps) {
     { name: 'Learners', href: '/learners', icon: Users, canView: can(user?.role, 'learners.view') },
     { name: 'Certificates', href: '/certificates', icon: Award, canView: can(user?.role, 'certificates.view') },
     { name: 'My Assessments', href: '/student/assessments', icon: User, canView: can(user?.role, 'student.assessments.view') },
+    { name: 'My Projects', href: '/student/projects', icon: FolderKanban, canView: can(user?.role, 'student.projects.view') },
     { name: 'Library', href: '/library', icon: Book, canView: can(user?.role, 'library.view') },
     { name: 'Analytics', href: '/analytics', icon: BarChart3, canView: can(user?.role, 'analytics.view') }
   ];

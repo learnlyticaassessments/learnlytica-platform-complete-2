@@ -21,6 +21,8 @@ import { AssessmentDetail } from './pages/assessments/AssessmentDetail';
 import { StudentDashboard } from './pages/student/StudentDashboard';
 import { AssessmentTake } from './pages/student/AssessmentTake';
 import { AssessmentReview } from './pages/student/AssessmentReview';
+import { ProjectAssignments } from './pages/student/ProjectAssignments';
+import { ProjectSubmission } from './pages/student/ProjectSubmission';
 import { Learners } from './pages/Learners';
 import { Batches } from './pages/Batches';
 import { ClientAssignmentReview } from './pages/ClientAssignmentReview';
@@ -97,6 +99,8 @@ function App() {
                 
                 {/* Module 3: Student Interface */}
                 <Route path="/student/assessments" element={<RoleRoute allowedRoles={['student']}><StudentDashboard /></RoleRoute>} />
+                <Route path="/student/projects" element={<RoleRoute allowedRoles={['student']}><ProjectAssignments /></RoleRoute>} />
+                <Route path="/student/projects/:submissionId" element={<RoleRoute allowedRoles={['student']}><ProjectSubmission /></RoleRoute>} />
                 <Route path="/student/take/:id" element={<RoleRoute allowedRoles={['student']}><AssessmentTake /></RoleRoute>} />
                 <Route path="/student/review/:id" element={<RoleRoute allowedRoles={['student']}><AssessmentReview /></RoleRoute>} />
                 

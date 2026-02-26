@@ -60,6 +60,15 @@ export async function createAssessment(req: Request, res: Response, next: NextFu
   }
 }
 
+export async function publishAssessment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await projectEvaluationService.publishAssessment(asDb(req), getCtx(req), req.params.id);
+    res.json({ success: true, data });
+  } catch (error: any) {
+    handleError(res, error);
+  }
+}
+
 export async function getAssessmentDetail(req: Request, res: Response, next: NextFunction) {
   try {
     const data = await projectEvaluationService.getAssessmentDetail(asDb(req), getCtx(req), req.params.id);
@@ -85,6 +94,15 @@ export async function deleteAssessment(req: Request, res: Response, next: NextFu
 export async function createSubmission(req: Request, res: Response, next: NextFunction) {
   try {
     const data = await projectEvaluationService.createSubmission(asDb(req), getCtx(req), req.params.id, req.body);
+    res.status(201).json({ success: true, data });
+  } catch (error: any) {
+    handleError(res, error);
+  }
+}
+
+export async function assignAssessment(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await projectEvaluationService.assignAssessment(asDb(req), getCtx(req), req.params.id, req.body);
     res.status(201).json({ success: true, data });
   } catch (error: any) {
     handleError(res, error);
@@ -117,6 +135,47 @@ export async function uploadSubmissionZip(req: Request, res: Response, next: Nex
   try {
     const file = (req as any).file;
     const data = await projectEvaluationService.uploadSubmissionZip(asDb(req), getCtx(req), req.params.submissionId, file);
+    res.status(201).json({ success: true, data });
+  } catch (error: any) {
+    handleError(res, error);
+  }
+}
+
+export async function listLearnerAssignments(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await projectEvaluationService.listLearnerAssignments(asDb(req), getCtx(req));
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getLearnerAssignmentDetail(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await projectEvaluationService.getLearnerAssignmentDetail(asDb(req), getCtx(req), req.params.submissionId);
+    if (!data) {
+      res.status(404).json({ success: false, error: 'Project assignment not found' });
+      return;
+    }
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function learnerUploadSubmissionZip(req: Request, res: Response, next: NextFunction) {
+  try {
+    const file = (req as any).file;
+    const data = await projectEvaluationService.learnerUploadSubmissionZip(asDb(req), getCtx(req), req.params.submissionId, file);
+    res.status(201).json({ success: true, data });
+  } catch (error: any) {
+    handleError(res, error);
+  }
+}
+
+export async function learnerSubmitAndEvaluate(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await projectEvaluationService.learnerSubmitAndEvaluate(asDb(req), getCtx(req), req.params.submissionId);
     res.status(201).json({ success: true, data });
   } catch (error: any) {
     handleError(res, error);

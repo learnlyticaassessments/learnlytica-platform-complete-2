@@ -17,6 +17,7 @@ import learnerRoutes from './routes/learner.routes';
 import certificateRoutes from './routes/certificate.routes';
 import batchRoutes from './routes/batch.routes';
 import projectEvaluationRoutes from './routes/project-evaluation.routes';
+import projectEvaluationLearnerRoutes from './routes/project-evaluation-learner.routes';
 import { errorHandler } from './middleware/error.middleware';
 
 const app = express();
@@ -61,6 +62,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/learners', learnerRoutes);
 app.use('/api/v1/batches', batchRoutes);
 app.use('/api/v1/certificates', certificateRoutes);
+app.use('/api/v1/project-evaluations/learner', projectEvaluationLearnerRoutes);
 app.use('/api/v1/project-evaluations', projectEvaluationRoutes);
 
 app.use(errorHandler);

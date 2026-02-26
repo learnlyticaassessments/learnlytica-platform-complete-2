@@ -41,6 +41,14 @@ export const projectEvaluationsService = {
     const res = await client.post('/assessments', payload);
     return res.data as { success: boolean; data: any };
   },
+  publishAssessment: async (id: string) => {
+    const res = await client.patch(`/assessments/${id}/publish`);
+    return res.data as { success: boolean; data: any };
+  },
+  assignAssessment: async (id: string, payload: any) => {
+    const res = await client.post(`/assessments/${id}/assignments`, payload);
+    return res.data as { success: boolean; data: any };
+  },
   deleteAssessment: async (id: string) => {
     const res = await client.delete(`/assessments/${id}`);
     return res.data as { success: boolean; data: any };
@@ -67,6 +75,26 @@ export const projectEvaluationsService = {
   },
   queueRun: async (submissionId: string, payload?: any) => {
     const res = await client.post(`/submissions/${submissionId}/runs`, payload || {});
+    return res.data as { success: boolean; data: any };
+  },
+  listLearnerAssignments: async () => {
+    const res = await client.get('/learner/assignments');
+    return res.data as { success: boolean; data: any[] };
+  },
+  getLearnerAssignmentDetail: async (submissionId: string) => {
+    const res = await client.get(`/learner/assignments/${submissionId}`);
+    return res.data as { success: boolean; data: any };
+  },
+  learnerUploadSubmissionZip: async (submissionId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await client.post(`/learner/assignments/${submissionId}/upload-zip`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return res.data as { success: boolean; data: any };
+  },
+  learnerSubmitAndEvaluate: async (submissionId: string) => {
+    const res = await client.post(`/learner/assignments/${submissionId}/submit`);
     return res.data as { success: boolean; data: any };
   }
 };

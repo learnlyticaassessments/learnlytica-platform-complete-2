@@ -25,6 +25,8 @@ export type AppAction =
   | 'ai.generate'
   | 'student.assessments.view'
   | 'student.assessments.take'
+  | 'student.projects.view'
+  | 'student.projects.submit'
   | 'labTemplates.manage';
 
 const ROLE_LABELS: Record<AppRole, string> = {
@@ -57,6 +59,8 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'ai.generate',
     'student.assessments.view',
     'student.assessments.take',
+    'student.projects.view',
+    'student.projects.submit',
     'labTemplates.manage'
   ]),
   client: new Set<AppAction>([
@@ -81,7 +85,9 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
   ]),
   student: new Set<AppAction>([
     'student.assessments.view',
-    'student.assessments.take'
+    'student.assessments.take',
+    'student.projects.view',
+    'student.projects.submit'
   ])
 };
 

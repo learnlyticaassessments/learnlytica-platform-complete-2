@@ -14,8 +14,10 @@ router.post('/templates', controller.createTemplate);
 
 router.get('/assessments', controller.listAssessments);
 router.post('/assessments', controller.createAssessment);
+router.patch('/assessments/:id/publish', controller.publishAssessment);
 router.get('/assessments/:id', controller.getAssessmentDetail);
 router.delete('/assessments/:id', controller.deleteAssessment);
+router.post('/assessments/:id/assignments', controller.assignAssessment);
 router.post('/assessments/:id/submissions', controller.createSubmission);
 
 router.get('/submissions/:submissionId', controller.getSubmission);
