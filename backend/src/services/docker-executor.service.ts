@@ -127,13 +127,6 @@ async function setupJestExecution(workDir: string, code: string, testCode: strin
   };
   await fs.writeFile(path.join(workDir, 'package.json'), JSON.stringify(packageJson));
 
-  const jestConfig = `
-    module.exports = {
-      testEnvironment: 'node',
-      roots: ['.']
-    };
-  `;
-  await fs.writeFile(path.join(workDir, 'jest.config.cjs'), jestConfig);
 }
 
 async function setupPytestExecution(workDir: string, code: string, testCode: string) {
@@ -158,7 +151,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   if (framework === 'playwright') {
     execCmd = 'sh -c "npm install && npx playwright test --reporter=json"';
   } else if (framework === 'jest') {
-    execCmd = 'sh -c "jest --config /workspace/jest.config.cjs --runInBand --json --outputFile=results.json /workspace/question.test.js; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
+    execCmd = 'sh -c "jest --rootDir /workspace --testEnvironment=node --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
   } else if (framework === 'pytest') {
     execCmd = 'pytest --json-report --json-report-file=results.json';
   }
