@@ -118,7 +118,6 @@ async function setupJestExecution(workDir: string, code: string, testCode: strin
   await fs.writeFile(path.join(workDir, 'test.js'), testCode);
   
   const packageJson = {
-    "type": "module",
     "scripts": { "test": "jest --json --outputFile=results.json" },
     "devDependencies": { "jest": "^29.0.0" }
   };
@@ -147,7 +146,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   if (framework === 'playwright') {
     execCmd = 'sh -c "npm install && npx playwright test --reporter=json"';
   } else if (framework === 'jest') {
-    execCmd = 'sh -c "npm install && npm test"';
+    execCmd = 'sh -c "npm install && npm test; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'pytest') {
     execCmd = 'pytest --json-report --json-report-file=results.json';
   }

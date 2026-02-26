@@ -520,17 +520,17 @@ export function QuestionCreate() {
     setPackageImportInfo(null);
     try {
       const zip = new JSZip();
-      const starterPath = 'src/sum.js';
+      const starterPath = 'solution.js';
       const testFile = 'tests/sum.test.js';
 
-      const starterCode = `export function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n`;
-      const solutionCode = `export function sum(a, b) {\n  return a + b;\n}\n`;
+      const starterCode = `function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n\nmodule.exports = { sum };\n`;
+      const solutionCode = `function sum(a, b) {\n  return a + b;\n}\n\nmodule.exports = { sum };\n`;
 
       zip.file(`starter/${starterPath}`, starterCode);
       zip.file(`solution/${starterPath}`, solutionCode);
-      zip.file('tests/tc_001.js', "const { sum } = require('../src/sum');\nexpect(sum(1, 2)).toBe(3);");
-      zip.file('tests/tc_002.js', "const { sum } = require('../src/sum');\nexpect(sum(-5, 2)).toBe(-3);");
-      zip.file('tests/tc_003.js', "const { sum } = require('../src/sum');\nexpect(sum(0, 0)).toBe(0);");
+      zip.file('tests/tc_001.js', "const { sum } = require('./solution');\nexpect(sum(1, 2)).toBe(3);");
+      zip.file('tests/tc_002.js', "const { sum } = require('./solution');\nexpect(sum(-5, 2)).toBe(-3);");
+      zip.file('tests/tc_003.js', "const { sum } = require('./solution');\nexpect(sum(0, 0)).toBe(0);");
 
       const manifest: QuestionPackageManifest = {
         schemaVersion: QUESTION_PACKAGE_SCHEMA_VERSION,
