@@ -120,6 +120,13 @@ async function setupJestExecution(workDir: string, code: string, testCode: strin
   await fs.writeFile(path.join(workDir, 'solution.js'), code);
   await fs.writeFile(path.join(workDir, 'question.test.js'), testCode);
 
+  const packageJson = {
+    name: 'learnlytica-jest-draft-runner',
+    version: '1.0.0',
+    private: true
+  };
+  await fs.writeFile(path.join(workDir, 'package.json'), JSON.stringify(packageJson));
+
   const jestConfig = `
     module.exports = {
       testEnvironment: 'node',
@@ -151,7 +158,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   if (framework === 'playwright') {
     execCmd = 'sh -c "npm install && npx playwright test --reporter=json"';
   } else if (framework === 'jest') {
-    execCmd = 'sh -c "jest --config jest.config.cjs --runInBand --json --outputFile=results.json question.test.js; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
+    execCmd = 'sh -c "jest --config /workspace/jest.config.cjs --runInBand --json --outputFile=results.json /workspace/question.test.js; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'pytest') {
     execCmd = 'pytest --json-report --json-report-file=results.json';
   }
