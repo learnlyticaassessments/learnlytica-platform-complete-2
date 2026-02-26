@@ -198,6 +198,7 @@ sudo -u postgres psql -d $DB_NAME -f backend/migrations/008_create_batches.sql 2
 sudo -u postgres psql -d $DB_NAME -f backend/migrations/009_create_project_evaluations.sql 2>/dev/null || echo "Migration 9 already applied or failed"
 sudo -u postgres psql -d $DB_NAME -f backend/migrations/010_seed_phase1_project_flow_templates.sql 2>/dev/null || echo "Migration 10 already applied or failed"
 sudo -u postgres psql -d $DB_NAME -f backend/migrations/011_project_assessment_publish_and_assignment_workflow.sql 2>/dev/null || echo "Migration 11 already applied or failed"
+sudo -u postgres psql -d $DB_NAME -f backend/migrations/012_reset_demo_auth_users.sql 2>/dev/null || echo "Migration 12 already applied or failed"
 echo "✅ Database migrations completed"
 echo ""
 

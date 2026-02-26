@@ -98,6 +98,7 @@ psql -d $DB_NAME -f backend/migrations/008_create_batches.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/009_create_project_evaluations.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/010_seed_phase1_project_flow_templates.sql || exit 1
 psql -d $DB_NAME -f backend/migrations/011_project_assessment_publish_and_assignment_workflow.sql || exit 1
+psql -d $DB_NAME -f backend/migrations/012_reset_demo_auth_users.sql || exit 1
 
 echo "✅ Database ready"
 echo ""
