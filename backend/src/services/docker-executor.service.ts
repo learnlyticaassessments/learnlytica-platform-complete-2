@@ -105,7 +105,7 @@ async function setupPlaywrightExecution(workDir: string, code: string, testCode:
       reporter: [['json', { outputFile: 'results.json' }]]
     };
   `;
-  await fs.writeFile(path.join(workDir, 'playwright.config.js'), playwrightConfig);
+  await fs.writeFile(path.join(workDir, 'playwright.config.cjs'), playwrightConfig);
   
   // Create package.json
   const packageJson = {
@@ -155,7 +155,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   if (framework === 'playwright') {
     // The Playwright executor image is prebuilt with Playwright dependencies.
     // Do not run npm install here because containers run with --network none.
-    execCmd = 'sh -c "playwright test; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
+    execCmd = 'sh -c "playwright test --config playwright.config.cjs; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'jest') {
     execCmd = 'sh -c "jest --config \'{\\"rootDir\\":\\"/workspace\\",\\"testEnvironment\\":\\"node\\"}\' --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
   } else if (framework === 'pytest') {
