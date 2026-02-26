@@ -152,11 +152,17 @@ ${testCases.map((tc, index) => `
     @Test
     @DisplayName("${tc.name}")
     public void test${index + 1}() {
-        ${tc.testCode || '// Test implementation'}
+        ${normalizeJavaTestCode(tc.testCode) || '// Test implementation'}
     }
 `).join('\n')}
 }
 `;
+}
+
+function normalizeJavaTestCode(testCode?: string): string {
+  if (!testCode) return '';
+  // Older sample packages referenced Main.* while the runner compiles Solution.java.
+  return String(testCode).replace(/\bMain\./g, 'Solution.');
 }
 
 async function executeJavaInDocker(
