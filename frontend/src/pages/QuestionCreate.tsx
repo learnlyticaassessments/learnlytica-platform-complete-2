@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, Copy, Eye, Play, Plus, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronUp, Copy, Eye, Play, Plus, Trash2, Upload } from 'lucide-react';
 import Editor from '@monaco-editor/react';
 import JSZip from 'jszip';
 import { useCreateQuestion } from '../hooks/useQuestions';
@@ -227,6 +227,13 @@ export function QuestionCreate() {
   const [serverPackageValidation, setServerPackageValidation] = useState<any | null>(null);
   const [templateFrameworkChoice, setTemplateFrameworkChoice] = useState<TestFramework>('jest');
   const [completeSampleFrameworkChoice, setCompleteSampleFrameworkChoice] = useState<TestFramework>('jest');
+  const [authorSectionsOpen, setAuthorSectionsOpen] = useState({
+    basic: true,
+    skills: false,
+    starter: true,
+    tests: true,
+    solution: true,
+  });
 
   const syncFrameworkDefaults = (nextFramework: TestFramework, nextCategory = category, nextPoints = points) => {
     const starter = buildDefaultStarterCode(nextCategory, nextFramework);
@@ -813,6 +820,9 @@ export function QuestionCreate() {
 
   const activeStarterFile = starterFiles[activeStarterFileIndex] || starterFiles[0];
   const activeSolutionFile = solutionFiles[activeSolutionFileIndex] || solutionFiles[0];
+  const toggleAuthorSection = (key: keyof typeof authorSectionsOpen) => {
+    setAuthorSectionsOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   return (
     <div className="p-6">
@@ -987,7 +997,15 @@ export function QuestionCreate() {
         <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-5 gap-6">
           <div className="xl:col-span-3 space-y-6">
             <div className="card space-y-4">
-              <h2 className="text-xl font-semibold">Basic Information</h2>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold">Basic Information</h2>
+                <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => toggleAuthorSection('basic')}>
+                  {authorSectionsOpen.basic ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {authorSectionsOpen.basic ? 'Collapse' : 'Expand'}
+                </button>
+              </div>
+              {authorSectionsOpen.basic && (
+              <>
               <div>
                 <label className="block text-sm font-medium mb-1">Title</label>
                 <input className="input-field" required value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -1053,10 +1071,20 @@ export function QuestionCreate() {
                   <input type="number" min={5} className="input-field" value={timeEstimate} onChange={(e) => setTimeEstimate(parseInt(e.target.value || '45', 10))} />
                 </div>
               </div>
+              </>
+              )}
             </div>
 
             <div className="card space-y-4">
-              <h2 className="text-xl font-semibold">Skills & Tags</h2>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold">Skills & Tags</h2>
+                <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => toggleAuthorSection('skills')}>
+                  {authorSectionsOpen.skills ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  {authorSectionsOpen.skills ? 'Collapse' : 'Expand'}
+                </button>
+              </div>
+              {authorSectionsOpen.skills && (
+              <>
               <div>
                 <label className="block text-sm font-medium mb-1">Skills (comma separated)</label>
                 <input className="input-field" value={skillsInput} onChange={(e) => setSkillsInput(e.target.value)} placeholder="react, hooks, state-management" />
@@ -1083,6 +1111,8 @@ export function QuestionCreate() {
                   </div>
                 </div>
               </div>
+              </>
+              )}
             </div>
 
             <div className="card space-y-4">
@@ -1090,11 +1120,17 @@ export function QuestionCreate() {
                 <h2 className="text-xl font-semibold">Starter Code</h2>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-600">Used for learner workspace initial file(s)</span>
+                  <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => toggleAuthorSection('starter')}>
+                    {authorSectionsOpen.starter ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {authorSectionsOpen.starter ? 'Collapse' : 'Expand'}
+                  </button>
                   <button type="button" className="btn-secondary" onClick={addStarterFile}>
                     <Plus className="w-4 h-4" /> File
                   </button>
                 </div>
               </div>
+              {authorSectionsOpen.starter && (
+              <>
               <div className="flex flex-wrap gap-2">
                 {starterFiles.map((file, idx) => (
                   <button
@@ -1144,15 +1180,25 @@ export function QuestionCreate() {
                   </div>
                 </>
               )}
+              </>
+              )}
             </div>
 
             <div className="card space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Test Cases</h2>
-                <button type="button" className="btn-secondary" onClick={addTestCase}>
-                  <Plus className="w-4 h-4" /> Add Test Case
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => toggleAuthorSection('tests')}>
+                    {authorSectionsOpen.tests ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {authorSectionsOpen.tests ? 'Collapse' : 'Expand'}
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={addTestCase}>
+                    <Plus className="w-4 h-4" /> Add Test Case
+                  </button>
+                </div>
               </div>
+              {authorSectionsOpen.tests && (
+              <>
               <div className="space-y-4">
                 {testCases.map((tc, idx) => (
                   <div key={`${tc.id}-${idx}`} className="rounded-xl border border-[var(--border)] p-4 space-y-3">
@@ -1195,16 +1241,26 @@ export function QuestionCreate() {
                 <div>Total test-case points: <span className="font-semibold">{payload.testConfig.scoring.total}</span></div>
                 <div>Passing threshold (auto): <span className="font-semibold">{payload.testConfig.scoring.passing}</span></div>
               </div>
+              </>
+              )}
             </div>
 
             <div className="card space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Solution (Author Only)</h2>
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={solutionEnabled} onChange={(e) => setSolutionEnabled(e.target.checked)} />
-                  Include solution
-                </label>
+                <div className="flex items-center gap-2">
+                  <button type="button" className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => toggleAuthorSection('solution')}>
+                    {authorSectionsOpen.solution ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    {authorSectionsOpen.solution ? 'Collapse' : 'Expand'}
+                  </button>
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={solutionEnabled} onChange={(e) => setSolutionEnabled(e.target.checked)} />
+                    Include solution
+                  </label>
+                </div>
               </div>
+              {authorSectionsOpen.solution && (
+              <>
               <p className="text-xs text-gray-600">
                 The solution is used for author validation and grading reference. It is hidden from learners/customer-facing preview after assignment.
               </p>
@@ -1324,6 +1380,8 @@ export function QuestionCreate() {
                     </details>
                   )}
                 </div>
+              )}
+              </>
               )}
             </div>
 
