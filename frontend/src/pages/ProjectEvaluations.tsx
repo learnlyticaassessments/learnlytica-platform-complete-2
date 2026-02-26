@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Layers3, Play, Plus, UploadCloud } from 'lucide-react';
 import { projectEvaluationsService } from '../services/projectEvaluationsService';
 import { learnersService } from '../services/learnersService';
@@ -273,10 +273,10 @@ export function ProjectEvaluations() {
     try {
       const res = await projectEvaluationsService.queueRun(submissionId, { triggerType: 'manual' });
       const run = res.data;
-      const summary = run?.summary_json || {};
-      if (run?.runner_kind === 'phase1_react_vite_playwright') {
+      const summary = run?.summary || run?.summary_json || {};
+      if (run?.runnerKind === 'phase1_react_vite_playwright' || run?.runner_kind === 'phase1_react_vite_playwright') {
         const scoreValue = run?.score != null ? Number(run.score) : null;
-        const maxScoreValue = run?.max_score != null ? Number(run.max_score) : 100;
+        const maxScoreValue = run?.maxScore != null ? Number(run.maxScore) : (run?.max_score != null ? Number(run.max_score) : 100);
         const score = Number.isFinite(scoreValue as number)
           ? `${scoreValue}/${Number.isFinite(maxScoreValue as number) ? maxScoreValue : 100}`
           : 'n/a';
@@ -572,34 +572,73 @@ export function ProjectEvaluations() {
                     </thead>
                     <tbody>
                       {(assessmentDetail?.submissions || []).map((s: any) => (
-                        <tr key={s.id} className="border-t border-[var(--border)]">
-                          <td className="px-3 py-2">
-                            <div className="font-medium">{s.studentName || s.studentEmail}</div>
-                            <div className="text-xs text-[var(--text-muted)]">{s.studentEmail}</div>
-                          </td>
-                          <td className="px-3 py-2">
-                            <div>{s.sourceType}</div>
-                            <div className="text-xs text-[var(--text-muted)]">{s.repoUrl || '-'}</div>
-                          </td>
-                          <td className="px-3 py-2">{s.detectedFramework || '-'}</td>
-                          <td className="px-3 py-2">{s.status}</td>
-                          <td className="px-3 py-2">
-                            <div>{s.latestRunStatus || 'none'}</div>
-                            {typeof s.latestScore === 'number' && (
-                              <div className="text-xs text-[var(--text-muted)]">score {s.latestScore}/100</div>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            <button
-                              className="btn-secondary !py-1.5 !px-2.5 text-xs"
-                              onClick={() => queueRun(s.id)}
-                              disabled={working === `run:${s.id}`}
-                            >
-                              <Play className="w-3.5 h-3.5" />
-                              {working === `run:${s.id}` ? 'Running...' : 'Run Preflight Validation'}
-                            </button>
-                          </td>
-                        </tr>
+                        <Fragment key={s.id}>
+                          <tr key={s.id} className="border-t border-[var(--border)]">
+                            <td className="px-3 py-2">
+                              <div className="font-medium">{s.studentName || s.studentEmail}</div>
+                              <div className="text-xs text-[var(--text-muted)]">{s.studentEmail}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div>{s.sourceType}</div>
+                              <div className="text-xs text-[var(--text-muted)]">{s.repoUrl || '-'}</div>
+                            </td>
+                            <td className="px-3 py-2">{s.detectedFramework || '-'}</td>
+                            <td className="px-3 py-2">{s.status}</td>
+                            <td className="px-3 py-2">
+                              <div>{s.latestRunStatus || 'none'}</div>
+                              {s.latestRunSummary && (
+                                <div className="text-xs text-[var(--text-muted)]">
+                                  {s.latestRunSummary.testsPassed ?? '?'}
+                                  /
+                                  {s.latestRunSummary.testsTotal ?? '?'} tests
+                                </div>
+                              )}
+                              {(s.latestRunScore != null || s.latestScore != null) && (
+                                <div className="text-xs text-[var(--text-muted)]">
+                                  score {Number(s.latestRunScore ?? s.latestScore)}/{Number(s.latestRunMaxScore ?? 100)}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <button
+                                className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                                onClick={() => queueRun(s.id)}
+                                disabled={working === `run:${s.id}`}
+                              >
+                                <Play className="w-3.5 h-3.5" />
+                                {working === `run:${s.id}` ? 'Running...' : 'Run Preflight Validation'}
+                              </button>
+                            </td>
+                          </tr>
+                          {Array.isArray(s?.latestRunResult?.tests) && s.latestRunResult.tests.length > 0 && (
+                            <tr className="border-t border-[var(--border)]/50 bg-[var(--surface-2)]/50">
+                              <td className="px-3 py-2" colSpan={6}>
+                                <div className="text-xs font-semibold mb-2 text-[var(--text-2)]">Latest Test Results</div>
+                                <div className="space-y-1">
+                                  {s.latestRunResult.tests.map((t: any, idx: number) => (
+                                    <div key={`${s.id}-test-${idx}`} className="flex items-start justify-between gap-3 text-xs rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5">
+                                      <div className="min-w-0">
+                                        <div className="font-medium truncate">{t.name || `Test ${idx + 1}`}</div>
+                                        {t.error && (
+                                          <div className="text-[var(--text-muted)] whitespace-pre-wrap break-words mt-0.5">{String(t.error).slice(0, 220)}</div>
+                                        )}
+                                      </div>
+                                      <span
+                                        className="shrink-0 px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wide"
+                                        style={{
+                                          borderColor: t.passed ? 'var(--green-dim)' : 'var(--red-dim)',
+                                          color: t.passed ? 'var(--green)' : 'var(--red)'
+                                        }}
+                                      >
+                                        {t.passed ? 'Passed' : 'Failed'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       ))}
                       {!assessmentDetail?.submissions?.length && (
                         <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={6}>No reference validation submissions yet.</td></tr>

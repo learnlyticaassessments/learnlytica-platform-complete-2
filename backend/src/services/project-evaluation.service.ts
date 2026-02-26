@@ -459,7 +459,11 @@ export async function getAssessmentDetail(db: Kysely<any>, ctx: Ctx, assessmentI
       'ps.assigned_batch_id as assignedBatchId',
       'per.id as latestRunId',
       'per.status as latestRunStatus',
-      'per.created_at as latestRunCreatedAt'
+      'per.created_at as latestRunCreatedAt',
+      'per.score as latestRunScore',
+      'per.max_score as latestRunMaxScore',
+      'per.summary_json as latestRunSummary',
+      'per.result_json as latestRunResult'
     ])
     .where('ps.project_assessment_id', '=', assessmentId)
     .orderBy('ps.submitted_at', 'desc')
