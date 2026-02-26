@@ -130,7 +130,7 @@ function normalizePlaywrightImplementationModule(code: string): string {
 
   // If there is no CommonJS export, append one based on discovered top-level functions.
   if (!/\bmodule\.exports\b/.test(next)) {
-    const exportedNames = Array.from(next.matchAll(/\bfunction\s+([A-Za-z_]\w*)\s*\(/g)).map((m) => m[1]));
+    const exportedNames = Array.from(next.matchAll(/\bfunction\s+([A-Za-z_]\w*)\s*\(/g)).map((m) => m[1]);
     if (exportedNames.length > 0) {
       next = `${next.trim()}\n\nmodule.exports = { ${Array.from(new Set(exportedNames)).join(', ')} };\n`;
     }
