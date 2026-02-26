@@ -153,7 +153,9 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   let execCmd = '';
   
   if (framework === 'playwright') {
-    execCmd = 'sh -c "npm install && npx playwright test; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
+    // The Playwright executor image is prebuilt with Playwright dependencies.
+    // Do not run npm install here because containers run with --network none.
+    execCmd = 'sh -c "playwright test; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'jest') {
     execCmd = 'sh -c "jest --config \'{\\"rootDir\\":\\"/workspace\\",\\"testEnvironment\\":\\"node\\"}\' --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
   } else if (framework === 'pytest') {
