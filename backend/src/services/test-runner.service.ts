@@ -40,6 +40,19 @@ export async function runTests(
   question: any
 ): Promise<TestExecutionResult> {
   const framework = testConfig.framework;
+  const supportedDraftFrameworks = new Set(['jest', 'pytest', 'playwright']);
+  if (!supportedDraftFrameworks.has(framework)) {
+    return {
+      success: false,
+      testsRun: 0,
+      testsPassed: 0,
+      totalPoints: 0,
+      pointsEarned: 0,
+      results: [],
+      output: `Draft test execution is not supported for framework "${framework}" in the current runner. Supported: jest, pytest, playwright, junit.`,
+      executionTime: 0
+    };
+  }
 
   // Route to API testing if framework is API-specific
   if (framework === 'supertest' || framework === 'pytest-requests') {
@@ -133,16 +146,23 @@ function buildTestCode(framework: string, testCases: any[], code: string): strin
       });
     `).join('\n');
   } else if (framework === 'pytest') {
+    const indentPy = (src: string) =>
+      String(src || 'pass')
+        .split('\n')
+        .map((line) => `    ${line}`)
+        .join('\n');
     return testCases.map(tc => `
-      def test_${tc.id}():
-          ${tc.testCode || 'pass'}
+def test_${tc.id}():
+${indentPy(tc.testCode || 'pass')}
     `).join('\n');
   } else if (framework === 'playwright') {
     return `
       import { test, expect } from '@playwright/test';
+      import * as solutionModule from './implementation.js';
       
       ${testCases.map(tc => `
         test('${tc.name}', async ({ page }) => {
+          const solution = solutionModule;
           ${tc.testCode || '// Playwright test implementation'}
         });
       `).join('\n')}
@@ -164,12 +184,7 @@ function parseTestResults(output: string, framework: string, testCases: any[]): 
     return parsePytestResults(output, testCases);
   }
   
-  return testCases.map((tc, index) => ({
-    name: tc.name,
-    passed: Math.random() > 0.3,
-    points: tc.points || 0,
-    duration: Math.random() * 1000
-  }));
+  return [];
 }
 
 function parsePlaywrightResults(output: string, testCases: any[]): TestResult[] {

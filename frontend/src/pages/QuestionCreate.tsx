@@ -57,6 +57,7 @@ type QuestionPackageManifest = {
 };
 
 const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
+const DRAFT_RUN_SUPPORTED_FRAMEWORKS = new Set<TestFramework>(['jest', 'pytest', 'playwright', 'junit']);
 
 function getMonacoTheme() {
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs';
@@ -317,6 +318,7 @@ export function QuestionCreate() {
     points,
     testCases
   ]);
+  const draftRunSupported = DRAFT_RUN_SUPPORTED_FRAMEWORKS.has(testFramework);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -338,6 +340,11 @@ export function QuestionCreate() {
   };
 
   const runDraftTests = async () => {
+    if (!draftRunSupported) {
+      setDraftRunError(`Draft test execution is not supported for "${testFramework}" yet. Supported frameworks: Jest, Pytest, Playwright, JUnit. You can still author and save the question package.`);
+      setDraftRunResult(null);
+      return;
+    }
     setDraftRunLoading(true);
     setDraftRunError(null);
     setDraftRunResult(null);
@@ -531,11 +538,11 @@ export function QuestionCreate() {
       const isPy = sampleFramework === 'pytest';
       const isJava = sampleFramework === 'junit';
 
-      const starterPath = isPy ? 'solution.py' : isJava ? 'src/main/java/Main.java' : 'solution.js';
+      const starterPath = isPy ? 'solution.py' : isJava ? 'src/main/java/Solution.java' : 'solution.js';
       const testFile = isPy
         ? 'tests/test_solution.py'
         : isJava
-        ? 'src/test/java/MainTest.java'
+        ? 'src/test/java/SolutionTest.java'
         : sampleFramework === 'playwright'
         ? 'tests/question.spec.js'
         : 'tests/sum.test.js';
@@ -543,30 +550,38 @@ export function QuestionCreate() {
       const starterCode = isPy
         ? "def sum_numbers(a, b):\n    # TODO: return the sum of two numbers\n    return 0\n"
         : isJava
-        ? "public class Main {\n    public static int sumNumbers(int a, int b) {\n        // TODO: return the sum of two numbers\n        return 0;\n    }\n}\n"
+        ? "public class Solution {\n    public static int sumNumbers(int a, int b) {\n        // TODO: return the sum of two numbers\n        return 0;\n    }\n}\n"
+        : sampleFramework === 'playwright'
+        ? "export function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n"
         : "function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n\nmodule.exports = { sum };\n";
       const solutionCode = isPy
         ? "def sum_numbers(a, b):\n    return a + b\n"
         : isJava
-        ? "public class Main {\n    public static int sumNumbers(int a, int b) {\n        return a + b;\n    }\n}\n"
+        ? "public class Solution {\n    public static int sumNumbers(int a, int b) {\n        return a + b;\n    }\n}\n"
+        : sampleFramework === 'playwright'
+        ? "export function sum(a, b) {\n  return a + b;\n}\n"
         : "function sum(a, b) {\n  return a + b;\n}\n\nmodule.exports = { sum };\n";
 
       const tc1 = isPy
         ? "from solution import sum_numbers\nassert sum_numbers(1, 2) == 3\n"
         : isJava
-        ? "assertEquals(3, Main.sumNumbers(1, 2));"
+        ? "assertEquals(3, Solution.sumNumbers(1, 2));"
         : sampleFramework === 'playwright'
-        ? "const { sum } = require('./solution');\nexpect(sum(1, 2)).toBe(3);"
+        ? "expect(solution.sum(1, 2)).toBe(3);"
         : "const { sum } = require('./solution');\nexpect(sum(1, 2)).toBe(3);";
       const tc2 = isPy
         ? "from solution import sum_numbers\nassert sum_numbers(-5, 2) == -3\n"
         : isJava
-        ? "assertEquals(-3, Main.sumNumbers(-5, 2));"
+        ? "assertEquals(-3, Solution.sumNumbers(-5, 2));"
+        : sampleFramework === 'playwright'
+        ? "expect(solution.sum(-5, 2)).toBe(-3);"
         : "const { sum } = require('./solution');\nexpect(sum(-5, 2)).toBe(-3);";
       const tc3 = isPy
         ? "from solution import sum_numbers\nassert sum_numbers(0, 0) == 0\n"
         : isJava
-        ? "assertEquals(0, Main.sumNumbers(0, 0));"
+        ? "assertEquals(0, Solution.sumNumbers(0, 0));"
+        : sampleFramework === 'playwright'
+        ? "expect(solution.sum(0, 0)).toBe(0);"
         : "const { sum } = require('./solution');\nexpect(sum(0, 0)).toBe(0);";
 
       zip.file(`starter/${starterPath}`, starterCode);
@@ -1178,12 +1193,17 @@ export function QuestionCreate() {
                 </div>
               )}
               <div className="flex flex-wrap gap-3">
-                <button type="button" className="btn-secondary" onClick={runDraftTests} disabled={draftRunLoading || !solutionEnabled}>
+                <button type="button" className="btn-secondary" onClick={runDraftTests} disabled={draftRunLoading || !solutionEnabled || !draftRunSupported}>
                   <Play className="w-4 h-4" />
                   {draftRunLoading ? 'Running Draft Tests...' : 'Run Draft Tests (with Solution)'}
                 </button>
                 {!solutionEnabled && (
                   <span className="text-xs text-amber-700 self-center">Enable Solution to validate tests before saving.</span>
+                )}
+                {solutionEnabled && !draftRunSupported && (
+                  <span className="text-xs text-amber-700 self-center">
+                    Draft execution is template-only for {testFramework}. Supported draft runners: Jest, Pytest, Playwright, JUnit.
+                  </span>
                 )}
               </div>
               {draftRunError && <div className="ll-toast err whitespace-pre-wrap">{draftRunError}</div>}

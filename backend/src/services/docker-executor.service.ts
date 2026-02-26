@@ -153,11 +153,11 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   let execCmd = '';
   
   if (framework === 'playwright') {
-    execCmd = 'sh -c "npm install && npx playwright test --reporter=json"';
+    execCmd = 'sh -c "npm install && npx playwright test; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'jest') {
     execCmd = 'sh -c "jest --config \'{\\"rootDir\\":\\"/workspace\\",\\"testEnvironment\\":\\"node\\"}\' --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
   } else if (framework === 'pytest') {
-    execCmd = 'pytest --json-report --json-report-file=results.json';
+    execCmd = 'sh -c "pytest --json-report --json-report-file=results.json; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   }
 
   return [...baseCmd, execCmd].join(' ');
