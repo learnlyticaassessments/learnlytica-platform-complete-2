@@ -275,7 +275,11 @@ export function ProjectEvaluations() {
       const run = res.data;
       const summary = run?.summary_json || {};
       if (run?.runner_kind === 'phase1_react_vite_playwright') {
-        const score = typeof run?.score === 'number' ? `${run.score}/100` : 'n/a';
+        const scoreValue = run?.score != null ? Number(run.score) : null;
+        const maxScoreValue = run?.max_score != null ? Number(run.max_score) : 100;
+        const score = Number.isFinite(scoreValue as number)
+          ? `${scoreValue}/${Number.isFinite(maxScoreValue as number) ? maxScoreValue : 100}`
+          : 'n/a';
         const testsPassed = summary?.testsPassed ?? '?';
         const testsTotal = summary?.testsTotal ?? '?';
         setMsg(run?.status === 'completed'
