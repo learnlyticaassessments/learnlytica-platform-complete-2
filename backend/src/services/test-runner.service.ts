@@ -156,6 +156,12 @@ def test_${tc.id}():
 ${indentPy(tc.testCode || 'pass')}
     `).join('\n');
   } else if (framework === 'playwright') {
+    const normalizePlaywrightTestSnippet = (src: string) =>
+      String(src || '')
+        // Older sample snippets imported ./solution in Playwright mode.
+        .replace(/const\s+\{\s*[^}]+\}\s*=\s*require\(['"]\.\/solution['"]\);\s*/g, '')
+        .replace(/require\(['"]\.\/solution['"]\)/g, "require('./implementation.js')");
+
     return `
       const { test, expect } = require('playwright/test');
       const solutionModule = require('./implementation.js');
@@ -163,7 +169,7 @@ ${indentPy(tc.testCode || 'pass')}
       ${testCases.map(tc => `
         test('${tc.name}', async ({ page }) => {
           const solution = solutionModule;
-          ${tc.testCode || '// Playwright test implementation'}
+          ${normalizePlaywrightTestSnippet(tc.testCode || '// Playwright test implementation')}
         });
       `).join('\n')}
     `;
