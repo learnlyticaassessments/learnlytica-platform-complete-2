@@ -165,7 +165,14 @@ playwright test evaluator.phase1.spec.js --config playwright.config.cjs; CODE=$?
     }
 
     const durationMs = Date.now() - start;
-    const payload = extractJsonObject([stdout, stderr].filter(Boolean).join('\n'));
+    let payload: any = null;
+    try {
+      const resultsJsonPath = path.join(workspaceDir, 'results.json');
+      const resultsText = await fs.readFile(resultsJsonPath, 'utf8');
+      payload = JSON.parse(resultsText);
+    } catch {
+      payload = extractJsonObject([stdout, stderr].filter(Boolean).join('\n'));
+    }
     const tests = payload ? flattenPlaywrightTests(payload) : [];
     const passed = tests.filter((t) => t.passed).length;
     const total = tests.length;
