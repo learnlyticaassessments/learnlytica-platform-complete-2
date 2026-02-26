@@ -69,7 +69,8 @@ export async function runTests(
     );
 
     // Parse results based on framework
-    const testResults = parseTestResults(result.stdout, framework, question.testConfig.testCases);
+    const combinedOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    const testResults = parseTestResults(combinedOutput, framework, question.testConfig.testCases);
 
     const testsRun = testResults.length;
     const testsPassed = testResults.filter(t => t.passed).length;
@@ -83,7 +84,7 @@ export async function runTests(
       totalPoints,
       pointsEarned,
       results: testResults,
-      output: result.stdout,
+      output: combinedOutput,
       executionTime: result.executionTime
     };
 
@@ -173,11 +174,8 @@ function parseTestResults(output: string, framework: string, testCases: any[]): 
 
 function parsePlaywrightResults(output: string, testCases: any[]): TestResult[] {
   try {
-    const lines = output.split('\n');
-    const jsonLine = lines.find(line => line.trim().startsWith('{'));
-    
-    if (jsonLine) {
-      const results = JSON.parse(jsonLine);
+    const results = extractJsonObject(output);
+    if (results) {
       return results.suites?.[0]?.specs?.map((spec: any, index: number) => ({
         name: spec.title,
         passed: spec.ok,
@@ -195,11 +193,8 @@ function parsePlaywrightResults(output: string, testCases: any[]): TestResult[] 
 
 function parseJestResults(output: string, testCases: any[]): TestResult[] {
   try {
-    const lines = output.split('\n');
-    const jsonLine = lines.find(line => line.trim().startsWith('{'));
-    
-    if (jsonLine) {
-      const results = JSON.parse(jsonLine);
+    const results = extractJsonObject(output);
+    if (results) {
       return results.testResults?.[0]?.assertionResults?.map((test: any, index: number) => ({
         name: test.title,
         passed: test.status === 'passed',
@@ -217,11 +212,8 @@ function parseJestResults(output: string, testCases: any[]): TestResult[] {
 
 function parsePytestResults(output: string, testCases: any[]): TestResult[] {
   try {
-    const lines = output.split('\n');
-    const jsonLine = lines.find(line => line.includes('"tests"'));
-    
-    if (jsonLine) {
-      const results = JSON.parse(jsonLine);
+    const results = extractJsonObject(output);
+    if (results) {
       return results.tests?.map((test: any, index: number) => ({
         name: test.nodeid,
         passed: test.outcome === 'passed',
@@ -235,6 +227,18 @@ function parsePytestResults(output: string, testCases: any[]): TestResult[] {
   }
   
   return [];
+}
+
+function extractJsonObject(output: string): any | null {
+  const start = output.indexOf('{');
+  const end = output.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  const candidate = output.slice(start, end + 1);
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
 }
 
 // Import Java test runner
