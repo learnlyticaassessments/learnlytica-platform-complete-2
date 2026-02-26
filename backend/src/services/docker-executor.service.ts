@@ -112,10 +112,7 @@ async function setupPlaywrightExecution(workDir: string, code: string, testCode:
     "name": "learnlytica-playwright-draft-runner",
     "version": "1.0.0",
     "private": true,
-    "type": "module",
-    "devDependencies": {
-      "@playwright/test": "^1.40.0"
-    }
+    "type": "module"
   };
   await fs.writeFile(path.join(workDir, 'package.json'), JSON.stringify(packageJson));
 }
@@ -155,7 +152,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   if (framework === 'playwright') {
     // The Playwright executor image is prebuilt with Playwright dependencies.
     // Do not run npm install here because containers run with --network none.
-    execCmd = 'sh -c "playwright test --config playwright.config.cjs; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
+    execCmd = 'sh -c "mkdir -p node_modules && ln -sfn /usr/lib/node_modules/playwright ./node_modules/playwright && playwright test --config playwright.config.cjs; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'jest') {
     execCmd = 'sh -c "jest --config \'{\\"rootDir\\":\\"/workspace\\",\\"testEnvironment\\":\\"node\\"}\' --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
   } else if (framework === 'pytest') {
