@@ -236,7 +236,9 @@ async function executeJavaInDocker(
     const dockerCmd = [
       'docker run',
       '--rm',
-      '--network none',
+      // JUnit draft runs use Maven to resolve dependencies/plugins at runtime.
+      // The Java executor image is not fully offline-seeded, so network access is
+      // required here for authoring-time validation.
       '--cpus="1"',
       '--memory="512m"',
       `--volume "${workDir}:/workspace"`,
