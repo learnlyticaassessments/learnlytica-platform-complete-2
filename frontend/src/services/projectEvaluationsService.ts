@@ -49,6 +49,14 @@ export const projectEvaluationsService = {
     const res = await client.post(`/assessments/${assessmentId}/submissions`, payload);
     return res.data as { success: boolean; data: any };
   },
+  uploadSubmissionZip: async (submissionId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await client.post(`/submissions/${submissionId}/upload-zip`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return res.data as { success: boolean; data: any };
+  },
   getSubmission: async (submissionId: string) => {
     const res = await client.get(`/submissions/${submissionId}`);
     return res.data as { success: boolean; data: any };
@@ -58,4 +66,3 @@ export const projectEvaluationsService = {
     return res.data as { success: boolean; data: any };
   }
 };
-

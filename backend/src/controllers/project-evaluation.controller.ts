@@ -103,3 +103,13 @@ export async function queueRun(req: Request, res: Response, next: NextFunction) 
     handleError(res, error);
   }
 }
+
+export async function uploadSubmissionZip(req: Request, res: Response, next: NextFunction) {
+  try {
+    const file = (req as any).file;
+    const data = await projectEvaluationService.uploadSubmissionZip(asDb(req), getCtx(req), req.params.submissionId, file);
+    res.status(201).json({ success: true, data });
+  } catch (error: any) {
+    handleError(res, error);
+  }
+}

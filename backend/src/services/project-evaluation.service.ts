@@ -1,4 +1,5 @@
 import type { Kysely } from 'kysely';
+import JSZip from 'jszip';
 
 type Ctx = {
   organizationId: string;
@@ -8,6 +9,95 @@ type Ctx = {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+type ZipDetectSummary = {
+  detectedFramework: string;
+  confidence: 'high' | 'medium' | 'low';
+  packageName?: string | null;
+  scripts?: Record<string, string>;
+  checks: Array<{ key: string; label: string; passed: boolean; detail?: string }>;
+  entryCount: number;
+  topLevelEntries: string[];
+};
+
+async function parseZipAndDetect(buffer: Buffer): Promise<ZipDetectSummary> {
+  const zip = await JSZip.loadAsync(buffer);
+  const entryNames = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+  const lower = new Set(entryNames.map((n) => n.toLowerCase()));
+
+  const has = (name: string) => lower.has(name.toLowerCase());
+  const hasPrefix = (prefix: string) => entryNames.some((n) => n.toLowerCase().startsWith(prefix.toLowerCase()));
+  const findAny = (...candidates: string[]) => entryNames.find((n) => candidates.some((c) => n.toLowerCase() === c.toLowerCase()));
+
+  const checks: ZipDetectSummary['checks'] = [];
+  let detectedFramework = 'unknown';
+  let confidence: ZipDetectSummary['confidence'] = 'low';
+  let packageName: string | null = null;
+  let scripts: Record<string, string> = {};
+
+  const packageJsonEntry = findAny('package.json');
+  let packageJson: any = null;
+  if (packageJsonEntry) {
+    try {
+      packageJson = JSON.parse(await zip.file(packageJsonEntry)!.async('string'));
+      packageName = packageJson?.name || null;
+      scripts = packageJson?.scripts || {};
+    } catch {
+      // ignore parse errors, keep checks below
+    }
+  }
+
+  const hasViteConfig = entryNames.some((n) => /^vite\.config\.(ts|js|mjs|cjs)$/i.test(n));
+  const hasAngularJson = has('angular.json');
+  const hasNextConfig = entryNames.some((n) => /^next\.config\.(js|mjs|ts)$/i.test(n));
+  const hasIndexHtml = has('index.html');
+  const hasSrc = hasPrefix('src/');
+  const hasMainFrontendEntry = entryNames.some((n) => /^src\/main\.(tsx|jsx|ts|js)$/i.test(n));
+
+  const deps = {
+    ...(packageJson?.dependencies || {}),
+    ...(packageJson?.devDependencies || {})
+  };
+  const depNames = Object.keys(deps).map((d) => d.toLowerCase());
+  const hasDep = (name: string) => depNames.includes(name.toLowerCase());
+
+  if (hasAngularJson || hasDep('@angular/core')) {
+    detectedFramework = 'angular';
+    confidence = hasAngularJson ? 'high' : 'medium';
+  } else if (hasNextConfig || hasDep('next')) {
+    detectedFramework = 'nextjs';
+    confidence = hasNextConfig ? 'high' : 'medium';
+  } else if ((hasViteConfig || hasIndexHtml) && (hasDep('react') || hasDep('react-dom'))) {
+    detectedFramework = 'react_vite';
+    confidence = hasViteConfig && hasMainFrontendEntry ? 'high' : 'medium';
+  } else if (hasViteConfig && (hasDep('vue') || hasDep('nuxt'))) {
+    detectedFramework = 'vue_vite';
+    confidence = 'medium';
+  }
+
+  checks.push({ key: 'package_json', label: 'package.json present', passed: !!packageJsonEntry });
+  checks.push({ key: 'vite_config', label: 'Vite config present', passed: hasViteConfig });
+  checks.push({ key: 'index_html', label: 'index.html present', passed: hasIndexHtml });
+  checks.push({ key: 'src_dir', label: 'src directory present', passed: hasSrc });
+  checks.push({ key: 'main_entry', label: 'src/main.* entry present', passed: hasMainFrontendEntry });
+  checks.push({
+    key: 'start_script',
+    label: 'Start script detected',
+    passed: Boolean(scripts.dev || scripts.start || scripts.preview),
+    detail: scripts.dev || scripts.start || scripts.preview || ''
+  });
+
+  const topLevelEntries = Array.from(new Set(entryNames.map((n) => n.split('/')[0]))).slice(0, 20);
+  return {
+    detectedFramework,
+    confidence,
+    packageName,
+    scripts,
+    checks,
+    entryCount: entryNames.length,
+    topLevelEntries
+  };
 }
 
 export async function listTemplates(db: Kysely<any>, ctx: Ctx) {
@@ -323,23 +413,58 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
 
   if (!submission) throw new Error('Project submission not found');
 
+  const existingSubmission = await db
+    .selectFrom('project_submissions')
+    .select(['id', 'metadata_json as metadata', 'detected_framework as detectedFramework'])
+    .where('id', '=', submissionId)
+    .executeTakeFirst();
+  if (!existingSubmission) throw new Error('Project submission not found');
+
+  const metadata = (existingSubmission as any).metadata || {};
+  const detect = metadata?.zipDetection;
+  const preflightChecks: Array<any> = Array.isArray(detect?.checks) ? detect.checks : [];
+  const passCount = preflightChecks.filter((c) => c.passed).length;
+  const totalCount = preflightChecks.length || 1;
+  const score = Math.round((passCount / totalCount) * 100);
+  const completed = Boolean(detect);
+
   const run = await db
     .insertInto('project_evaluation_runs')
     .values({
       project_submission_id: submissionId,
       organization_id: ctx.organizationId,
-      status: 'queued',
+      status: completed ? 'completed' : 'queued',
       trigger_type: payload?.triggerType || 'manual',
-      runner_kind: 'phase1_placeholder',
-      framework_detected: submission.detectedFramework || 'react_vite',
+      runner_kind: 'phase1_preflight',
+      framework_detected: submission.detectedFramework || existingSubmission.detectedFramework || 'react_vite',
+      started_at: completed ? nowIso() : null,
+      completed_at: completed ? nowIso() : null,
+      score: completed ? score : null,
+      max_score: completed ? 100 : null,
       summary_json: {
         phase: 1,
-        state: 'queued',
-        message: 'Queued for Phase 1 Playwright UI-flow evaluation scaffold',
-        nextStep: 'Runner orchestration service not yet wired'
+        state: completed ? 'preflight_complete' : 'queued',
+        message: completed
+          ? 'ZIP ingestion + stack detection preflight completed (runner orchestration not yet wired)'
+          : 'Queued for Phase 1 Playwright UI-flow evaluation scaffold',
+        nextStep: completed ? 'Implement unzip/start app + Playwright execution runner' : 'Runner orchestration service not yet wired',
+        checksPassed: passCount,
+        checksTotal: totalCount
       },
-      result_json: null,
-      logs_text: null,
+      result_json: completed
+        ? {
+            phase: 1,
+            mode: 'preflight',
+            detection: detect || null,
+            recommendation:
+              (detect?.detectedFramework === 'react_vite' && score >= 70)
+                ? 'Ready for Phase 1 runner orchestration implementation'
+                : 'Submission structure incomplete for React/Vite Phase 1 expectations'
+          }
+        : null,
+      logs_text: completed
+        ? `Phase 1 preflight completed. Detected framework: ${detect?.detectedFramework || 'unknown'} (${detect?.confidence || 'low'}).`
+        : null,
       created_by: ctx.userId || null
     })
     .returningAll()
@@ -349,16 +474,66 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
     .updateTable('project_submissions')
     .set({
       latest_run_id: (run as any).id,
-      status: 'evaluation_queued',
+      status: completed ? 'preflight_completed' : 'evaluation_queued',
+      latest_score: completed ? score : null,
       latest_summary_json: {
         runId: (run as any).id,
-        status: 'queued',
+        status: completed ? 'completed' : 'queued',
         queuedAt: nowIso(),
-        phase: 1
+        phase: 1,
+        mode: completed ? 'preflight' : 'queue_only',
+        score: completed ? score : null
       }
     })
     .where('id', '=', submissionId)
     .execute();
 
   return run;
+}
+
+export async function uploadSubmissionZip(
+  db: Kysely<any>,
+  ctx: Ctx,
+  submissionId: string,
+  file: { originalname?: string; buffer?: Buffer; size?: number }
+) {
+  if (!file?.buffer || !Buffer.isBuffer(file.buffer)) throw new Error('ZIP file is required');
+  if ((file.size || file.buffer.length) > 25 * 1024 * 1024) throw new Error('ZIP file too large (max 25MB for Phase 1)');
+
+  const submission = await db
+    .selectFrom('project_submissions')
+    .select(['id', 'organization_id as organizationId', 'metadata_json as metadata'])
+    .where('id', '=', submissionId)
+    .executeTakeFirst();
+  if (!submission || (submission as any).organizationId !== ctx.organizationId) throw new Error('Project submission not found');
+
+  const detection = await parseZipAndDetect(file.buffer);
+  const nextMetadata = {
+    ...(((submission as any).metadata || {}) as Record<string, any>),
+    zipUpload: {
+      fileName: file.originalname || 'submission.zip',
+      sizeBytes: file.size || file.buffer.length,
+      uploadedAt: nowIso()
+    },
+    zipDetection: detection
+  };
+
+  await db
+    .updateTable('project_submissions')
+    .set({
+      source_type: 'zip_upload',
+      source_ref: `inline_zip:${file.originalname || 'submission.zip'}`,
+      detected_framework: detection.detectedFramework,
+      status: 'submitted',
+      metadata_json: nextMetadata
+    })
+    .where('id', '=', submissionId)
+    .execute();
+
+  return {
+    submissionId,
+    fileName: file.originalname || 'submission.zip',
+    sizeBytes: file.size || file.buffer.length,
+    detection
+  };
 }

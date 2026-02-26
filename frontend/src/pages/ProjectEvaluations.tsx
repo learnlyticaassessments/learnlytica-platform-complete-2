@@ -13,6 +13,7 @@ export function ProjectEvaluations() {
   const [working, setWorking] = useState<string | null>(null);
   const [msg, setMsg] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [zipFile, setZipFile] = useState<File | null>(null);
 
   const [newAssessment, setNewAssessment] = useState({
     title: '',
@@ -110,15 +111,23 @@ export function ProjectEvaluations() {
     setError('');
     setMsg('');
     try {
-      await projectEvaluationsService.createSubmission(selectedAssessmentId, {
+      const created = await projectEvaluationsService.createSubmission(selectedAssessmentId, {
         ...newSubmission,
         sourceType: newSubmission.sourceType,
         sourceRef: newSubmission.sourceType === 'zip_upload' ? newSubmission.sourceRef || newSubmission.zipFileName : undefined,
         repoUrl: newSubmission.sourceType === 'github' ? newSubmission.repoUrl : undefined,
         repoBranch: newSubmission.sourceType === 'github' ? newSubmission.repoBranch : undefined
       });
+      if (newSubmission.sourceType === 'zip_upload' && zipFile) {
+        const uploadRes = await projectEvaluationsService.uploadSubmissionZip(created.data.id, zipFile);
+        const d = uploadRes.data?.detection;
+        if (d) {
+          setMsg(`ZIP uploaded and detected as ${d.detectedFramework} (${d.confidence})`);
+        }
+      }
       setMsg('Project submission recorded (Phase 1 scaffold)');
       setNewSubmission((prev) => ({ ...prev, zipFileName: '', sourceRef: '', notes: '' }));
+      setZipFile(null);
       const detail = await projectEvaluationsService.getAssessment(selectedAssessmentId);
       setAssessmentDetail(detail.data);
     } catch (e: any) {
@@ -282,7 +291,16 @@ export function ProjectEvaluations() {
                   </select>
                   {newSubmission.sourceType === 'zip_upload' ? (
                     <>
-                      <input className="input-field" placeholder="ZIP file name (e.g. project.zip)" value={newSubmission.zipFileName} onChange={(e) => setNewSubmission((p) => ({ ...p, zipFileName: e.target.value }))} />
+                      <input
+                        type="file"
+                        accept=".zip,application/zip"
+                        className="input-field"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          setZipFile(file);
+                          setNewSubmission((p) => ({ ...p, zipFileName: file?.name || '' }));
+                        }}
+                      />
                       <input className="input-field" placeholder="Source ref (S3 key / local ref placeholder)" value={newSubmission.sourceRef} onChange={(e) => setNewSubmission((p) => ({ ...p, sourceRef: e.target.value }))} />
                     </>
                   ) : (
@@ -294,9 +312,12 @@ export function ProjectEvaluations() {
                   <input className="input-field" placeholder="Framework hint (react_vite)" value={newSubmission.frameworkHint} onChange={(e) => setNewSubmission((p) => ({ ...p, frameworkHint: e.target.value }))} />
                   <input className="input-field" placeholder="Optional notes" value={newSubmission.notes} onChange={(e) => setNewSubmission((p) => ({ ...p, notes: e.target.value }))} />
                 </div>
-                <button className="btn-primary" onClick={submitProject} disabled={working === 'submission'}>
+                <button className="btn-primary" onClick={submitProject} disabled={working === 'submission' || (newSubmission.sourceType === 'zip_upload' && !zipFile)}>
                   {working === 'submission' ? 'Recording Submission...' : 'Add Submission'}
                 </button>
+                {newSubmission.sourceType === 'zip_upload' && !zipFile && (
+                  <div className="text-xs text-[var(--text-muted)]">Attach a ZIP file to run Phase 1 stack detection preflight.</div>
+                )}
               </div>
 
               <div>
@@ -329,7 +350,12 @@ export function ProjectEvaluations() {
                           </td>
                           <td className="px-3 py-2">{s.detectedFramework || '-'}</td>
                           <td className="px-3 py-2">{s.status}</td>
-                          <td className="px-3 py-2">{s.latestRunStatus || 'none'}</td>
+                          <td className="px-3 py-2">
+                            <div>{s.latestRunStatus || 'none'}</div>
+                            {typeof s.latestScore === 'number' && (
+                              <div className="text-xs text-[var(--text-muted)]">score {s.latestScore}/100</div>
+                            )}
+                          </td>
                           <td className="px-3 py-2">
                             <button
                               className="btn-secondary !py-1.5 !px-2.5 text-xs"
@@ -356,4 +382,3 @@ export function ProjectEvaluations() {
     </div>
   );
 }
-
