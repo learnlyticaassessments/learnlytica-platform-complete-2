@@ -105,6 +105,9 @@ async function setupPlaywrightExecution(workDir: string, code: string, testCode:
   
   // Create package.json
   const packageJson = {
+    "name": "learnlytica-playwright-draft-runner",
+    "version": "1.0.0",
+    "private": true,
     "type": "module",
     "devDependencies": {
       "@playwright/test": "^1.40.0"
@@ -118,6 +121,9 @@ async function setupJestExecution(workDir: string, code: string, testCode: strin
   await fs.writeFile(path.join(workDir, 'test.js'), testCode);
   
   const packageJson = {
+    "name": "learnlytica-jest-draft-runner",
+    "version": "1.0.0",
+    "private": true,
     "scripts": { "test": "jest --json --outputFile=results.json" },
     "devDependencies": { "jest": "^29.0.0" }
   };
