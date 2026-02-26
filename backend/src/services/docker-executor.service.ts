@@ -113,8 +113,7 @@ async function setupPlaywrightExecution(workDir: string, code: string, testCode:
   const packageJson = {
     "name": "learnlytica-playwright-draft-runner",
     "version": "1.0.0",
-    "private": true,
-    "type": "module"
+    "private": true
   };
   await fs.writeFile(path.join(workDir, 'package.json'), JSON.stringify(packageJson));
 }
@@ -122,17 +121,20 @@ async function setupPlaywrightExecution(workDir: string, code: string, testCode:
 function normalizePlaywrightImplementationModule(code: string): string {
   if (!code) return code;
 
-  // Playwright draft workspaces run in ESM mode ("type": "module"). Older
-  // sample packages may still export with CommonJS syntax.
+  // Normalize to CommonJS so imported packages from older samples and newer
+  // ESM-style samples both execute in the same draft runner environment.
   let next = String(code);
 
-  // Common case used by our earlier samples.
-  next = next.replace(/\bmodule\.exports\s*=\s*\{\s*sum\s*\}\s*;?/g, 'export { sum };');
+  // Convert `export function foo(...)` to `function foo(...)`
+  next = next.replace(/\bexport\s+function\s+([A-Za-z_]\w*)\s*\(/g, 'function $1(');
 
-  // Generic fallback: convert `module.exports = { a, b }` => `export { a, b };`
-  next = next.replace(/\bmodule\.exports\s*=\s*\{\s*([^}]+)\s*\}\s*;?/g, (_m, names) => {
-    return `export { ${String(names).trim()} };`;
-  });
+  // If there is no CommonJS export, append one based on discovered top-level functions.
+  if (!/\bmodule\.exports\b/.test(next)) {
+    const exportedNames = Array.from(next.matchAll(/\bfunction\s+([A-Za-z_]\w*)\s*\(/g)).map((m) => m[1]));
+    if (exportedNames.length > 0) {
+      next = `${next.trim()}\n\nmodule.exports = { ${Array.from(new Set(exportedNames)).join(', ')} };\n`;
+    }
+  }
 
   return next;
 }

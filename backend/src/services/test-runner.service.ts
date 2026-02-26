@@ -157,8 +157,8 @@ ${indentPy(tc.testCode || 'pass')}
     `).join('\n');
   } else if (framework === 'playwright') {
     return `
-      import { test, expect } from 'playwright/test';
-      import * as solutionModule from './implementation.js';
+      const { test, expect } = require('playwright/test');
+      const solutionModule = require('./implementation.js');
       
       ${testCases.map(tc => `
         test('${tc.name}', async ({ page }) => {
