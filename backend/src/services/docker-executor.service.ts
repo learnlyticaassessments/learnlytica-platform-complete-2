@@ -119,15 +119,6 @@ async function setupPlaywrightExecution(workDir: string, code: string, testCode:
 async function setupJestExecution(workDir: string, code: string, testCode: string) {
   await fs.writeFile(path.join(workDir, 'solution.js'), code);
   await fs.writeFile(path.join(workDir, 'test.js'), testCode);
-  
-  const packageJson = {
-    "name": "learnlytica-jest-draft-runner",
-    "version": "1.0.0",
-    "private": true,
-    "scripts": { "test": "jest --json --outputFile=results.json" },
-    "devDependencies": { "jest": "^29.0.0" }
-  };
-  await fs.writeFile(path.join(workDir, 'package.json'), JSON.stringify(packageJson));
 }
 
 async function setupPytestExecution(workDir: string, code: string, testCode: string) {
@@ -152,7 +143,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   if (framework === 'playwright') {
     execCmd = 'sh -c "npm install && npx playwright test --reporter=json"';
   } else if (framework === 'jest') {
-    execCmd = 'sh -c "npm install && npm test; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
+    execCmd = 'sh -c "jest --json --outputFile=results.json; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'pytest') {
     execCmd = 'pytest --json-report --json-report-file=results.json';
   }
