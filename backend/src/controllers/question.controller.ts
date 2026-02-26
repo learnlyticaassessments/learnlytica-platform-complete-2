@@ -56,6 +56,40 @@ export async function createQuestion(
   }
 }
 
+export async function runDraftTests(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const { question, code, useSolution } = req.body as {
+      question: CreateQuestionDTO;
+      code?: string;
+      useSolution?: boolean;
+    };
+
+    const result = await questionService.runDraftQuestionTests(
+      req.app.locals.db,
+      question,
+      {
+        organizationId: req.user.organizationId,
+        userId: req.user.id,
+        userRole: req.user.role
+      },
+      { code, useSolution }
+    );
+
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
 // ============================================================================
 // GET QUESTION BY ID
 // ============================================================================

@@ -31,6 +31,7 @@ import type {
   UpdateQuestionDTO,
   QuestionFilters
 } from '../../shared/types/question.types';
+import { runTestsWithJava } from './test-runner.service';
 
 // ============================================================================
 // ERRORS
@@ -130,6 +131,64 @@ export async function createQuestion(
   } as any);
 
   return question;
+}
+
+export async function runDraftQuestionTests(
+  _db: any,
+  data: CreateQuestionDTO,
+  context: {
+    organizationId: string;
+    userId: string;
+    userRole: string;
+  },
+  opts?: { code?: string; useSolution?: boolean }
+) {
+  void _db;
+  void context;
+
+  // Validate with the pure validators to avoid any persistence side effects.
+  const validation = validateCreateQuestion(data);
+  if (!validation.success) {
+    throw new QuestionValidationError('Invalid draft question', validation.error.errors);
+  }
+  const validatedData = validation.data as CreateQuestionDTO;
+
+  const testCaseValidation = validateTestCases(validatedData.testConfig.testCases);
+  if (!testCaseValidation.valid) {
+    throw new QuestionValidationError(
+      'Invalid test cases configuration',
+      testCaseValidation.errors.map((e) => ({ message: e }))
+    );
+  }
+
+  if (validatedData.solution) {
+    const solutionValidation = validateSolution(validatedData.starterCode as any, validatedData.solution as any);
+    if (!solutionValidation.valid) {
+      throw new QuestionValidationError(
+        'Invalid solution',
+        solutionValidation.errors.map((e) => ({ message: e }))
+      );
+    }
+  }
+
+  const codeFromSolution =
+    opts?.useSolution !== false
+      ? validatedData.solution?.files?.[0]?.content
+      : undefined;
+  const codeFromRequest = opts?.code?.trim() ? opts.code : undefined;
+  const fallbackStarter = validatedData.starterCode?.files?.[0]?.content;
+
+  const codeToRun = codeFromRequest || codeFromSolution || fallbackStarter;
+  if (!codeToRun) {
+    throw new QuestionValidationError('No code available to run', [{ field: 'solution.files.0.content', message: 'Provide a solution or code to run tests' }]);
+  }
+
+  const questionLike = {
+    ...validatedData,
+    testConfig: validatedData.testConfig
+  };
+
+  return runTestsWithJava(codeToRun, validatedData.testConfig, questionLike);
 }
 
 // ============================================================================

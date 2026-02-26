@@ -87,6 +87,7 @@ const testCaseSchema = z.object({
   description: z.string().optional(),
   file: z.string().min(1, 'Test file path is required'),
   testName: z.string().min(1, 'Test name is required'),
+  testCode: z.string().optional(),
   points: z.number().int().min(0, 'Points must be non-negative'),
   visible: z.boolean(),
   category: z.string().optional(),
@@ -304,6 +305,12 @@ export const bulkExportSchema = z.object({
   format: z.enum(['json', 'csv']).optional().default('json')
 });
 
+export const draftTestRunSchema = z.object({
+  question: createQuestionSchema,
+  code: z.string().optional(),
+  useSolution: z.boolean().optional().default(true)
+});
+
 // ============================================================================
 // ID PARAMETER SCHEMA
 // ============================================================================
@@ -324,6 +331,7 @@ export type ReviewRequestInput = z.infer<typeof reviewRequestSchema>;
 export type ReviewResponseInput = z.infer<typeof reviewResponseSchema>;
 export type BulkImportInput = z.infer<typeof bulkImportSchema>;
 export type BulkExportInput = z.infer<typeof bulkExportSchema>;
+export type DraftTestRunInput = z.infer<typeof draftTestRunSchema>;
 
 // ============================================================================
 // VALIDATION HELPER FUNCTIONS

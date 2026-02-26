@@ -5,6 +5,41 @@
 import { Request, Response, NextFunction } from 'express';
 import * as studentService from '../services/student-assessment.service';
 
+function sanitizeAssessmentForLearner(assessment: any) {
+  if (!assessment || !Array.isArray(assessment.questions)) return assessment;
+
+  return {
+    ...assessment,
+    questions: assessment.questions.map((aq: any) => {
+      const q = aq?.question;
+      if (!q) return aq;
+
+      const visibleTestCases = Array.isArray(q?.testConfig?.testCases)
+        ? q.testConfig.testCases
+            .filter((tc: any) => tc?.visible)
+            .map((tc: any) => {
+              const { testCode, ...rest } = tc || {};
+              return rest;
+            })
+        : [];
+
+      return {
+        ...aq,
+        question: {
+          ...q,
+          solution: undefined,
+          testConfig: q.testConfig
+            ? {
+                ...q.testConfig,
+                testCases: visibleTestCases
+              }
+            : q.testConfig
+        }
+      };
+    })
+  };
+}
+
 export async function getMyAssessments(req: Request, res: Response, next: NextFunction) {
   try {
     const db = (req as any).db;
@@ -24,7 +59,13 @@ export async function getAssessmentToTake(req: Request, res: Response, next: Nex
     const sessionKey = (req.headers['x-attempt-session-key'] as string | undefined) || undefined;
 
     const data = await studentService.getAssessmentToTake(db, req.params.id, studentId, sessionKey);
-    res.json({ success: true, data });
+    res.json({
+      success: true,
+      data: {
+        ...data,
+        assessment: sanitizeAssessmentForLearner(data.assessment)
+      }
+    });
   } catch (error) {
     next(error);
   }

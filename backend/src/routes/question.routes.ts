@@ -13,7 +13,8 @@ import {
   updateQuestionSchema,
   questionFiltersSchema,
   updateStatusSchema,
-  bulkImportSchema
+  bulkImportSchema,
+  draftTestRunSchema
 } from '../validators/question.validator';
 
 const router = Router();
@@ -34,6 +35,12 @@ router.post(
   '/',
   validateRequest(createQuestionSchema, 'body'),
   questionController.createQuestion
+);
+
+router.post(
+  '/draft-test-run',
+  validateRequest(draftTestRunSchema, 'body'),
+  questionController.runDraftTests
 );
 
 /**

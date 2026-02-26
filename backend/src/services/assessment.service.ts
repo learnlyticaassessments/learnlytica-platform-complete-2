@@ -33,6 +33,61 @@ export class ValidationError extends Error {
   }
 }
 
+function isFrameworkCompatibleWithLabTemplate(question: any, labTemplate: any): { ok: boolean; reason?: string } {
+  const framework = question.testFramework;
+  const questionCategory = question.category;
+  const templateCategory = labTemplate.category;
+  const dockerImage = String(labTemplate.dockerImage || '').toLowerCase();
+
+  const categoryCompatible =
+    templateCategory === 'fullstack' ||
+    questionCategory === templateCategory ||
+    // Backend templates can reasonably support DB/API coding tasks.
+    (templateCategory === 'backend' && ['database', 'devops'].includes(questionCategory));
+
+  if (!categoryCompatible) {
+    return {
+      ok: false,
+      reason: `Question category '${questionCategory}' is not compatible with lab template category '${templateCategory}'`
+    };
+  }
+
+  const needsNode = ['jest', 'playwright', 'supertest', 'mocha', 'cypress'].includes(framework);
+  const needsPython = ['pytest', 'pytest-requests'].includes(framework);
+  const needsJava = ['junit'].includes(framework);
+
+  const looksNode = dockerImage.includes('node');
+  const looksPython = dockerImage.includes('python');
+  const looksJava = dockerImage.includes('java') || dockerImage.includes('maven') || dockerImage.includes('gradle');
+
+  if (needsNode && !(looksNode || ['frontend', 'backend', 'fullstack', 'devops'].includes(templateCategory))) {
+    return { ok: false, reason: `Framework '${framework}' requires a Node-capable lab template` };
+  }
+  if (needsPython && !(looksPython || ['backend', 'fullstack', 'devops'].includes(templateCategory))) {
+    return { ok: false, reason: `Framework '${framework}' requires a Python-capable lab template` };
+  }
+  if (needsJava && !(looksJava || ['backend', 'fullstack'].includes(templateCategory))) {
+    return { ok: false, reason: `Framework '${framework}' requires a Java-capable lab template` };
+  }
+
+  return { ok: true };
+}
+
+async function validateQuestionsAgainstLabTemplate(db: any, labTemplate: any, questions: any[], context: any) {
+  for (const q of questions) {
+    const question = await getQuestionById(db, q.questionId ?? q.id ?? q, context);
+    if (!question) {
+      throw new ValidationError(`Question ${q.questionId ?? q.id ?? q} not found`);
+    }
+    const compatibility = isFrameworkCompatibleWithLabTemplate(question, labTemplate);
+    if (!compatibility.ok) {
+      throw new ValidationError(
+        `Question "${question.title}" is incompatible with lab template "${labTemplate.name}": ${compatibility.reason}`
+      );
+    }
+  }
+}
+
 // ============================================================================
 // CREATE
 // ============================================================================
@@ -63,6 +118,7 @@ export async function createAssessment(db: any, data: any, context: any) {
         throw new ValidationError(`Question ${q.questionId} is not published`);
       }
     }
+    await validateQuestionsAgainstLabTemplate(db, labTemplate, data.questions, context);
   }
 
   // Create assessment
@@ -138,6 +194,11 @@ export async function updateAssessment(db: any, id: string, data: any, context: 
     if (!labTemplate || !labTemplate.isActive) {
       throw new ValidationError('Invalid or inactive lab template');
     }
+
+    const existingWithQuestions = await assessmentModel.getAssessmentById(db, id, { includeQuestions: true });
+    if (existingWithQuestions?.questions?.length) {
+      await validateQuestionsAgainstLabTemplate(db, labTemplate, existingWithQuestions.questions, context);
+    }
   }
 
   const updated = await assessmentModel.updateAssessment(db, id, data);
@@ -178,6 +239,10 @@ export async function addQuestionsToAssessment(
   context: any
 ) {
   const assessment = await getAssessment(db, assessmentId, {}, context);
+  const labTemplate = await labTemplateModel.getLabTemplateById(db, assessment.labTemplateId);
+  if (!labTemplate || !labTemplate.isActive) {
+    throw new ValidationError('Assessment lab template is invalid or inactive');
+  }
 
   // Verify all questions exist and are published
   for (const q of questions) {
@@ -186,6 +251,8 @@ export async function addQuestionsToAssessment(
       throw new ValidationError(`Invalid question: ${q.questionId}`);
     }
   }
+
+  await validateQuestionsAgainstLabTemplate(db, labTemplate, questions, context);
 
   await assessmentModel.addQuestions(db, assessmentId, questions);
 }

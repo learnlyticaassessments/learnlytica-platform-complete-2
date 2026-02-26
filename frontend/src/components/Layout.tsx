@@ -1,8 +1,9 @@
 import { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { FileText, ClipboardList, User, Users, BarChart3, Book, Sparkles, Settings, LogOut, Zap, Award, Layers3 } from 'lucide-react';
+import { FileText, ClipboardList, User, Users, BarChart3, Book, Sparkles, LogOut, Zap, Award, Layers3, Sun, Moon, Monitor } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can, getRoleLabel } from '../auth/permissions';
+import { useTheme } from '../theme/ThemeProvider';
 
 interface LayoutProps {
   children: ReactNode;
@@ -13,6 +14,7 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const roleLabel = getRoleLabel(user?.role);
+  const { theme, setTheme, resolvedTheme, toggleTheme } = useTheme();
 
   const navigation: Array<{
     name: string;
@@ -110,8 +112,39 @@ export function Layout({ children }: LayoutProps) {
                   <span className="text-[10px] uppercase tracking-[0.16em] text-purple-600 font-semibold">{roleLabel}</span>
                 </div>
               )}
-              <button className="p-2 text-slate-600 hover:text-slate-900 rounded-xl hover:bg-white/90 transition">
-                <Settings className="w-5 h-5" />
+              <div className="hidden sm:flex items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1">
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  className={`p-2 rounded-lg transition ${theme === 'light' ? 'bg-[var(--surface-3)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                  title="Light theme"
+                >
+                  <Sun className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('dark')}
+                  className={`p-2 rounded-lg transition ${theme === 'dark' ? 'bg-[var(--surface-3)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                  title="Dark theme"
+                >
+                  <Moon className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('system')}
+                  className={`p-2 rounded-lg transition ${theme === 'system' ? 'bg-[var(--surface-3)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                  title={`System theme (${resolvedTheme})`}
+                >
+                  <Monitor className="w-4 h-4" />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="sm:hidden p-2 text-[var(--text-muted)] hover:text-[var(--text)] rounded-xl hover:bg-[var(--surface)] transition border border-[var(--border)] bg-[var(--surface)]"
+                title={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} theme`}
+              >
+                {resolvedTheme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
               </button>
               <button
                 onClick={() => {

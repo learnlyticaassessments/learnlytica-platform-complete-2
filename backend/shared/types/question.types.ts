@@ -165,6 +165,7 @@ export interface TestCase {
   description?: string; // Optional description
   file: string; // Test file path
   testName: string; // Exact test name in the file
+  testCode?: string; // Executable test body/assertions (author-only)
   points: number; // Points for this test case
   visible: boolean; // Visible to students?
   category?: string; // e.g., "basic", "advanced"

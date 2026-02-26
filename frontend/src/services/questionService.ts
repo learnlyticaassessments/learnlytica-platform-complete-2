@@ -65,6 +65,14 @@ export const questionService = {
     return response.data.data;
   },
 
+  async runDraftTests(payload: { question: CreateQuestionDTO; code?: string; useSolution?: boolean }): Promise<any> {
+    const response = await apiClient.post<{ success: boolean; data: any }>(
+      '/questions/draft-test-run',
+      payload
+    );
+    return response.data.data;
+  },
+
   /**
    * Get question by ID
    */
