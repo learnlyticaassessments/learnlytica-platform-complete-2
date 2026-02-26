@@ -151,7 +151,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   if (framework === 'playwright') {
     execCmd = 'sh -c "npm install && npx playwright test --reporter=json"';
   } else if (framework === 'jest') {
-    execCmd = 'sh -c "jest --rootDir /workspace --testEnvironment=node --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
+    execCmd = 'sh -c "jest --config \'{\\"rootDir\\":\\"/workspace\\",\\"testEnvironment\\":\\"node\\"}\' --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
   } else if (framework === 'pytest') {
     execCmd = 'pytest --json-report --json-report-file=results.json';
   }
