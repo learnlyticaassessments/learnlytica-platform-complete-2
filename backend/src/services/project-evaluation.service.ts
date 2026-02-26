@@ -22,6 +22,21 @@ function projectEvalStorageRoot() {
   return path.resolve(process.cwd(), 'storage', 'project-evaluations');
 }
 
+function detectZipProjectRoot(entryNames: string[]) {
+  const fileEntries = entryNames.filter(Boolean);
+  if (!fileEntries.length) return '';
+
+  // If package.json exists at root, treat root as project root.
+  if (fileEntries.some((n) => n.toLowerCase() === 'package.json')) return '';
+
+  const topLevel = Array.from(new Set(fileEntries.map((n) => n.split('/')[0]).filter(Boolean)));
+  if (topLevel.length !== 1) return '';
+
+  const prefix = `${topLevel[0]}/`;
+  const hasNestedPackageJson = fileEntries.some((n) => n.toLowerCase() === `${prefix}package.json`.toLowerCase());
+  return hasNestedPackageJson ? prefix : '';
+}
+
 function extractJsonObject(output: string) {
   const text = String(output || '');
   const matches = text.match(/\{[\s\S]*\}/g);
@@ -172,13 +187,18 @@ async function runPhase1ReactViteBrowserEvaluation(zipPath: string, templateConf
     const zipBuffer = await fs.readFile(zipPath);
     const zip = await JSZip.loadAsync(zipBuffer);
 
+    const zipFileEntries = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+    const rootPrefix = detectZipProjectRoot(zipFileEntries);
+
     await Promise.all(
       Object.entries(zip.files).map(async ([name, file]) => {
-        const target = path.join(workspaceDir, name);
+        const relativeName = rootPrefix && name.startsWith(rootPrefix) ? name.slice(rootPrefix.length) : name;
+        const target = path.join(workspaceDir, relativeName);
         if (file.dir) {
-          await fs.mkdir(target, { recursive: true });
+          if (relativeName) await fs.mkdir(target, { recursive: true });
           return;
         }
+        if (!relativeName) return;
         await fs.mkdir(path.dirname(target), { recursive: true });
         const content = await file.async('nodebuffer');
         await fs.writeFile(target, content);
@@ -264,7 +284,9 @@ type ZipDetectSummary = {
 
 async function parseZipAndDetect(buffer: Buffer): Promise<ZipDetectSummary> {
   const zip = await JSZip.loadAsync(buffer);
-  const entryNames = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+  const rawEntryNames = Object.keys(zip.files).filter((n) => !zip.files[n].dir);
+  const rootPrefix = detectZipProjectRoot(rawEntryNames);
+  const entryNames = rawEntryNames.map((n) => (rootPrefix && n.startsWith(rootPrefix) ? n.slice(rootPrefix.length) : n)).filter(Boolean);
   const lower = new Set(entryNames.map((n) => n.toLowerCase()));
 
   const has = (name: string) => lower.has(name.toLowerCase());
