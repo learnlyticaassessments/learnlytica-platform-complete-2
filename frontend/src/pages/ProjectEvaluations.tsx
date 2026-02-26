@@ -3,6 +3,13 @@ import { Layers3, Play, Plus, UploadCloud } from 'lucide-react';
 import { projectEvaluationsService } from '../services/projectEvaluationsService';
 import { learnersService } from '../services/learnersService';
 
+function parseLines(input: string) {
+  return input
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 export function ProjectEvaluations() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [assessments, setAssessments] = useState<any[]>([]);
@@ -21,6 +28,16 @@ export function ProjectEvaluations() {
     evaluatorTemplateId: '',
     frameworkScope: 'react_vite',
     submissionMode: 'zip_upload'
+  });
+  const [projectBrief, setProjectBrief] = useState({
+    businessContext: '',
+    taskSummary: '',
+    expectedFlow: '',
+    requirements: '',
+    acceptanceCriteria: '',
+    submissionInstructions: '',
+    evaluationNotes: '',
+    stretchGoals: ''
   });
 
   const [newSubmission, setNewSubmission] = useState({
@@ -94,9 +111,33 @@ export function ProjectEvaluations() {
     setError('');
     setMsg('');
     try {
-      await projectEvaluationsService.createAssessment(newAssessment);
+      await projectEvaluationsService.createAssessment({
+        ...newAssessment,
+        config: {
+          brief: {
+            businessContext: projectBrief.businessContext.trim(),
+            taskSummary: projectBrief.taskSummary.trim(),
+            expectedFlow: parseLines(projectBrief.expectedFlow),
+            requirements: parseLines(projectBrief.requirements),
+            acceptanceCriteria: parseLines(projectBrief.acceptanceCriteria),
+            submissionInstructions: parseLines(projectBrief.submissionInstructions),
+            evaluationNotes: parseLines(projectBrief.evaluationNotes),
+            stretchGoals: parseLines(projectBrief.stretchGoals)
+          }
+        }
+      });
       setMsg('Project assessment created');
       setNewAssessment((prev) => ({ ...prev, title: '', description: '' }));
+      setProjectBrief({
+        businessContext: '',
+        taskSummary: '',
+        expectedFlow: '',
+        requirements: '',
+        acceptanceCriteria: '',
+        submissionInstructions: '',
+        evaluationNotes: '',
+        stretchGoals: ''
+      });
       await loadAll(false);
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to create project assessment');
@@ -219,6 +260,19 @@ export function ProjectEvaluations() {
                 <option value="github">github</option>
               </select>
             </div>
+            <details className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
+              <summary className="cursor-pointer font-semibold text-sm">Learner Project Brief (Structured)</summary>
+              <div className="mt-3 space-y-3">
+                <textarea className="input-field min-h-[80px]" placeholder="Business Context (what business problem this project solves)" value={projectBrief.businessContext} onChange={(e) => setProjectBrief((p) => ({ ...p, businessContext: e.target.value }))} />
+                <textarea className="input-field min-h-[80px]" placeholder="Task Summary (what the learner must build)" value={projectBrief.taskSummary} onChange={(e) => setProjectBrief((p) => ({ ...p, taskSummary: e.target.value }))} />
+                <textarea className="input-field min-h-[90px]" placeholder={`Expected User Flow (one step per line)\n1. Open page\n2. Fill form\n3. Submit...`} value={projectBrief.expectedFlow} onChange={(e) => setProjectBrief((p) => ({ ...p, expectedFlow: e.target.value }))} />
+                <textarea className="input-field min-h-[90px]" placeholder={`Functional Requirements (one per line)`} value={projectBrief.requirements} onChange={(e) => setProjectBrief((p) => ({ ...p, requirements: e.target.value }))} />
+                <textarea className="input-field min-h-[90px]" placeholder={`Acceptance Criteria (one per line)`} value={projectBrief.acceptanceCriteria} onChange={(e) => setProjectBrief((p) => ({ ...p, acceptanceCriteria: e.target.value }))} />
+                <textarea className="input-field min-h-[80px]" placeholder={`Submission Instructions (one per line)`} value={projectBrief.submissionInstructions} onChange={(e) => setProjectBrief((p) => ({ ...p, submissionInstructions: e.target.value }))} />
+                <textarea className="input-field min-h-[70px]" placeholder={`Evaluation Notes (one per line)`} value={projectBrief.evaluationNotes} onChange={(e) => setProjectBrief((p) => ({ ...p, evaluationNotes: e.target.value }))} />
+                <textarea className="input-field min-h-[70px]" placeholder={`Stretch Goals (optional, one per line)`} value={projectBrief.stretchGoals} onChange={(e) => setProjectBrief((p) => ({ ...p, stretchGoals: e.target.value }))} />
+              </div>
+            </details>
             <button className="btn-primary w-full" onClick={createAssessment} disabled={working === 'assessment'}>
               {working === 'assessment' ? 'Creating...' : 'Create Project Assessment'}
             </button>
@@ -275,14 +329,53 @@ export function ProjectEvaluations() {
                 </div>
               </div>
 
+              {!!assessmentDetail?.config?.brief && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold">Learner Brief Preview</h3>
+                    <span className="text-xs text-[var(--text-muted)]">Structured format (learner-facing)</span>
+                  </div>
+                  {assessmentDetail.config.brief.businessContext && (
+                    <section>
+                      <h4 className="text-sm font-semibold mb-1">Business Context</h4>
+                      <p className="text-sm text-[var(--text-muted)] whitespace-pre-wrap">{assessmentDetail.config.brief.businessContext}</p>
+                    </section>
+                  )}
+                  {assessmentDetail.config.brief.taskSummary && (
+                    <section>
+                      <h4 className="text-sm font-semibold mb-1">Your Task</h4>
+                      <p className="text-sm text-[var(--text-muted)] whitespace-pre-wrap">{assessmentDetail.config.brief.taskSummary}</p>
+                    </section>
+                  )}
+                  {[
+                    ['Expected User Flow', assessmentDetail.config.brief.expectedFlow],
+                    ['Functional Requirements', assessmentDetail.config.brief.requirements],
+                    ['Acceptance Criteria', assessmentDetail.config.brief.acceptanceCriteria],
+                    ['Submission Instructions', assessmentDetail.config.brief.submissionInstructions],
+                    ['Evaluation Notes', assessmentDetail.config.brief.evaluationNotes],
+                    ['Stretch Goals', assessmentDetail.config.brief.stretchGoals]
+                  ].map(([label, items]: any) => Array.isArray(items) && items.length ? (
+                    <section key={label}>
+                      <h4 className="text-sm font-semibold mb-1">{label}</h4>
+                      <ul className="space-y-1 text-sm text-[var(--text-muted)] list-disc pl-5">
+                        {items.map((item: string, i: number) => <li key={`${label}-${i}`}>{item}</li>)}
+                      </ul>
+                    </section>
+                  ) : null)}
+                </div>
+              )}
+
               <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-3">
                 <div className="flex items-center gap-2 font-semibold">
                   <UploadCloud className="w-4 h-4 text-[var(--accent)]" />
-                  Record Phase 1 Project Submission (ZIP/GitHub metadata)
+                  Reference Submission (Admin Validation)
                 </div>
+                <p className="text-xs text-[var(--text-muted)]">
+                  Use a reference project ZIP/GitHub repo to validate the evaluator and project brief before publishing/assigning to learners.
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <select className="input-field" value={newSubmission.studentId} onChange={(e) => setNewSubmission((p) => ({ ...p, studentId: e.target.value }))}>
-                    <option value="">Select learner</option>
+                    <option value="">Select learner identity for validation record</option>
                     {learners.map((l) => <option key={l.id} value={l.id}>{l.fullName} ({l.email})</option>)}
                   </select>
                   <select className="input-field" value={newSubmission.sourceType} onChange={(e) => setNewSubmission((p) => ({ ...p, sourceType: e.target.value }))}>
@@ -313,27 +406,27 @@ export function ProjectEvaluations() {
                   <input className="input-field" placeholder="Optional notes" value={newSubmission.notes} onChange={(e) => setNewSubmission((p) => ({ ...p, notes: e.target.value }))} />
                 </div>
                 <button className="btn-primary" onClick={submitProject} disabled={working === 'submission' || (newSubmission.sourceType === 'zip_upload' && !zipFile)}>
-                  {working === 'submission' ? 'Recording Submission...' : 'Add Submission'}
+                  {working === 'submission' ? 'Recording Reference Submission...' : 'Add Reference Submission'}
                 </button>
                 {newSubmission.sourceType === 'zip_upload' && !zipFile && (
-                  <div className="text-xs text-[var(--text-muted)]">Attach a ZIP file to run Phase 1 stack detection preflight.</div>
+                  <div className="text-xs text-[var(--text-muted)]">Attach a ZIP file to run Phase 1 preflight validation.</div>
                 )}
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold">Submissions</h3>
-                  <span className="text-xs text-[var(--text-muted)]">{assessmentDetail?.submissions?.length || 0} total</span>
+                  <h3 className="font-semibold">Reference Validation Submissions</h3>
+                  <span className="text-xs text-[var(--text-muted)]">{assessmentDetail?.submissions?.length || 0} recorded</span>
                 </div>
                 <div className="table-shell overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="text-left">
-                        <th className="px-3 py-2">Learner</th>
+                        <th className="px-3 py-2">Validation Identity</th>
                         <th className="px-3 py-2">Source</th>
                         <th className="px-3 py-2">Detected</th>
                         <th className="px-3 py-2">Status</th>
-                        <th className="px-3 py-2">Latest Run</th>
+                        <th className="px-3 py-2">Latest Validation</th>
                         <th className="px-3 py-2">Action</th>
                       </tr>
                     </thead>
@@ -363,13 +456,13 @@ export function ProjectEvaluations() {
                               disabled={working === `run:${s.id}`}
                             >
                               <Play className="w-3.5 h-3.5" />
-                              {working === `run:${s.id}` ? 'Queueing...' : 'Queue Run'}
+                              {working === `run:${s.id}` ? 'Running...' : 'Run Preflight Validation'}
                             </button>
                           </td>
                         </tr>
                       ))}
                       {!assessmentDetail?.submissions?.length && (
-                        <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={6}>No submissions yet.</td></tr>
+                        <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={6}>No reference validation submissions yet.</td></tr>
                       )}
                     </tbody>
                   </table>
