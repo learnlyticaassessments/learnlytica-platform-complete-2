@@ -46,8 +46,16 @@ export async function getProjectBatchAnalytics(req: Request, res: Response, next
     const organizationId = (req.user as any).organizationId as string;
     const data = await analyticsService.getProjectBatchAnalytics(db, organizationId);
     res.json({ success: true, data });
-  } catch (error) {
-    next(error);
+  } catch (error: any) {
+    console.error('[analytics.projects.by-batch] failed', {
+      organizationId: (req.user as any)?.organizationId,
+      message: error?.message
+    });
+    res.json({
+      success: true,
+      data: [],
+      warning: 'Batch-wise project analytics is temporarily unavailable.'
+    });
   }
 }
 
@@ -57,8 +65,22 @@ export async function getProjectAnalyticsDebug(req: Request, res: Response, next
     const organizationId = (req.user as any).organizationId as string;
     const data = await analyticsService.getProjectAnalyticsDebug(db, organizationId);
     res.json({ success: true, data });
-  } catch (error) {
-    next(error);
+  } catch (error: any) {
+    console.error('[analytics.projects.debug] failed', {
+      organizationId: (req.user as any)?.organizationId,
+      message: error?.message
+    });
+    res.json({
+      success: true,
+      data: {
+        organizationId: (req.user as any)?.organizationId || null,
+        totalProjectSubmissions: 0,
+        bySubmissionKindAndStatus: [],
+        byStatus: [],
+        recentSubmissions: []
+      },
+      warning: 'Project analytics debug data is temporarily unavailable.'
+    });
   }
 }
 

@@ -7,6 +7,7 @@ export function Dashboard() {
   const [projectTrends, setProjectTrends] = useState<any[]>([]);
   const [projectBatchRows, setProjectBatchRows] = useState<any[]>([]);
   const [projectDebug, setProjectDebug] = useState<any | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -15,20 +16,53 @@ export function Dashboard() {
   }, []);
 
   const loadStats = async () => {
+    const nextWarnings: string[] = [];
     try {
-      const [dashboard, trends, byBatch, debug] = await Promise.all([
+      const [dashboard, trends, byBatch, debug] = await Promise.allSettled([
         analyticsService.getDashboard(),
         analyticsService.getProjectTrends(14),
         analyticsService.getProjectBatchAnalytics(),
         analyticsService.getProjectAnalyticsDebug()
       ]);
-      setStats(dashboard.data);
-      setProjectTrends(trends.data || []);
-      setProjectBatchRows(byBatch.data || []);
-      setProjectDebug(debug.data || null);
+
+      if (dashboard.status === 'fulfilled') {
+        setStats(dashboard.value.data);
+      } else {
+        nextWarnings.push('Dashboard metrics are currently unavailable.');
+        setStats(null);
+        console.error('Failed to load dashboard analytics', dashboard.reason);
+      }
+
+      if (trends.status === 'fulfilled') {
+        setProjectTrends(trends.value.data || []);
+      } else {
+        nextWarnings.push('Project trend data could not be loaded.');
+        setProjectTrends([]);
+        console.error('Failed to load project trends', trends.reason);
+      }
+
+      if (byBatch.status === 'fulfilled') {
+        setProjectBatchRows(byBatch.value.data || []);
+        if ((byBatch.value as any).warning) nextWarnings.push((byBatch.value as any).warning);
+      } else {
+        nextWarnings.push('Batch-wise project analytics could not be loaded.');
+        setProjectBatchRows([]);
+        console.error('Failed to load batch analytics', byBatch.reason);
+      }
+
+      if (debug.status === 'fulfilled') {
+        setProjectDebug(debug.value.data || null);
+        if ((debug.value as any).warning) nextWarnings.push((debug.value as any).warning);
+      } else {
+        nextWarnings.push('Project debug analytics could not be loaded.');
+        setProjectDebug(null);
+        console.error('Failed to load project debug analytics', debug.reason);
+      }
     } catch (error) {
       console.error('Failed to load stats', error);
+      nextWarnings.push('Analytics is partially unavailable. Try again in a moment.');
     } finally {
+      setWarnings(nextWarnings);
       setLoading(false);
     }
   };
@@ -104,6 +138,17 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {warnings.length > 0 && (
+        <div className="card border-amber-300 bg-amber-50 text-amber-900">
+          <div className="text-sm font-semibold mb-1">Analytics Warnings</div>
+          <ul className="list-disc pl-5 text-sm space-y-1">
+            {warnings.map((w, idx) => (
+              <li key={`warn-${idx}`}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

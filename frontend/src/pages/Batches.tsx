@@ -108,10 +108,37 @@ export function Batches() {
   const [resultsStatus, setResultsStatus] = useState('');
   const [resultsAssessmentId, setResultsAssessmentId] = useState('');
   const [resultsSubmissionFilter, setResultsSubmissionFilter] = useState<'all' | 'submitted' | 'not_submitted'>('all');
-  const [membersPanelExpanded, setMembersPanelExpanded] = useState(true);
-  const [step3Expanded, setStep3Expanded] = useState(true);
-  const [step3Mode, setStep3Mode] = useState<'classic' | 'project'>('classic');
-  const [resultsPanelExpanded, setResultsPanelExpanded] = useState(true);
+  const [membersPanelExpanded, setMembersPanelExpanded] = useState(() => {
+    try {
+      const v = localStorage.getItem('batches.membersPanelExpanded');
+      return v == null ? true : v === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [step3Expanded, setStep3Expanded] = useState(() => {
+    try {
+      const v = localStorage.getItem('batches.step3Expanded');
+      return v == null ? true : v === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [step3Mode, setStep3Mode] = useState<'classic' | 'project'>(() => {
+    try {
+      return localStorage.getItem('batches.step3Mode') === 'project' ? 'project' : 'classic';
+    } catch {
+      return 'classic';
+    }
+  });
+  const [resultsPanelExpanded, setResultsPanelExpanded] = useState(() => {
+    try {
+      const v = localStorage.getItem('batches.resultsPanelExpanded');
+      return v == null ? true : v === 'true';
+    } catch {
+      return true;
+    }
+  });
   const batchCsvFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [newBatch, setNewBatch] = useState({
@@ -267,6 +294,17 @@ export function Batches() {
   useEffect(() => {
     void loadSelectedBatchData(selectedBatchId);
   }, [selectedBatchId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('batches.membersPanelExpanded', String(membersPanelExpanded));
+      localStorage.setItem('batches.step3Expanded', String(step3Expanded));
+      localStorage.setItem('batches.step3Mode', step3Mode);
+      localStorage.setItem('batches.resultsPanelExpanded', String(resultsPanelExpanded));
+    } catch {
+      // Ignore localStorage errors (private mode / quota)
+    }
+  }, [membersPanelExpanded, step3Expanded, step3Mode, resultsPanelExpanded]);
 
   const refreshResults = async () => {
     if (!selectedBatchId) return;
