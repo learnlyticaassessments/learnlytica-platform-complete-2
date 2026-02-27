@@ -6,6 +6,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { existsSync } from 'fs';
+import { createQuestion } from './question.service';
 
 const LIBRARY_PATH_CANDIDATES = [
   // PM2 production run (backend cwd)
@@ -33,6 +34,87 @@ export interface QuestionTemplate {
   starterCode?: any;
   hints?: string[];
   tags?: string[];
+}
+
+function normalizeDifficulty(input: string): 'easy' | 'medium' | 'hard' {
+  const value = String(input || '').toLowerCase().trim();
+  if (value === 'beginner' || value === 'easy') return 'easy';
+  if (value === 'intermediate' || value === 'medium') return 'medium';
+  if (value === 'advanced' || value === 'hard') return 'hard';
+  return 'medium';
+}
+
+function normalizeCategory(input: string): 'frontend' | 'backend' | 'fullstack' | 'database' | 'devops' {
+  const value = String(input || '').toLowerCase().trim();
+  if (value === 'frontend' || value === 'backend' || value === 'fullstack' || value === 'database' || value === 'devops') {
+    return value;
+  }
+  if (value === 'algorithms' || value === 'dsa') return 'backend';
+  if (value === 'sql' || value === 'data') return 'database';
+  return 'backend';
+}
+
+function normalizeStarterCode(starterCode: any) {
+  const files = Array.isArray(starterCode?.files) ? starterCode.files : [];
+  return {
+    files: files.map((f: any) => ({
+      path: f.path || f.name || 'solution.js',
+      content: String(f.content || ''),
+      language: f.language
+    })),
+    dependencies: starterCode?.dependencies && typeof starterCode.dependencies === 'object' ? starterCode.dependencies : {},
+    scripts: starterCode?.scripts && typeof starterCode.scripts === 'object' ? starterCode.scripts : undefined,
+    devDependencies: starterCode?.devDependencies && typeof starterCode.devDependencies === 'object' ? starterCode.devDependencies : undefined
+  };
+}
+
+function buildNormalizedQuestionDto(questionData: any) {
+  const framework = String(questionData?.testConfig?.framework || questionData?.testFramework || 'jest').toLowerCase();
+  const testCases = Array.isArray(questionData?.testConfig?.testCases) ? questionData.testConfig.testCases : [];
+  const totalPoints = testCases.reduce((sum: number, tc: any) => sum + Number(tc?.points || 0), 0);
+
+  return {
+    title: String(questionData?.title || 'Imported Library Question'),
+    description: String(questionData?.description || 'Imported from library'),
+    category: normalizeCategory(questionData?.category),
+    subcategory: [],
+    difficulty: normalizeDifficulty(questionData?.difficulty),
+    skills: Array.isArray(questionData?.skills) ? questionData.skills : [],
+    tags: Array.isArray(questionData?.tags) ? questionData.tags : [],
+    starterCode: normalizeStarterCode(questionData?.starterCode),
+    testFramework: framework,
+    testConfig: {
+      framework,
+      version: '1.0.0',
+      environment: questionData?.testConfig?.environment || { node: '18' },
+      setup: questionData?.testConfig?.setup || { commands: ['npm install'] },
+      execution: {
+        command: questionData?.testConfig?.execution?.command || 'npm test',
+        timeout: Number(questionData?.testConfig?.execution?.timeout || 30000),
+        retries: Number(questionData?.testConfig?.execution?.retries || 0),
+        parallelism: Boolean(questionData?.testConfig?.execution?.parallelism ?? false)
+      },
+      testCases: testCases.map((tc: any, idx: number) => ({
+        id: tc?.id || `tc_${idx + 1}`,
+        name: tc?.name || `Test ${idx + 1}`,
+        description: tc?.description,
+        file: tc?.file || 'test.spec.js',
+        testName: tc?.testName || tc?.name || `Test ${idx + 1}`,
+        testCode: tc?.testCode,
+        points: Number(tc?.points || 0),
+        visible: Boolean(tc?.visible ?? true),
+        category: tc?.category,
+        timeout: tc?.timeout ? Number(tc.timeout) : undefined
+      })),
+      scoring: questionData?.testConfig?.scoring || {
+        total: totalPoints > 0 ? totalPoints : Number(questionData?.points || 100),
+        passing: Math.max(1, Math.ceil((totalPoints > 0 ? totalPoints : Number(questionData?.points || 100)) * 0.6))
+      }
+    },
+    solution: questionData?.solution,
+    timeEstimate: Number(questionData?.timeEstimate || questionData?.timeLimit || 30),
+    points: Number(questionData?.points || 100)
+  };
 }
 
 /**
@@ -186,29 +268,14 @@ export async function importQuestionFromLibrary(
     const content = await fs.readFile(fullPath, 'utf-8');
     const questionData = JSON.parse(content);
 
-    // Create question in database
-    const result = await db.insertInto('questions')
-      .values({
-        title: questionData.title,
-        category: questionData.category,
-        difficulty: questionData.difficulty,
-        points: questionData.points,
-        time_limit: questionData.timeLimit,
-        description: questionData.description,
-        test_config: JSON.stringify(questionData.testConfig),
-        starter_code: questionData.starterCode ? JSON.stringify(questionData.starterCode) : null,
-        hints: questionData.hints ? JSON.stringify(questionData.hints) : null,
-        tags: questionData.tags ? JSON.stringify(questionData.tags) : null,
-        status: 'draft',
-        created_by: userId,
-        organization_id: organizationId,
-        created_at: new Date(),
-        updated_at: new Date()
-      })
-      .returning(['id', 'title'])
-      .executeTakeFirst();
+    const dto = buildNormalizedQuestionDto(questionData);
+    const created = await createQuestion(db, dto as any, {
+      organizationId,
+      userId,
+      userRole: 'admin'
+    });
 
-    return result;
+    return { id: created.id, title: created.title };
   } catch (error) {
     throw new Error(`Failed to import question: ${(error as any).message}`);
   }
