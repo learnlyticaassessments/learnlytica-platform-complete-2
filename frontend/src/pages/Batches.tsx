@@ -203,7 +203,7 @@ export function Batches() {
     }
     try {
       const [membersRes, resultsRes, batchRes] = await Promise.all([
-        batchesService.listMembers(batchId, { limit: 500 }),
+        batchesService.listMembers(batchId, { limit: 200 }),
         batchesService.listResults(batchId, {
           limit: 200,
           search: resultsSearch || undefined,

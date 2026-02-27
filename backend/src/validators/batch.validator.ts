@@ -55,7 +55,7 @@ export const listBatchMembersQuerySchema = z.object({
   search: z.string().min(1).optional(),
   status: membershipStatusSchema.optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(200).default(50)
+  limit: z.coerce.number().int().min(1).max(500).default(50)
 });
 
 export const assignBatchAssessmentSchema = z.object({
