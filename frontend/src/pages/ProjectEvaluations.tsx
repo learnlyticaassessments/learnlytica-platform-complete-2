@@ -32,6 +32,10 @@ function slugify(value: string) {
     .slice(0, 80);
 }
 
+function linesToTextarea(value: any) {
+  return Array.isArray(value) ? value.filter(Boolean).join('\n') : '';
+}
+
 function getTemplatePhase(template: any) {
   const configPhase = Number(template?.config?.phase || 0);
   if (configPhase >= 3) return 3;
@@ -78,6 +82,15 @@ function getApiContractChecks(config: any) {
         : []
     }))
     .filter((c: any) => c.path);
+}
+
+function getUiFlowChecks(config: any) {
+  const tests = Array.isArray(config?.phase1Flow?.tests) ? config.phase1Flow.tests : [];
+  return tests.map((t: any, idx: number) => ({
+    id: `${idx}-${t?.title || 'ui-check'}`,
+    title: String(t?.title || `UI Check ${idx + 1}`),
+    stepCount: Array.isArray(t?.steps) ? t.steps.length : 0
+  }));
 }
 
 function extractTemplateTips(templateConfig: any) {
@@ -203,7 +216,7 @@ export function ProjectEvaluations() {
     submissionMode: 'zip_upload'
   });
   const [newTemplate, setNewTemplate] = useState({
-    phase: 2,
+    phase: 1,
     name: '',
     slug: '',
     description: '',
@@ -241,6 +254,7 @@ export function ProjectEvaluations() {
     dueDate: '',
     assignmentNotes: ''
   });
+  const [lastAutoBriefTemplateId, setLastAutoBriefTemplateId] = useState<string>('');
 
   async function loadAll(preserveSelected = true) {
     setLoading(true);
@@ -298,6 +312,26 @@ export function ProjectEvaluations() {
       .catch((e) => setError(e?.response?.data?.error || 'Failed to load project assessment detail'));
   }, [selectedAssessmentId]);
 
+  useEffect(() => {
+    if (!selectedEvaluatorTemplate?.id) return;
+    if (lastAutoBriefTemplateId === selectedEvaluatorTemplate.id) return;
+    const defaultBrief = selectedEvaluatorTemplate?.config?.defaultBrief || {};
+    setProjectBrief({
+      businessContext: String(defaultBrief?.businessContext || ''),
+      taskSummary: String(defaultBrief?.taskSummary || ''),
+      expectedFlow: linesToTextarea(defaultBrief?.expectedFlow),
+      requirements: linesToTextarea(defaultBrief?.requirements),
+      acceptanceCriteria: linesToTextarea(defaultBrief?.acceptanceCriteria),
+      submissionInstructions: linesToTextarea(defaultBrief?.submissionInstructions),
+      evaluationNotes: linesToTextarea(defaultBrief?.evaluationNotes),
+      stretchGoals: linesToTextarea(defaultBrief?.stretchGoals)
+    });
+    if (!String(newAssessment.description || '').trim() && selectedEvaluatorTemplate?.description) {
+      setNewAssessment((prev) => ({ ...prev, description: String(selectedEvaluatorTemplate.description) }));
+    }
+    setLastAutoBriefTemplateId(selectedEvaluatorTemplate.id);
+  }, [selectedEvaluatorTemplate, lastAutoBriefTemplateId, newAssessment.description]);
+
   const selectedAssessment = useMemo(
     () => assessments.find((a) => a.id === selectedAssessmentId) || null,
     [assessments, selectedAssessmentId]
@@ -314,23 +348,20 @@ export function ProjectEvaluations() {
     () => templates.find((t) => t.id === newAssessment.evaluatorTemplateId) || null,
     [templates, newAssessment.evaluatorTemplateId]
   );
-  const validPhase2ChecksCount = useMemo(
+  const validApiChecksCount = useMemo(
     () =>
       newTemplate.apiChecks.filter(
         (c) => String(c.title || '').trim() && String(c.path || '').trim()
       ).length,
     [newTemplate.apiChecks]
   );
-  const canCreatePhase2Template = useMemo(
-    () =>
-      Boolean(
-        newTemplate.name.trim() &&
-        newTemplate.slug.trim() &&
-        (Number(newTemplate.phase) === 2 || newTemplate.baseTemplateId) &&
-        validPhase2ChecksCount > 0
-      ),
-    [newTemplate.name, newTemplate.slug, newTemplate.baseTemplateId, newTemplate.phase, validPhase2ChecksCount]
-  );
+  const canCreateTemplate = useMemo(() => {
+    const phase = Number(newTemplate.phase || 1);
+    if (!newTemplate.name.trim() || !newTemplate.slug.trim()) return false;
+    if ((phase === 1 || phase >= 3) && !newTemplate.baseTemplateId) return false;
+    if (phase >= 2 && validApiChecksCount <= 0) return false;
+    return true;
+  }, [newTemplate.name, newTemplate.slug, newTemplate.baseTemplateId, newTemplate.phase, validApiChecksCount]);
   const structuredBrief = assessmentDetail?.config?.brief || null;
   const legacyDescriptionSections = !structuredBrief ? parseLegacyDescriptionSections(selectedAssessment?.description) : null;
   const templateTips = useMemo(
@@ -340,6 +371,14 @@ export function ProjectEvaluations() {
   const apiContractChecks = useMemo(
     () => getApiContractChecks(assessmentDetail?.evaluatorTemplateConfig),
     [assessmentDetail?.evaluatorTemplateConfig]
+  );
+  const selectedTemplateApiChecks = useMemo(
+    () => getApiContractChecks(selectedEvaluatorTemplate?.config),
+    [selectedEvaluatorTemplate]
+  );
+  const selectedTemplateUiChecks = useMemo(
+    () => getUiFlowChecks(selectedEvaluatorTemplate?.config),
+    [selectedEvaluatorTemplate]
   );
 
   useEffect(() => {
@@ -373,6 +412,13 @@ export function ProjectEvaluations() {
         ...newAssessment,
         config: {
           phase: Number(newAssessment.phase || 1),
+          templateSnapshot: selectedEvaluatorTemplate ? {
+            templateId: selectedEvaluatorTemplate.id,
+            phase: getTemplatePhase(selectedEvaluatorTemplate),
+            evaluationMode: getTemplateEvaluationMode(selectedEvaluatorTemplate),
+            uiChecks: selectedTemplateUiChecks,
+            apiChecks: selectedTemplateApiChecks
+          } : null,
           brief: {
             businessContext: projectBrief.businessContext.trim() || String(defaultBrief?.businessContext || ''),
             taskSummary: projectBrief.taskSummary.trim() || String(defaultBrief?.taskSummary || ''),
@@ -441,9 +487,10 @@ export function ProjectEvaluations() {
     }));
   }
 
-  async function createPhase2Template() {
+  async function createEvaluatorTemplate() {
     if (!newTemplate.name.trim() || !newTemplate.slug.trim()) return;
-    if (Number(newTemplate.phase) >= 3 && !newTemplate.baseTemplateId) {
+    const templatePhase = Number(newTemplate.phase || 1);
+    if ((templatePhase === 1 || templatePhase >= 3) && !newTemplate.baseTemplateId) {
       setError('Select a base UI-flow template');
       return;
     }
@@ -453,8 +500,9 @@ export function ProjectEvaluations() {
     try {
       const baseTemplate = templates.find((t) => t.id === newTemplate.baseTemplateId);
       const basePhase1Flow = baseTemplate?.config?.phase1Flow;
-      const templatePhase = Number(newTemplate.phase || 2);
-      const evaluationMode = templatePhase >= 3 ? 'ui_api_integration' : 'api_contract';
+      const evaluationMode = templatePhase >= 3
+        ? 'ui_api_integration'
+        : (templatePhase === 2 ? 'api_contract' : 'ui_flow');
       const apiChecks = newTemplate.apiChecks
         .map((c) => ({
           title: String(c.title || '').trim(),
@@ -465,7 +513,7 @@ export function ProjectEvaluations() {
         }))
         .filter((c) => c.title && c.path);
 
-      if (!apiChecks.length) {
+      if (templatePhase >= 2 && !apiChecks.length) {
         setError('Add at least one valid API check (title + path)');
         setWorking(null);
         return;
@@ -484,18 +532,18 @@ export function ProjectEvaluations() {
           phase: templatePhase,
           evaluationMode,
           supportedSubmissionModes: ['zip_upload'],
-          requiredServices: templatePhase >= 3 ? ['frontend', 'api'] : ['api'],
+          requiredServices: templatePhase >= 3 ? ['frontend', 'api'] : (templatePhase === 2 ? ['api'] : ['frontend']),
           expectedPort: 4173,
           runnerStatus: 'active',
-          phase1Flow: templatePhase >= 3 ? (basePhase1Flow || undefined) : undefined,
-          phase2ApiBaseUrl: newTemplate.apiBaseUrl.trim() || 'http://127.0.0.1:4173',
-          phase2ApiChecks: apiChecks
+          phase1Flow: templatePhase === 1 || templatePhase >= 3 ? (basePhase1Flow || undefined) : undefined,
+          phase2ApiBaseUrl: templatePhase >= 2 ? (newTemplate.apiBaseUrl.trim() || 'http://127.0.0.1:4173') : undefined,
+          phase2ApiChecks: templatePhase >= 2 ? apiChecks : undefined
         }
       });
 
       setMsg(`Phase ${templatePhase} evaluator template created`);
       setNewTemplate({
-        phase: 2,
+        phase: 1,
         name: '',
         slug: '',
         description: '',
@@ -508,7 +556,7 @@ export function ProjectEvaluations() {
       });
       await loadAll();
     } catch (e: any) {
-      setError(e?.response?.data?.error || 'Failed to create Phase 2 evaluator template');
+      setError(e?.response?.data?.error || 'Failed to create evaluator template');
     } finally {
       setWorking(null);
     }
@@ -726,7 +774,7 @@ export function ProjectEvaluations() {
                   className="btn-secondary !py-1 !px-2 text-xs"
                   onClick={() => setPhase2TemplateExpanded((v) => !v)}
                   aria-expanded={phase2TemplateExpanded}
-                  aria-label={phase2TemplateExpanded ? 'Collapse Phase 2 template form' : 'Expand Phase 2 template form'}
+                  aria-label={phase2TemplateExpanded ? 'Collapse template form' : 'Expand template form'}
                 >
                   {phase2TemplateExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                 </button>
@@ -745,6 +793,7 @@ export function ProjectEvaluations() {
               value={newTemplate.phase}
               onChange={(e) => setNewTemplate((p) => ({ ...p, phase: Number(e.target.value) }))}
             >
+              <option value={1}>Phase 1 - UI Flow</option>
               <option value={2}>Phase 2 - API Contract</option>
               <option value={3}>Phase 3 - UI + API Integration</option>
             </select>
@@ -760,7 +809,7 @@ export function ProjectEvaluations() {
               value={newTemplate.description}
               onChange={(e) => setNewTemplate((p) => ({ ...p, description: e.target.value }))}
             />
-            {Number(newTemplate.phase) >= 3 && (
+            {(Number(newTemplate.phase) === 1 || Number(newTemplate.phase) >= 3) && (
               <>
                 <select
                   className="input-field"
@@ -779,86 +828,96 @@ export function ProjectEvaluations() {
                 )}
               </>
             )}
-            <input
-              className="input-field"
-              placeholder="API base URL (e.g. http://127.0.0.1:4173)"
-              value={newTemplate.apiBaseUrl}
-              onChange={(e) => setNewTemplate((p) => ({ ...p, apiBaseUrl: e.target.value }))}
-            />
+            {Number(newTemplate.phase) >= 2 && (
+              <input
+                className="input-field"
+                placeholder="API base URL (e.g. http://127.0.0.1:4173)"
+                value={newTemplate.apiBaseUrl}
+                onChange={(e) => setNewTemplate((p) => ({ ...p, apiBaseUrl: e.target.value }))}
+              />
+            )}
 
-            <div className="space-y-2">
-              <div className="text-sm font-semibold">API Checks</div>
-              {newTemplate.apiChecks.map((check, idx) => (
-                <div key={`api-check-${idx}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 space-y-2">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            {Number(newTemplate.phase) >= 2 && (
+              <div className="space-y-2">
+                <div className="text-sm font-semibold">API Checks</div>
+                {newTemplate.apiChecks.map((check, idx) => (
+                  <div key={`api-check-${idx}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 space-y-2">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                      <input
+                        className="input-field md:col-span-2"
+                        placeholder="Check title"
+                        value={check.title}
+                        onChange={(e) => updateApiCheck(idx, 'title', e.target.value)}
+                      />
+                      <select
+                        className="input-field"
+                        value={check.method}
+                        onChange={(e) => updateApiCheck(idx, 'method', e.target.value)}
+                      >
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="PATCH">PATCH</option>
+                        <option value="DELETE">DELETE</option>
+                      </select>
+                      <input
+                        className="input-field"
+                        type="number"
+                        min={100}
+                        max={599}
+                        placeholder="Status"
+                        value={check.expectedStatus}
+                        onChange={(e) => updateApiCheck(idx, 'expectedStatus', Number(e.target.value || 200))}
+                      />
+                    </div>
                     <input
-                      className="input-field md:col-span-2"
-                      placeholder="Check title"
-                      value={check.title}
-                      onChange={(e) => updateApiCheck(idx, 'title', e.target.value)}
-                    />
-                    <select
                       className="input-field"
-                      value={check.method}
-                      onChange={(e) => updateApiCheck(idx, 'method', e.target.value)}
-                    >
-                      <option value="GET">GET</option>
-                      <option value="POST">POST</option>
-                      <option value="PUT">PUT</option>
-                      <option value="PATCH">PATCH</option>
-                      <option value="DELETE">DELETE</option>
-                    </select>
-                    <input
-                      className="input-field"
-                      type="number"
-                      min={100}
-                      max={599}
-                      placeholder="Status"
-                      value={check.expectedStatus}
-                      onChange={(e) => updateApiCheck(idx, 'expectedStatus', Number(e.target.value || 200))}
+                      placeholder="/api/path"
+                      value={check.path}
+                      onChange={(e) => updateApiCheck(idx, 'path', e.target.value)}
                     />
+                    <textarea
+                      className="input-field min-h-[58px]"
+                      placeholder="Expected body contains (one line per token)"
+                      value={check.expectBodyContains}
+                      onChange={(e) => updateApiCheck(idx, 'expectBodyContains', e.target.value)}
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                        onClick={() => removeApiCheck(idx)}
+                        disabled={newTemplate.apiChecks.length <= 1}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Remove Check
+                      </button>
+                    </div>
                   </div>
-                  <input
-                    className="input-field"
-                    placeholder="/api/path"
-                    value={check.path}
-                    onChange={(e) => updateApiCheck(idx, 'path', e.target.value)}
-                  />
-                  <textarea
-                    className="input-field min-h-[58px]"
-                    placeholder="Expected body contains (one line per token)"
-                    value={check.expectBodyContains}
-                    onChange={(e) => updateApiCheck(idx, 'expectBodyContains', e.target.value)}
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      className="btn-secondary !py-1.5 !px-2.5 text-xs"
-                      onClick={() => removeApiCheck(idx)}
-                      disabled={newTemplate.apiChecks.length <= 1}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Remove Check
-                    </button>
-                  </div>
-                </div>
-              ))}
-              <button type="button" className="btn-secondary w-full" onClick={addApiCheck}>
-                <Plus className="w-4 h-4" />
-                Add API Check
-              </button>
-            </div>
+                ))}
+                <button type="button" className="btn-secondary w-full" onClick={addApiCheck}>
+                  <Plus className="w-4 h-4" />
+                  Add API Check
+                </button>
+              </div>
+            )}
 
             <button
               className="btn-primary w-full"
-              onClick={createPhase2Template}
-              disabled={working === 'template' || !canCreatePhase2Template}
+              onClick={createEvaluatorTemplate}
+              disabled={working === 'template' || !canCreateTemplate}
             >
               {working === 'template' ? 'Creating...' : `Create Phase ${newTemplate.phase} Template`}
             </button>
-            <div className="text-xs text-[var(--text-muted)]">
-              Ready checks: {validPhase2ChecksCount}/{newTemplate.apiChecks.length}
-            </div>
+            {Number(newTemplate.phase) >= 2 ? (
+              <div className="text-xs text-[var(--text-muted)]">
+                Ready checks: {validApiChecksCount}/{newTemplate.apiChecks.length}
+              </div>
+            ) : (
+              <div className="text-xs text-[var(--text-muted)]">
+                Uses UI-flow checks from selected base template.
+              </div>
+            )}
               </>
             ) : (
               <div className="text-xs text-[var(--text-muted)]">Collapsed. Expand to create or edit evaluator template details.</div>
@@ -906,6 +965,67 @@ export function ProjectEvaluations() {
               <div className="text-xs text-[var(--text-muted)]">
                 Selected evaluator: <span className="font-semibold">{getTemplateModeLabel(selectedEvaluatorTemplate)}</span>
                 {' • '}mode <span className="font-semibold">{formatEvaluationMode(getTemplateEvaluationMode(selectedEvaluatorTemplate))}</span>
+              </div>
+            )}
+            {selectedEvaluatorTemplate && (
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 space-y-3">
+                <div className="text-sm font-semibold">Template Validation Blueprint</div>
+                <div className="text-xs text-[var(--text-muted)]">
+                  These checks come from selected template and are used by evaluator run.
+                </div>
+
+                {!!selectedTemplateUiChecks.length && (
+                  <div className="table-shell overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="text-left">
+                          <th className="px-2 py-1.5">UI Check</th>
+                          <th className="px-2 py-1.5">Steps</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedTemplateUiChecks.map((c: any) => (
+                          <tr key={c.id} className="border-t border-[var(--border)]">
+                            <td className="px-2 py-1.5">{c.title}</td>
+                            <td className="px-2 py-1.5">{c.stepCount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {!!selectedTemplateApiChecks.length && (
+                  <div className="table-shell overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="text-left">
+                          <th className="px-2 py-1.5">API Check</th>
+                          <th className="px-2 py-1.5">Method</th>
+                          <th className="px-2 py-1.5">Path</th>
+                          <th className="px-2 py-1.5">Expected</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedTemplateApiChecks.map((c: any) => (
+                          <tr key={c.id} className="border-t border-[var(--border)]">
+                            <td className="px-2 py-1.5">{c.title}</td>
+                            <td className="px-2 py-1.5">{c.method}</td>
+                            <td className="px-2 py-1.5"><code>{c.path}</code></td>
+                            <td className="px-2 py-1.5">
+                              <div>Status {c.expectedStatus}</div>
+                              {c.expectedBody.length > 0 && (
+                                <div className="text-[10px] text-[var(--text-muted)]">
+                                  body: {c.expectedBody.join(', ')}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">
