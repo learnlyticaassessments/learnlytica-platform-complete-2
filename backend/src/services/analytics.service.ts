@@ -672,9 +672,9 @@ export async function getSystemMonitorStats(db: any, organizationId: string) {
 
   // Capacity heuristics (single-node): conservative estimates based on current headroom.
   const cpuHeadroom = Math.max(0, 100 - cpuPercent) / 100;
-  const projectSlotsByCpuMax = Math.max(1, Math.floor(cpuCores * 0.9));
-  const projectSlotsByMemMax = Math.max(1, Math.floor(totalMemMb / 1800));
-  const projectCapacityMax = Math.max(1, Math.min(projectSlotsByCpuMax, projectSlotsByMemMax));
+  const projectSlotsByCpuMax = Math.max(2, Math.floor(cpuCores * 0.9));
+  const projectSlotsByMemMax = Math.max(2, Math.floor(totalMemMb / 1800));
+  const projectCapacityMax = Math.max(2, Math.min(projectSlotsByCpuMax, projectSlotsByMemMax));
   const projectSlotsByCpuNow = Math.max(1, Math.floor(projectSlotsByCpuMax * cpuHeadroom));
   const projectSlotsByMemNow = Math.max(1, Math.floor(freeMemMb / 1800));
   const projectCapacityCurrent = Math.max(1, Math.min(projectSlotsByCpuNow, projectSlotsByMemNow, projectCapacityMax));
@@ -712,12 +712,20 @@ export async function getSystemMonitorStats(db: any, organizationId: string) {
       projectEvaluations: {
         currentLoad: activeRuns + queuedRuns + queuedSubmissions,
         estimatedNow: projectCapacityCurrent,
-        estimatedMax: projectCapacityMax
+        estimatedMax: projectCapacityMax,
+        utilizationPercent: projectCapacityCurrent > 0
+          ? Number((((activeRuns + queuedRuns + queuedSubmissions) / projectCapacityCurrent) * 100).toFixed(1))
+          : 0,
+        overloaded: (activeRuns + queuedRuns + queuedSubmissions) > projectCapacityCurrent
       },
       assessmentSubmissions: {
         currentLoad: classicInProgress,
         estimatedNow: assessmentCapacityCurrent,
-        estimatedMax: assessmentCapacityMax
+        estimatedMax: assessmentCapacityMax,
+        utilizationPercent: assessmentCapacityCurrent > 0
+          ? Number(((classicInProgress / assessmentCapacityCurrent) * 100).toFixed(1))
+          : 0,
+        overloaded: classicInProgress > assessmentCapacityCurrent
       }
     }
   };

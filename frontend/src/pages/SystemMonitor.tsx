@@ -138,13 +138,17 @@ export function SystemMonitor() {
           icon={<Gauge className="w-4 h-4" />}
           label="Project Eval Capacity"
           value={`${Number(projectCap.currentLoad || 0)} / ${Number(projectCap.estimatedNow || 0)}`}
-          subValue={`max ${Number(projectCap.estimatedMax || 0)}`}
+          subValue={`max ${Number(projectCap.estimatedMax || 0)} • util ${Number(projectCap.utilizationPercent || 0).toFixed(1)}%`}
+          tone={projectCap.overloaded ? 'danger' : Number(projectCap.utilizationPercent || 0) >= 85 ? 'warn' : 'ok'}
+          badge={projectCap.overloaded ? 'Overloaded' : Number(projectCap.utilizationPercent || 0) >= 85 ? 'Near Limit' : 'Healthy'}
         />
         <MetricCard
           icon={<ClipboardList className="w-4 h-4" />}
           label="Assessment Capacity"
           value={`${Number(assessmentCap.currentLoad || 0)} / ${Number(assessmentCap.estimatedNow || 0)}`}
-          subValue={`max ${Number(assessmentCap.estimatedMax || 0)}`}
+          subValue={`max ${Number(assessmentCap.estimatedMax || 0)} • util ${Number(assessmentCap.utilizationPercent || 0).toFixed(1)}%`}
+          tone={assessmentCap.overloaded ? 'danger' : Number(assessmentCap.utilizationPercent || 0) >= 85 ? 'warn' : 'ok'}
+          badge={assessmentCap.overloaded ? 'Overloaded' : Number(assessmentCap.utilizationPercent || 0) >= 85 ? 'Near Limit' : 'Healthy'}
         />
       </div>
 
@@ -215,12 +219,39 @@ export function SystemMonitor() {
   );
 }
 
-function MetricCard({ icon, label, value, subValue }: { icon: ReactNode; label: string; value: string; subValue?: string }) {
+function MetricCard({
+  icon,
+  label,
+  value,
+  subValue,
+  tone,
+  badge
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  subValue?: string;
+  tone?: 'ok' | 'warn' | 'danger';
+  badge?: string;
+}) {
+  const toneClass =
+    tone === 'danger'
+      ? 'text-red-700 bg-red-50 border-red-200'
+      : tone === 'warn'
+        ? 'text-amber-700 bg-amber-50 border-amber-200'
+        : 'text-emerald-700 bg-emerald-50 border-emerald-200';
   return (
     <div className="card p-4">
-      <div className="flex items-center gap-2 text-[var(--text-muted)] text-xs uppercase tracking-wide">
-        {icon}
-        {label}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-[var(--text-muted)] text-xs uppercase tracking-wide">
+          {icon}
+          {label}
+        </div>
+        {badge && (
+          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${toneClass}`}>
+            {badge}
+          </span>
+        )}
       </div>
       <div className="mt-2 text-2xl font-bold text-[var(--text)]">{value}</div>
       {subValue && <div className="text-xs text-[var(--text-muted)] mt-1">{subValue}</div>}
