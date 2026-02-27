@@ -45,6 +45,11 @@ export const analyticsService = {
     return response.data;
   },
 
+  getProjectAnalyticsDebug: async () => {
+    const response = await client.get('/projects/debug');
+    return response.data;
+  },
+
   getAssessmentAnalytics: async (id: string) => {
     const response = await client.get(`/assessments/${id}`);
     return response.data;

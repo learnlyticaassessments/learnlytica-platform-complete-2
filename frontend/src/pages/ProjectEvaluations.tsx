@@ -43,6 +43,22 @@ function getTemplateModeLabel(template: any) {
   return getTemplatePhase(template) >= 2 ? 'Phase 2 (UI + API)' : 'Phase 1 (UI flow)';
 }
 
+function getApiContractChecks(config: any) {
+  const checks = Array.isArray(config?.phase2ApiChecks) ? config.phase2ApiChecks : [];
+  return checks
+    .map((c: any, idx: number) => ({
+      id: `${idx}-${c?.title || c?.path || 'check'}`,
+      title: String(c?.title || `API Check ${idx + 1}`),
+      method: String(c?.method || 'GET').toUpperCase(),
+      path: String(c?.path || '/'),
+      expectedStatus: Number(c?.expectedStatus || 200),
+      expectedBody: Array.isArray(c?.expectBodyContains)
+        ? c.expectBodyContains.map((x: any) => String(x)).filter(Boolean)
+        : []
+    }))
+    .filter((c: any) => c.path);
+}
+
 function extractTemplateTips(templateConfig: any) {
   const tests = templateConfig?.phase1Flow?.tests;
   const apiChecks = Array.isArray(templateConfig?.phase2ApiChecks) ? templateConfig.phase2ApiChecks : [];
@@ -292,6 +308,10 @@ export function ProjectEvaluations() {
   const legacyDescriptionSections = !structuredBrief ? parseLegacyDescriptionSections(selectedAssessment?.description) : null;
   const templateTips = useMemo(
     () => extractTemplateTips(assessmentDetail?.evaluatorTemplateConfig),
+    [assessmentDetail?.evaluatorTemplateConfig]
+  );
+  const apiContractChecks = useMemo(
+    () => getApiContractChecks(assessmentDetail?.evaluatorTemplateConfig),
     [assessmentDetail?.evaluatorTemplateConfig]
   );
 
@@ -958,6 +978,46 @@ export function ProjectEvaluations() {
                         </ul>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {!!apiContractChecks.length && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="font-semibold">API Contract (Phase 2)</h3>
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Learner-visible backend/API expectations validated by evaluator
+                    </span>
+                  </div>
+                  <div className="table-shell overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left">
+                          <th className="px-3 py-2">Check</th>
+                          <th className="px-3 py-2">Method</th>
+                          <th className="px-3 py-2">Path</th>
+                          <th className="px-3 py-2">Expected</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {apiContractChecks.map((c: any) => (
+                          <tr key={c.id} className="border-t border-[var(--border)]">
+                            <td className="px-3 py-2">{c.title}</td>
+                            <td className="px-3 py-2">{c.method}</td>
+                            <td className="px-3 py-2"><code>{c.path}</code></td>
+                            <td className="px-3 py-2">
+                              <div>Status {c.expectedStatus}</div>
+                              {c.expectedBody.length > 0 && (
+                                <div className="text-xs text-[var(--text-muted)]">
+                                  body contains: {c.expectedBody.join(', ')}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}

@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { analyticsService } from '../../services/analyticsService';
 import { BarChart3, Users, FileText, CheckCircle, TrendingUp, Download, FolderKanban, ClipboardCheck } from 'lucide-react';
 
 export function Dashboard() {
-  const navigate = useNavigate();
   const [stats, setStats] = useState<any>(null);
   const [projectTrends, setProjectTrends] = useState<any[]>([]);
   const [projectBatchRows, setProjectBatchRows] = useState<any[]>([]);
+  const [projectDebug, setProjectDebug] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -17,14 +16,16 @@ export function Dashboard() {
 
   const loadStats = async () => {
     try {
-      const [dashboard, trends, byBatch] = await Promise.all([
+      const [dashboard, trends, byBatch, debug] = await Promise.all([
         analyticsService.getDashboard(),
         analyticsService.getProjectTrends(14),
-        analyticsService.getProjectBatchAnalytics()
+        analyticsService.getProjectBatchAnalytics(),
+        analyticsService.getProjectAnalyticsDebug()
       ]);
       setStats(dashboard.data);
       setProjectTrends(trends.data || []);
       setProjectBatchRows(byBatch.data || []);
+      setProjectDebug(debug.data || null);
     } catch (error) {
       console.error('Failed to load stats', error);
     } finally {
@@ -352,6 +353,71 @@ export function Dashboard() {
                 ))}
                 {!projectBatchRows.length && (
                   <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={6}>No batch analytics yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="text-xl font-semibold mb-2">Project Analytics Debug (Org Scoped)</h2>
+        <p className="text-xs text-[var(--text-muted)] mb-3">
+          Use this to verify what backend analytics is counting for your current organization.
+        </p>
+        <div className="text-sm mb-3">
+          Org ID: <span className="font-mono">{projectDebug?.organizationId || '-'}</span>
+          {' • '}
+          Total submissions counted: <span className="font-semibold">{projectDebug?.totalProjectSubmissions ?? 0}</span>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="table-shell overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left">
+                  <th className="px-3 py-2">Submission Kind</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(projectDebug?.bySubmissionKindAndStatus || []).map((r: any, idx: number) => (
+                  <tr key={`debug-kind-${idx}`} className="border-t border-[var(--border)]">
+                    <td className="px-3 py-2">{r.submissionKind}</td>
+                    <td className="px-3 py-2">{r.status}</td>
+                    <td className="px-3 py-2">{r.count}</td>
+                  </tr>
+                ))}
+                {!projectDebug?.bySubmissionKindAndStatus?.length && (
+                  <tr><td className="px-3 py-3 text-[var(--text-muted)]" colSpan={3}>No rows.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="table-shell overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left">
+                  <th className="px-3 py-2">Recent Submission</th>
+                  <th className="px-3 py-2">Kind</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Run</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(projectDebug?.recentSubmissions || []).map((r: any, idx: number) => (
+                  <tr key={`debug-recent-${idx}`} className="border-t border-[var(--border)]">
+                    <td className="px-3 py-2">
+                      <div className="text-xs">{r.studentEmail || '-'}</div>
+                      <div className="text-[10px] text-[var(--text-muted)] font-mono">{String(r.id || '').slice(0, 8)}</div>
+                    </td>
+                    <td className="px-3 py-2">{r.submissionKind || 'null'}</td>
+                    <td className="px-3 py-2">{r.status || '-'}</td>
+                    <td className="px-3 py-2">{r.runStatus || '-'}</td>
+                  </tr>
+                ))}
+                {!projectDebug?.recentSubmissions?.length && (
+                  <tr><td className="px-3 py-3 text-[var(--text-muted)]" colSpan={4}>No recent submissions.</td></tr>
                 )}
               </tbody>
             </table>

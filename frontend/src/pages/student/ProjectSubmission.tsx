@@ -7,6 +7,22 @@ function sectionList(items: any) {
   return Array.isArray(items) ? items.filter(Boolean) : [];
 }
 
+function apiContractChecks(config: any) {
+  const checks = Array.isArray(config?.phase2ApiChecks) ? config.phase2ApiChecks : [];
+  return checks
+    .map((c: any, idx: number) => ({
+      id: `${idx}-${c?.title || c?.path || 'check'}`,
+      title: String(c?.title || `API Check ${idx + 1}`),
+      method: String(c?.method || 'GET').toUpperCase(),
+      path: String(c?.path || '/'),
+      expectedStatus: Number(c?.expectedStatus || 200),
+      expectedBody: Array.isArray(c?.expectBodyContains)
+        ? c.expectBodyContains.map((x: any) => String(x)).filter(Boolean)
+        : []
+    }))
+    .filter((c: any) => c.path);
+}
+
 export function ProjectSubmission() {
   const { submissionId = '' } = useParams();
   const [detail, setDetail] = useState<any | null>(null);
@@ -30,6 +46,10 @@ export function ProjectSubmission() {
   }, [submissionId]);
 
   const brief = detail?.assessmentConfig?.brief || null;
+  const contractChecks = useMemo(
+    () => apiContractChecks(detail?.evaluatorTemplateConfig),
+    [detail?.evaluatorTemplateConfig]
+  );
   const canSubmit = useMemo(() => {
     const hasUploadedZip = Boolean(detail?.metadata?.zipUpload?.localPath || detail?.metadata?.zipUpload?.fileName);
     return Boolean(zipFile || hasUploadedZip);
@@ -126,6 +146,41 @@ export function ProjectSubmission() {
               </div>
             ) : (
               <p className="text-sm text-[var(--text-muted)] whitespace-pre-wrap">{detail?.assessmentDescription || 'No learner brief available.'}</p>
+            )}
+
+            {!!contractChecks.length && (
+              <section>
+                <h3 className="font-semibold text-sm mb-2">API Contract (Phase 2)</h3>
+                <div className="table-shell overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left">
+                        <th className="px-3 py-2">Check</th>
+                        <th className="px-3 py-2">Method</th>
+                        <th className="px-3 py-2">Path</th>
+                        <th className="px-3 py-2">Expected</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {contractChecks.map((c: any) => (
+                        <tr key={c.id} className="border-t border-[var(--border)]">
+                          <td className="px-3 py-2">{c.title}</td>
+                          <td className="px-3 py-2">{c.method}</td>
+                          <td className="px-3 py-2"><code>{c.path}</code></td>
+                          <td className="px-3 py-2">
+                            <div>Status {c.expectedStatus}</div>
+                            {c.expectedBody.length > 0 && (
+                              <div className="text-xs text-[var(--text-muted)]">
+                                body contains: {c.expectedBody.join(', ')}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             )}
           </div>
 
