@@ -3,6 +3,7 @@ import { Layers3, Users, Plus, Loader2, UserPlus, Trash2, ClipboardCheck, Refres
 import { batchesService, type BatchReentryPolicy, type BatchStatus, type BatchType } from '../services/batchesService';
 import { learnersService } from '../services/learnersService';
 import { assessmentService } from '../services/assessmentService';
+import { projectEvaluationsService } from '../services/projectEvaluationsService';
 import { useAuth } from '../auth/AuthContext';
 import { can } from '../auth/permissions';
 
@@ -52,6 +53,12 @@ type Assessment = {
   status: string;
 };
 
+type ProjectAssessment = {
+  id: string;
+  title: string;
+  status: string;
+};
+
 type BatchResult = {
   id: string;
   assessmentId: string;
@@ -89,6 +96,7 @@ export function Batches() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [learners, setLearners] = useState<Learner[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [projectAssessments, setProjectAssessments] = useState<ProjectAssessment[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
   const [batchMembers, setBatchMembers] = useState<BatchMember[]>([]);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
@@ -129,6 +137,11 @@ export function Batches() {
     assessmentId: '',
     dueDate: '',
     reentryPolicy: 'resume_allowed' as BatchReentryPolicy
+  });
+  const [projectAssignConfig, setProjectAssignConfig] = useState({
+    assessmentId: '',
+    dueDate: '',
+    assignmentNotes: ''
   });
 
   const selectedBatch = batches.find((b) => b.id === selectedBatchId) || null;
@@ -173,19 +186,24 @@ export function Batches() {
     setLoading(true);
     setError(null);
     try {
-      const [batchRes, learnerRes, assessmentRes] = await Promise.all([
+      const [batchRes, learnerRes, assessmentRes, projectAssessmentRes] = await Promise.all([
         batchesService.list({ limit: 200 }),
         learnersService.list(),
-        assessmentService.list({ status: 'published', page: 1, limit: 200 })
+        assessmentService.list({ status: 'published', page: 1, limit: 200 }),
+        projectEvaluationsService.listAssessments()
       ]);
       const batchRows = batchRes.data || [];
       const assessmentRows = Array.isArray(assessmentRes?.data)
         ? assessmentRes.data
         : (assessmentRes?.data?.assessments || []);
+      const publishedProjectAssessments = Array.isArray(projectAssessmentRes?.data)
+        ? projectAssessmentRes.data.filter((a: any) => String(a?.status || '').toLowerCase() === 'published')
+        : [];
 
       setBatches(batchRows);
       setLearners(learnerRes.data || []);
       setAssessments((assessmentRows || []).filter((a: Assessment) => a.status === 'published'));
+      setProjectAssessments(publishedProjectAssessments);
 
       if (!preserveSelection || !selectedBatchId || !batchRows.some((b: Batch) => b.id === selectedBatchId)) {
         setSelectedBatchId(batchRows[0]?.id || '');
@@ -435,6 +453,51 @@ export function Batches() {
     }
   };
 
+  const assignProjectAssessmentToBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBatchId || !projectAssignConfig.assessmentId) {
+      setError('Select a batch and a published project assessment');
+      return;
+    }
+    setBusy('assign-project-batch');
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await projectEvaluationsService.assignAssessment(projectAssignConfig.assessmentId, {
+        batchId: selectedBatchId,
+        dueDate: projectAssignConfig.dueDate ? new Date(projectAssignConfig.dueDate).toISOString() : undefined,
+        assignmentNotes: projectAssignConfig.assignmentNotes || undefined
+      });
+      setSuccess(`Project assessment assigned: ${res.data?.createdCount ?? 0} created${(res.data?.skippedCount ?? 0) ? `, ${res.data.skippedCount} skipped` : ''}`);
+      await loadSelectedBatchData(selectedBatchId);
+      await loadBase(true);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to assign project assessment to batch');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteSelectedBatch = async () => {
+    if (!selectedBatchId || !selectedBatch) return;
+    if (!confirm(`Delete batch "${selectedBatch.name}"?\n\nMembers will be removed from this batch and existing assignment records will be detached from the batch attribution.`)) return;
+    setBusy('delete-batch');
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await batchesService.delete(selectedBatchId);
+      const detachedClassic = res?.data?.detachedClassicAssignments ?? 0;
+      const detachedProject = res?.data?.detachedProjectSubmissions ?? 0;
+      setSuccess(`Batch deleted. Detached ${detachedClassic} classic assignments and ${detachedProject} project submissions.`);
+      setSelectedBatchId('');
+      await loadBase(false);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to delete batch');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const toggleLearnerToAdd = (id: string) => {
     setSelectedLearnerIdsToAdd((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
@@ -594,12 +657,25 @@ export function Batches() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold text-gray-900">{selectedBatch.name}</h2>
-                    <p className="text-sm text-gray-600">Batch settings, lifecycle, and cohort metadata.</p>
+                    <p className="text-sm text-gray-600">Step 1: Batch setup, lifecycle, and cohort metadata.</p>
                   </div>
-                  <button type="button" className="btn-secondary" onClick={() => void loadSelectedBatchData(selectedBatch.id)}>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Refresh
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="btn-secondary" onClick={() => void loadSelectedBatchData(selectedBatch.id)}>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      style={{ borderColor: 'var(--red-dim)', color: 'var(--red)' }}
+                      onClick={deleteSelectedBatch}
+                      disabled={!canManage || busy === 'delete-batch'}
+                      title="Delete selected batch"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      {busy === 'delete-batch' ? 'Deleting...' : 'Delete Batch'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -650,11 +726,11 @@ export function Batches() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6">
+              <div className="space-y-6">
                 <div className="card p-6 space-y-4">
                   <div className="flex items-center gap-2">
                     <Users className="w-5 h-5 text-[var(--accent)]" />
-                    <h3 className="text-lg font-semibold">Batch Members ({batchMembers.length})</h3>
+                    <h3 className="text-lg font-semibold">Step 2: Batch Members ({batchMembers.length})</h3>
                     <button
                       type="button"
                       className="btn-secondary !py-1 !px-2 text-xs"
@@ -800,7 +876,7 @@ export function Batches() {
                 <div className="card p-6 space-y-4">
                   <div className="flex items-center gap-2">
                     <ClipboardCheck className="w-5 h-5 text-[var(--accent)]" />
-                    <h3 className="text-lg font-semibold">Assign Assessment to Batch</h3>
+                    <h3 className="text-lg font-semibold">Step 3A: Assign Classic Assessment to Batch</h3>
                   </div>
                   <form className="space-y-4" onSubmit={assignAssessmentToBatch}>
                     <div>
@@ -836,10 +912,49 @@ export function Batches() {
                     </button>
                   </form>
 
+                  <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <ClipboardCheck className="w-4 h-4 text-[var(--accent)]" />
+                      <h4 className="font-semibold">Step 3B: Assign Project Assessment to Batch</h4>
+                    </div>
+                    <form className="space-y-3" onSubmit={assignProjectAssessmentToBatch}>
+                      <select
+                        className="input-field"
+                        value={projectAssignConfig.assessmentId}
+                        onChange={(e) => setProjectAssignConfig((p) => ({ ...p, assessmentId: e.target.value }))}
+                        required
+                      >
+                        <option value="">Select published project assessment</option>
+                        {projectAssessments.map((a) => (
+                          <option key={a.id} value={a.id}>{a.title}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="datetime-local"
+                        className="input-field"
+                        value={projectAssignConfig.dueDate}
+                        onChange={(e) => setProjectAssignConfig((p) => ({ ...p, dueDate: e.target.value }))}
+                        placeholder="Due date (optional)"
+                      />
+                      <input
+                        className="input-field"
+                        value={projectAssignConfig.assignmentNotes}
+                        onChange={(e) => setProjectAssignConfig((p) => ({ ...p, assignmentNotes: e.target.value }))}
+                        placeholder="Assignment notes (optional)"
+                      />
+                      <button
+                        className="btn-primary w-full"
+                        disabled={!canManage || busy === 'assign-project-batch' || !projectAssignConfig.assessmentId}
+                      >
+                        {busy === 'assign-project-batch' ? 'Assigning...' : 'Assign Project Assessment'}
+                      </button>
+                    </form>
+                  </div>
+
                   <div className="rounded-xl border border-[var(--border)] p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <BarChart3 className="w-4 h-4 text-[var(--accent)]" />
-                      <div className="font-semibold">Batch Results</div>
+                      <div className="font-semibold">Step 4: Batch Results</div>
                       <button
                         type="button"
                         className="btn-secondary !py-1 !px-2 text-xs"

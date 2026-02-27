@@ -28,6 +28,7 @@ router.patch(
   validateRequest(updateBatchSchema, 'body'),
   batchController.updateBatch
 );
+router.delete('/:id', validateRequest(batchIdParamsSchema, 'params'), batchController.deleteBatch);
 
 router.get(
   '/:id/members',

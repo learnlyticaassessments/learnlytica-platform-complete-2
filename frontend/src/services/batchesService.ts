@@ -50,6 +50,11 @@ export const batchesService = {
     return response.data as { success: boolean; data: any };
   },
 
+  delete: async (id: string) => {
+    const response = await client.delete(`/batches/${id}`);
+    return response.data as { success: boolean; data: any };
+  },
+
   getById: async (id: string) => {
     const response = await client.get(`/batches/${id}`);
     return response.data as { success: boolean; data: any };

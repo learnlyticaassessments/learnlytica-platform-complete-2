@@ -241,6 +241,50 @@ export async function updateBatch(req: Request, res: Response, next: NextFunctio
   }
 }
 
+export async function deleteBatch(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const { organizationId } = getContext(req);
+    await getBatchOrThrow(db, req.params.id, organizationId);
+
+    const [memberCountRow, classicAssignmentCountRow, projectSubmissionCountRow] = await Promise.all([
+      db
+        .selectFrom('batch_memberships')
+        .select(sql<number>`count(*)`.as('count'))
+        .where('batch_id', '=', req.params.id)
+        .executeTakeFirst(),
+      db
+        .selectFrom('student_assessments')
+        .select(sql<number>`count(*)`.as('count'))
+        .where('assigned_batch_id', '=', req.params.id)
+        .executeTakeFirst(),
+      db
+        .selectFrom('project_submissions')
+        .select(sql<number>`count(*)`.as('count'))
+        .where('assigned_batch_id', '=', req.params.id)
+        .executeTakeFirst()
+    ]);
+
+    await db
+      .deleteFrom('batches')
+      .where('id', '=', req.params.id)
+      .where('organization_id', '=', organizationId)
+      .executeTakeFirst();
+
+    res.json({
+      success: true,
+      data: {
+        batchId: req.params.id,
+        removedMemberships: Number((memberCountRow as any)?.count || 0),
+        detachedClassicAssignments: Number((classicAssignmentCountRow as any)?.count || 0),
+        detachedProjectSubmissions: Number((projectSubmissionCountRow as any)?.count || 0)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function listBatchMembers(req: Request, res: Response, next: NextFunction) {
   try {
     const db = (req as any).db;
