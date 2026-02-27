@@ -34,13 +34,34 @@ function slugify(value: string) {
 
 function getTemplatePhase(template: any) {
   const configPhase = Number(template?.config?.phase || 0);
-  if (configPhase >= 2) return 2;
+  if (configPhase >= 3) return 3;
+  if (configPhase === 2) return 2;
   const version = Number(template?.version || 0);
-  return version >= 2 ? 2 : 1;
+  if (version >= 3) return 3;
+  if (version === 2) return 2;
+  return 1;
 }
 
 function getTemplateModeLabel(template: any) {
-  return getTemplatePhase(template) >= 2 ? 'Phase 2 (UI + API)' : 'Phase 1 (UI flow)';
+  const phase = getTemplatePhase(template);
+  if (phase === 2) return 'Phase 2 (API contract)';
+  if (phase >= 3) return 'Phase 3 (UI + API integration)';
+  return 'Phase 1 (UI flow)';
+}
+
+function getTemplateEvaluationMode(template: any) {
+  const mode = String(template?.config?.evaluationMode || '').trim();
+  if (mode) return mode;
+  const phase = getTemplatePhase(template);
+  if (phase === 2) return 'api_contract';
+  if (phase >= 3) return 'ui_api_integration';
+  return 'ui_flow';
+}
+
+function formatEvaluationMode(mode: string) {
+  if (mode === 'api_contract') return 'API';
+  if (mode === 'ui_api_integration') return 'UI+API';
+  return 'UI';
 }
 
 function getApiContractChecks(config: any) {
@@ -176,11 +197,13 @@ export function ProjectEvaluations() {
   const [newAssessment, setNewAssessment] = useState({
     title: '',
     description: '',
+    phase: 1,
     evaluatorTemplateId: '',
     frameworkScope: 'react_vite',
     submissionMode: 'zip_upload'
   });
   const [newTemplate, setNewTemplate] = useState({
+    phase: 2,
     name: '',
     slug: '',
     description: '',
@@ -246,8 +269,8 @@ export function ProjectEvaluations() {
       }
 
       if (!newAssessment.evaluatorTemplateId && t.data?.length) {
-        const phase1Template = t.data.find((tpl: any) => getTemplatePhase(tpl) === 1);
-        setNewAssessment((prev) => ({ ...prev, evaluatorTemplateId: (phase1Template || t.data[0]).id }));
+        const phaseTemplate = t.data.find((tpl: any) => getTemplatePhase(tpl) === Number(newAssessment.phase || 1));
+        setNewAssessment((prev) => ({ ...prev, evaluatorTemplateId: (phaseTemplate || t.data[0]).id }));
       }
       if (!newTemplate.baseTemplateId && t.data?.length) {
         const phase1Template = t.data.find((tpl: any) => getTemplatePhase(tpl) === 1);
@@ -279,6 +302,10 @@ export function ProjectEvaluations() {
     () => assessments.find((a) => a.id === selectedAssessmentId) || null,
     [assessments, selectedAssessmentId]
   );
+  const phaseFilteredTemplates = useMemo(
+    () => templates.filter((t) => getTemplatePhase(t) === Number(newAssessment.phase || 1)),
+    [templates, newAssessment.phase]
+  );
   const selectedBaseTemplate = useMemo(
     () => templates.find((t) => t.id === newTemplate.baseTemplateId) || null,
     [templates, newTemplate.baseTemplateId]
@@ -299,10 +326,10 @@ export function ProjectEvaluations() {
       Boolean(
         newTemplate.name.trim() &&
         newTemplate.slug.trim() &&
-        newTemplate.baseTemplateId &&
+        (Number(newTemplate.phase) === 2 || newTemplate.baseTemplateId) &&
         validPhase2ChecksCount > 0
       ),
-    [newTemplate.name, newTemplate.slug, newTemplate.baseTemplateId, validPhase2ChecksCount]
+    [newTemplate.name, newTemplate.slug, newTemplate.baseTemplateId, newTemplate.phase, validPhase2ChecksCount]
   );
   const structuredBrief = assessmentDetail?.config?.brief || null;
   const legacyDescriptionSections = !structuredBrief ? parseLegacyDescriptionSections(selectedAssessment?.description) : null;
@@ -314,6 +341,16 @@ export function ProjectEvaluations() {
     () => getApiContractChecks(assessmentDetail?.evaluatorTemplateConfig),
     [assessmentDetail?.evaluatorTemplateConfig]
   );
+
+  useEffect(() => {
+    if (!templates.length) return;
+    const selected = templates.find((t) => t.id === newAssessment.evaluatorTemplateId);
+    if (selected && getTemplatePhase(selected) === Number(newAssessment.phase || 1)) return;
+    const fallback = templates.find((t) => getTemplatePhase(t) === Number(newAssessment.phase || 1));
+    if (fallback) {
+      setNewAssessment((prev) => ({ ...prev, evaluatorTemplateId: fallback.id }));
+    }
+  }, [templates, newAssessment.phase, newAssessment.evaluatorTemplateId]);
 
   async function copyText(key: string, text: string) {
     try {
@@ -331,18 +368,32 @@ export function ProjectEvaluations() {
     setError('');
     setMsg('');
     try {
+      const defaultBrief = selectedEvaluatorTemplate?.config?.defaultBrief || {};
       await projectEvaluationsService.createAssessment({
         ...newAssessment,
         config: {
+          phase: Number(newAssessment.phase || 1),
           brief: {
-            businessContext: projectBrief.businessContext.trim(),
-            taskSummary: projectBrief.taskSummary.trim(),
-            expectedFlow: parseLines(projectBrief.expectedFlow),
-            requirements: parseLines(projectBrief.requirements),
-            acceptanceCriteria: parseLines(projectBrief.acceptanceCriteria),
-            submissionInstructions: parseLines(projectBrief.submissionInstructions),
-            evaluationNotes: parseLines(projectBrief.evaluationNotes),
-            stretchGoals: parseLines(projectBrief.stretchGoals)
+            businessContext: projectBrief.businessContext.trim() || String(defaultBrief?.businessContext || ''),
+            taskSummary: projectBrief.taskSummary.trim() || String(defaultBrief?.taskSummary || ''),
+            expectedFlow: parseLines(projectBrief.expectedFlow).length
+              ? parseLines(projectBrief.expectedFlow)
+              : (Array.isArray(defaultBrief?.expectedFlow) ? defaultBrief.expectedFlow : []),
+            requirements: parseLines(projectBrief.requirements).length
+              ? parseLines(projectBrief.requirements)
+              : (Array.isArray(defaultBrief?.requirements) ? defaultBrief.requirements : []),
+            acceptanceCriteria: parseLines(projectBrief.acceptanceCriteria).length
+              ? parseLines(projectBrief.acceptanceCriteria)
+              : (Array.isArray(defaultBrief?.acceptanceCriteria) ? defaultBrief.acceptanceCriteria : []),
+            submissionInstructions: parseLines(projectBrief.submissionInstructions).length
+              ? parseLines(projectBrief.submissionInstructions)
+              : (Array.isArray(defaultBrief?.submissionInstructions) ? defaultBrief.submissionInstructions : []),
+            evaluationNotes: parseLines(projectBrief.evaluationNotes).length
+              ? parseLines(projectBrief.evaluationNotes)
+              : (Array.isArray(defaultBrief?.evaluationNotes) ? defaultBrief.evaluationNotes : []),
+            stretchGoals: parseLines(projectBrief.stretchGoals).length
+              ? parseLines(projectBrief.stretchGoals)
+              : (Array.isArray(defaultBrief?.stretchGoals) ? defaultBrief.stretchGoals : [])
           }
         }
       });
@@ -392,7 +443,7 @@ export function ProjectEvaluations() {
 
   async function createPhase2Template() {
     if (!newTemplate.name.trim() || !newTemplate.slug.trim()) return;
-    if (!newTemplate.baseTemplateId) {
+    if (Number(newTemplate.phase) >= 3 && !newTemplate.baseTemplateId) {
       setError('Select a base UI-flow template');
       return;
     }
@@ -402,6 +453,8 @@ export function ProjectEvaluations() {
     try {
       const baseTemplate = templates.find((t) => t.id === newTemplate.baseTemplateId);
       const basePhase1Flow = baseTemplate?.config?.phase1Flow;
+      const templatePhase = Number(newTemplate.phase || 2);
+      const evaluationMode = templatePhase >= 3 ? 'ui_api_integration' : 'api_contract';
       const apiChecks = newTemplate.apiChecks
         .map((c) => ({
           title: String(c.title || '').trim(),
@@ -425,22 +478,24 @@ export function ProjectEvaluations() {
         evaluatorType: 'playwright_ui_flow',
         targetKind: 'frontend_zip',
         frameworkFamily: newTemplate.frameworkFamily,
-        version: 2,
+        version: templatePhase,
         isActive: true,
         config: {
-          phase: 2,
+          phase: templatePhase,
+          evaluationMode,
           supportedSubmissionModes: ['zip_upload'],
-          requiredServices: ['frontend', 'api'],
+          requiredServices: templatePhase >= 3 ? ['frontend', 'api'] : ['api'],
           expectedPort: 4173,
           runnerStatus: 'active',
-          phase1Flow: basePhase1Flow || undefined,
+          phase1Flow: templatePhase >= 3 ? (basePhase1Flow || undefined) : undefined,
           phase2ApiBaseUrl: newTemplate.apiBaseUrl.trim() || 'http://127.0.0.1:4173',
           phase2ApiChecks: apiChecks
         }
       });
 
-      setMsg('Phase 2 evaluator template created');
+      setMsg(`Phase ${templatePhase} evaluator template created`);
       setNewTemplate({
+        phase: 2,
         name: '',
         slug: '',
         description: '',
@@ -568,7 +623,11 @@ export function ProjectEvaluations() {
         run?.runnerKind === 'phase1_react_vite_playwright' ||
         run?.runner_kind === 'phase1_react_vite_playwright' ||
         run?.runnerKind === 'phase2_react_vite_playwright_api' ||
-        run?.runner_kind === 'phase2_react_vite_playwright_api'
+        run?.runner_kind === 'phase2_react_vite_playwright_api' ||
+        run?.runnerKind === 'phase2_react_vite_playwright_api_only' ||
+        run?.runner_kind === 'phase2_react_vite_playwright_api_only' ||
+        run?.runnerKind === 'phase3_react_vite_playwright_ui_api' ||
+        run?.runner_kind === 'phase3_react_vite_playwright_ui_api'
       ) {
         const scoreValue = run?.score != null ? Number(run.score) : null;
         const maxScoreValue = run?.maxScore != null ? Number(run.maxScore) : (run?.max_score != null ? Number(run.max_score) : 100);
@@ -577,9 +636,17 @@ export function ProjectEvaluations() {
           : 'n/a';
         const testsPassed = summary?.testsPassed ?? '?';
         const testsTotal = summary?.testsTotal ?? '?';
-        const modeLabel = (run?.runnerKind === 'phase2_react_vite_playwright_api' || run?.runner_kind === 'phase2_react_vite_playwright_api')
-          ? 'UI + API'
-          : 'Browser';
+        let modeLabel = 'UI';
+        if (run?.runnerKind === 'phase2_react_vite_playwright_api_only' || run?.runner_kind === 'phase2_react_vite_playwright_api_only') {
+          modeLabel = 'API';
+        } else if (
+          run?.runnerKind === 'phase2_react_vite_playwright_api' ||
+          run?.runner_kind === 'phase2_react_vite_playwright_api' ||
+          run?.runnerKind === 'phase3_react_vite_playwright_ui_api' ||
+          run?.runner_kind === 'phase3_react_vite_playwright_ui_api'
+        ) {
+          modeLabel = 'UI + API';
+        }
         setMsg(run?.status === 'completed'
           ? `${modeLabel} evaluation completed (${testsPassed}/${testsTotal} tests passed, score ${score})`
           : `${modeLabel} evaluation failed (${testsPassed}/${testsTotal} tests passed, score ${score})`);
@@ -632,7 +699,10 @@ export function ProjectEvaluations() {
                     <div className="font-medium text-sm">{t.name}</div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--surface-3)] border border-[var(--border)]">
-                        {getTemplatePhase(t) >= 2 ? 'P2 UI+API' : 'P1 UI'}
+                        {`P${getTemplatePhase(t)}`}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--surface-3)] border border-[var(--border)]">
+                        {formatEvaluationMode(getTemplateEvaluationMode(t))}
                       </span>
                       <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--surface-3)] border border-[var(--border)]">
                         {t.frameworkFamily}
@@ -648,9 +718,9 @@ export function ProjectEvaluations() {
 
           <div className="card space-y-3 order-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Step 2: Create Phase 2 Evaluator</h2>
+              <h2 className="text-lg font-semibold">Template Authoring</h2>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-[var(--text-muted)]">UI flow + API checks</span>
+                <span className="text-xs text-[var(--text-muted)]">Create reusable evaluator templates</span>
                 <button
                   type="button"
                   className="btn-secondary !py-1 !px-2 text-xs"
@@ -670,6 +740,14 @@ export function ProjectEvaluations() {
               value={newTemplate.name}
               onChange={(e) => setNewTemplate((p) => ({ ...p, name: e.target.value, slug: p.slug || slugify(e.target.value) }))}
             />
+            <select
+              className="input-field"
+              value={newTemplate.phase}
+              onChange={(e) => setNewTemplate((p) => ({ ...p, phase: Number(e.target.value) }))}
+            >
+              <option value={2}>Phase 2 - API Contract</option>
+              <option value={3}>Phase 3 - UI + API Integration</option>
+            </select>
             <input
               className="input-field"
               placeholder="Template slug"
@@ -682,20 +760,24 @@ export function ProjectEvaluations() {
               value={newTemplate.description}
               onChange={(e) => setNewTemplate((p) => ({ ...p, description: e.target.value }))}
             />
-            <select
-              className="input-field"
-              value={newTemplate.baseTemplateId}
-              onChange={(e) => setNewTemplate((p) => ({ ...p, baseTemplateId: e.target.value }))}
-            >
-              <option value="">Select base UI-flow template</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-            {newTemplate.baseTemplateId && !selectedBaseTemplate?.config?.phase1Flow && (
-              <div className="text-xs text-[var(--text-muted)]">
-                Selected base template has no explicit UI flow config. API checks will still run, but UI flow assertions may be limited.
-              </div>
+            {Number(newTemplate.phase) >= 3 && (
+              <>
+                <select
+                  className="input-field"
+                  value={newTemplate.baseTemplateId}
+                  onChange={(e) => setNewTemplate((p) => ({ ...p, baseTemplateId: e.target.value }))}
+                >
+                  <option value="">Select base UI-flow template</option>
+                  {templates.filter((t) => getTemplatePhase(t) === 1).map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                {newTemplate.baseTemplateId && !selectedBaseTemplate?.config?.phase1Flow && (
+                  <div className="text-xs text-[var(--text-muted)]">
+                    Selected base template has no explicit UI flow config. UI assertions may be limited.
+                  </div>
+                )}
+              </>
             )}
             <input
               className="input-field"
@@ -772,20 +854,20 @@ export function ProjectEvaluations() {
               onClick={createPhase2Template}
               disabled={working === 'template' || !canCreatePhase2Template}
             >
-              {working === 'template' ? 'Creating...' : 'Create Phase 2 Template'}
+              {working === 'template' ? 'Creating...' : `Create Phase ${newTemplate.phase} Template`}
             </button>
             <div className="text-xs text-[var(--text-muted)]">
               Ready checks: {validPhase2ChecksCount}/{newTemplate.apiChecks.length}
             </div>
               </>
             ) : (
-              <div className="text-xs text-[var(--text-muted)]">Collapsed. Expand to create or edit Phase 2 template details.</div>
+              <div className="text-xs text-[var(--text-muted)]">Collapsed. Expand to create or edit evaluator template details.</div>
             )}
           </div>
 
           <div className="card space-y-3 order-2">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Step 1: Create Project Assessment (Phase 1 UI Flow)</h2>
+              <h2 className="text-lg font-semibold">Assessment Setup</h2>
               <div className="flex items-center gap-2">
                 <Plus className="w-4 h-4 text-[var(--text-muted)]" />
                 <button
@@ -803,20 +885,27 @@ export function ProjectEvaluations() {
               <>
             <input className="input-field" placeholder="Assessment title" value={newAssessment.title} onChange={(e) => setNewAssessment((p) => ({ ...p, title: e.target.value }))} />
             <textarea className="input-field min-h-[90px]" placeholder="Description / expected business flow" value={newAssessment.description} onChange={(e) => setNewAssessment((p) => ({ ...p, description: e.target.value }))} />
+            <select
+              className="input-field"
+              value={newAssessment.phase}
+              onChange={(e) => setNewAssessment((p) => ({ ...p, phase: Number(e.target.value) }))}
+            >
+              <option value={1}>Phase 1 - UI Flow</option>
+              <option value={2}>Phase 2 - API Contract</option>
+              <option value={3}>Phase 3 - UI + API Integration</option>
+            </select>
             <select className="input-field" value={newAssessment.evaluatorTemplateId} onChange={(e) => setNewAssessment((p) => ({ ...p, evaluatorTemplateId: e.target.value }))}>
-              <option value="">Select evaluator template</option>
-              {templates.map((t) => (
+              <option value="">{phaseFilteredTemplates.length ? 'Select evaluator template' : 'No templates for selected phase'}</option>
+              {phaseFilteredTemplates.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {getTemplatePhase(t) >= 2 ? '[P2 UI+API]' : '[P1 UI]'} {t.name}
+                  {[`P${getTemplatePhase(t)}`, formatEvaluationMode(getTemplateEvaluationMode(t))].join(' • ')} • {t.name}
                 </option>
               ))}
             </select>
             {selectedEvaluatorTemplate && (
               <div className="text-xs text-[var(--text-muted)]">
                 Selected evaluator: <span className="font-semibold">{getTemplateModeLabel(selectedEvaluatorTemplate)}</span>
-                {getTemplatePhase(selectedEvaluatorTemplate) >= 2
-                  ? ' (includes API contract checks)'
-                  : ' (frontend UI business flow only)'}
+                {' • '}mode <span className="font-semibold">{formatEvaluationMode(getTemplateEvaluationMode(selectedEvaluatorTemplate))}</span>
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">

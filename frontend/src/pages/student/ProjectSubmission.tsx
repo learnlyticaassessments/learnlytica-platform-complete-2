@@ -82,10 +82,15 @@ export function ProjectSubmission() {
       const run = res.data;
       const summary = run?.summary || run?.summary_json || {};
       const score = run?.score != null ? `${Number(run.score)}/${Number(run?.maxScore ?? run?.max_score ?? 100)}` : 'n/a';
-      const phase2 = run?.runnerKind === 'phase2_react_vite_playwright_api'
+      const isApiOnly = run?.runnerKind === 'phase2_react_vite_playwright_api_only'
+        || run?.runner_kind === 'phase2_react_vite_playwright_api_only'
+        || summary?.mode === 'api_contract';
+      const isUiApi = run?.runnerKind === 'phase2_react_vite_playwright_api'
         || run?.runner_kind === 'phase2_react_vite_playwright_api'
-        || summary?.mode === 'browser_api_eval';
-      const modeLabel = phase2 ? 'UI + API evaluation' : 'Browser evaluation';
+        || run?.runnerKind === 'phase3_react_vite_playwright_ui_api'
+        || run?.runner_kind === 'phase3_react_vite_playwright_ui_api'
+        || summary?.mode === 'ui_api_integration';
+      const modeLabel = isApiOnly ? 'API evaluation' : isUiApi ? 'UI + API evaluation' : 'UI evaluation';
       setMsg(run?.status === 'completed'
         ? `${modeLabel} completed (${summary.testsPassed ?? '?'} / ${summary.testsTotal ?? '?'} tests passed, score ${score})`
         : `${modeLabel} failed (${summary.testsPassed ?? '?'} / ${summary.testsTotal ?? '?'} tests passed, score ${score})`);
