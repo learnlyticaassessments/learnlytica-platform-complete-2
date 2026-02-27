@@ -224,10 +224,10 @@ export async function getProjectAnalyticsDebug(db: any, organizationId: string) 
       sql`count(*)`.as('count')
     ])
     .where('ps.organization_id', '=', organizationId)
-    .groupBy(
+    .groupBy([
       hasSubmissionKind ? sql`coalesce(ps.submission_kind, 'null')` : sql`'legacy_no_submission_kind'`,
       sql`coalesce(ps.status, 'null')`
-    )
+    ])
     .orderBy(sql`count(*)`, 'desc')
     .execute();
 
@@ -504,7 +504,7 @@ export async function getProjectBatchAnalytics(db: any, organizationId: string) 
       sql`avg(ps.latest_score) filter (where ${learnerKindFilter} and ps.latest_score is not null)`.as('avgScore')
     ])
     .where('ps.organization_id', '=', organizationId)
-    .groupBy(batchIdExpr, batchNameExpr)
+    .groupBy([batchIdExpr, batchNameExpr])
     .orderBy(sql`count(*) filter (where ${learnerKindFilter})`, 'desc')
     .execute();
 
