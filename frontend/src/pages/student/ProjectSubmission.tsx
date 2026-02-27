@@ -62,9 +62,13 @@ export function ProjectSubmission() {
       const run = res.data;
       const summary = run?.summary || run?.summary_json || {};
       const score = run?.score != null ? `${Number(run.score)}/${Number(run?.maxScore ?? run?.max_score ?? 100)}` : 'n/a';
+      const phase2 = run?.runnerKind === 'phase2_react_vite_playwright_api'
+        || run?.runner_kind === 'phase2_react_vite_playwright_api'
+        || summary?.mode === 'browser_api_eval';
+      const modeLabel = phase2 ? 'UI + API evaluation' : 'Browser evaluation';
       setMsg(run?.status === 'completed'
-        ? `Browser evaluation completed (${summary.testsPassed ?? '?'} / ${summary.testsTotal ?? '?'} tests passed, score ${score})`
-        : `Browser evaluation failed (${summary.testsPassed ?? '?'} / ${summary.testsTotal ?? '?'} tests passed, score ${score})`);
+        ? `${modeLabel} completed (${summary.testsPassed ?? '?'} / ${summary.testsTotal ?? '?'} tests passed, score ${score})`
+        : `${modeLabel} failed (${summary.testsPassed ?? '?'} / ${summary.testsTotal ?? '?'} tests passed, score ${score})`);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to submit project for evaluation');
@@ -144,7 +148,7 @@ export function ProjectSubmission() {
               </button>
             </div>
             <div className="text-xs text-[var(--text-muted)]">
-              Upload a React/Vite ZIP, then run the automated browser evaluation for this project assignment.
+              Upload a React/Vite ZIP, then run automated evaluation. Some projects include Phase 2 API checks in addition to UI flow.
             </div>
           </div>
         </div>

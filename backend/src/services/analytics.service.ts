@@ -117,6 +117,35 @@ export async function getDashboardStats(db: any, organizationId: string) {
     ])
     .executeTakeFirst();
 
+  const projectStats = await db
+    .selectFrom('project_submissions as ps')
+    .select([
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment')`.as('totalAssigned'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status in ('submitted','preflight_completed','evaluation_queued','evaluation_completed','evaluation_failed'))`.as('submitted'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status = 'evaluation_completed')`.as('completed'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status = 'evaluation_failed')`.as('failed'),
+      sql`avg(ps.latest_score) filter (where ps.submission_kind = 'learner_assignment' and ps.latest_score is not null)`.as('averageScore')
+    ])
+    .where('ps.organization_id', '=', organizationId)
+    .executeTakeFirst();
+
+  const projectByTemplate = await db
+    .selectFrom('project_submissions as ps')
+    .innerJoin('project_assessments as pa', 'pa.id', 'ps.project_assessment_id')
+    .innerJoin('project_evaluator_templates as pet', 'pet.id', 'pa.evaluator_template_id')
+    .select([
+      'pet.name as templateName',
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment')`.as('assigned'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status = 'evaluation_completed')`.as('passed'),
+      sql`avg(ps.latest_score) filter (where ps.submission_kind = 'learner_assignment' and ps.latest_score is not null)`.as('avgScore')
+    ])
+    .where('pa.organization_id', '=', organizationId)
+    .groupBy('pet.name')
+    .orderBy(sql`count(*) filter (where ps.submission_kind = 'learner_assignment')`, 'desc')
+    .execute();
+
   return {
     questions: {
       total: Number(totals?.totalQuestions || 0),
@@ -134,8 +163,34 @@ export async function getDashboardStats(db: any, organizationId: string) {
       passRate: studentStats?.totalAttempts > 0 
         ? (Number(studentStats.passedAttempts) / Number(studentStats.totalAttempts)) * 100 
         : 0
+    },
+    projects: {
+      assigned: Number(projectStats?.totalAssigned || 0),
+      submitted: Number(projectStats?.submitted || 0),
+      evaluated: Number(projectStats?.evaluated || 0),
+      completed: Number(projectStats?.completed || 0),
+      failed: Number(projectStats?.failed || 0),
+      averageScore: Number(projectStats?.averageScore || 0),
+      completionRate: Number(projectStats?.totalAssigned || 0) > 0
+        ? (Number(projectStats?.evaluated || 0) / Number(projectStats?.totalAssigned || 0)) * 100
+        : 0,
+      passRate: Number(projectStats?.evaluated || 0) > 0
+        ? (Number(projectStats?.completed || 0) / Number(projectStats?.evaluated || 0)) * 100
+        : 0,
+      byTemplate: projectByTemplate.map((row: any) => ({
+        templateName: row.templateName,
+        assigned: Number(row.assigned || 0),
+        evaluated: Number(row.evaluated || 0),
+        passed: Number(row.passed || 0),
+        averageScore: Number(row.avgScore || 0)
+      }))
     }
   };
+}
+
+export async function getProjectEvaluationAnalytics(db: any, organizationId: string) {
+  const stats = await getDashboardStats(db, organizationId);
+  return stats.projects;
 }
 
 export async function getAssessmentAnalytics(db: any, assessmentId: string) {
@@ -302,6 +357,121 @@ export async function exportOrganizationAttemptsCsv(db: any, organizationId: str
     r.reentryPolicy || '', r.assignedAt || '', r.startedAt || '', r.submittedAt || '', r.timeSpentMinutes ?? ''
   ]);
   return [headers, ...csvRows]
+    .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+}
+
+export async function getProjectEvaluationTrends(db: any, organizationId: string, days = 14) {
+  const safeDays = Math.max(1, Math.min(60, Number(days) || 14));
+  const rows = await db
+    .selectFrom('project_submissions as ps')
+    .select([
+      sql`to_char(date_trunc('day', coalesce(ps.submitted_at, ps.assigned_at)), 'YYYY-MM-DD')`.as('day'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment')`.as('assigned'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status in ('submitted','preflight_completed','evaluation_queued','evaluation_completed','evaluation_failed'))`.as('submitted'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status = 'evaluation_completed')`.as('passed')
+    ])
+    .where('ps.organization_id', '=', organizationId)
+    .where(sql`coalesce(ps.submitted_at, ps.assigned_at) >= now() - (${safeDays} * interval '1 day')`)
+    .groupBy('day')
+    .orderBy('day', 'asc')
+    .execute();
+
+  return rows.map((r: any) => ({
+    day: r.day,
+    assigned: Number(r.assigned || 0),
+    submitted: Number(r.submitted || 0),
+    evaluated: Number(r.evaluated || 0),
+    passed: Number(r.passed || 0)
+  }));
+}
+
+export async function getProjectBatchAnalytics(db: any, organizationId: string) {
+  const rows = await db
+    .selectFrom('project_submissions as ps')
+    .leftJoin('batches as b', 'b.id', 'ps.assigned_batch_id')
+    .select([
+      sql`coalesce(b.id::text, 'unbatched')`.as('batchId'),
+      sql`coalesce(b.name, 'Unbatched / Direct Assignments')`.as('batchName'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment')`.as('assigned'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
+      sql`count(*) filter (where ps.submission_kind = 'learner_assignment' and ps.status = 'evaluation_completed')`.as('passed'),
+      sql`avg(ps.latest_score) filter (where ps.submission_kind = 'learner_assignment' and ps.latest_score is not null)`.as('avgScore')
+    ])
+    .where('ps.organization_id', '=', organizationId)
+    .groupBy('batchId', 'batchName')
+    .orderBy(sql`count(*) filter (where ps.submission_kind = 'learner_assignment')`, 'desc')
+    .execute();
+
+  return rows.map((r: any) => {
+    const assigned = Number(r.assigned || 0);
+    const evaluated = Number(r.evaluated || 0);
+    const passed = Number(r.passed || 0);
+    return {
+      batchId: r.batchId,
+      batchName: r.batchName,
+      assigned,
+      evaluated,
+      passed,
+      passRate: evaluated > 0 ? (passed / evaluated) * 100 : 0,
+      averageScore: Number(r.avgScore || 0)
+    };
+  });
+}
+
+export async function exportProjectSummaryCsv(db: any, organizationId: string) {
+  const dashboard = await getDashboardStats(db, organizationId);
+  const trends = await getProjectEvaluationTrends(db, organizationId, 30);
+  const byBatch = await getProjectBatchAnalytics(db, organizationId);
+  const byTemplate = dashboard.projects?.byTemplate || [];
+
+  const lines: any[][] = [];
+
+  lines.push(['Section', 'Metric', 'Value']);
+  lines.push(['Overview', 'Assigned', dashboard.projects?.assigned ?? 0]);
+  lines.push(['Overview', 'Submitted', dashboard.projects?.submitted ?? 0]);
+  lines.push(['Overview', 'Evaluated', dashboard.projects?.evaluated ?? 0]);
+  lines.push(['Overview', 'Passed', dashboard.projects?.completed ?? 0]);
+  lines.push(['Overview', 'Failed', dashboard.projects?.failed ?? 0]);
+  lines.push(['Overview', 'Average Score', Number(dashboard.projects?.averageScore || 0).toFixed(2)]);
+  lines.push(['Overview', 'Completion Rate %', Number(dashboard.projects?.completionRate || 0).toFixed(2)]);
+  lines.push(['Overview', 'Pass Rate %', Number(dashboard.projects?.passRate || 0).toFixed(2)]);
+  lines.push([]);
+
+  lines.push(['Template', 'Assigned', 'Evaluated', 'Passed', 'Pass Rate %', 'Average Score']);
+  for (const t of byTemplate) {
+    const passRate = Number(t.evaluated || 0) > 0 ? (Number(t.passed || 0) / Number(t.evaluated || 0)) * 100 : 0;
+    lines.push([
+      t.templateName,
+      Number(t.assigned || 0),
+      Number(t.evaluated || 0),
+      Number(t.passed || 0),
+      passRate.toFixed(2),
+      Number(t.averageScore || 0).toFixed(2)
+    ]);
+  }
+  lines.push([]);
+
+  lines.push(['Batch', 'Assigned', 'Evaluated', 'Passed', 'Pass Rate %', 'Average Score']);
+  for (const b of byBatch) {
+    lines.push([
+      b.batchName,
+      b.assigned,
+      b.evaluated,
+      b.passed,
+      Number(b.passRate || 0).toFixed(2),
+      Number(b.averageScore || 0).toFixed(2)
+    ]);
+  }
+  lines.push([]);
+
+  lines.push(['Day', 'Assigned', 'Submitted', 'Evaluated', 'Passed']);
+  for (const t of trends) {
+    lines.push([t.day, t.assigned, t.submitted, t.evaluated, t.passed]);
+  }
+
+  return lines
     .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\n');
 }

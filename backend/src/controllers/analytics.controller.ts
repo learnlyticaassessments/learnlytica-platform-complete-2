@@ -17,6 +17,40 @@ export async function getDashboard(req: Request, res: Response, next: NextFuncti
   }
 }
 
+export async function getProjectEvaluationAnalytics(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const organizationId = (req.user as any).organizationId as string;
+    const data = await analyticsService.getProjectEvaluationAnalytics(db, organizationId);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getProjectTrends(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const organizationId = (req.user as any).organizationId as string;
+    const days = Number(req.query.days || 14);
+    const data = await analyticsService.getProjectEvaluationTrends(db, organizationId, days);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getProjectBatchAnalytics(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const organizationId = (req.user as any).organizationId as string;
+    const data = await analyticsService.getProjectBatchAnalytics(db, organizationId);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getAssessmentAnalytics(req: Request, res: Response, next: NextFunction) {
   try {
     const db = (req as any).db;
@@ -85,6 +119,19 @@ export async function exportSkillMatrixCsv(req: Request, res: Response, next: Ne
     const csv = await analyticsService.exportSkillMatrixCsv(db, organizationId);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="skill-matrix.csv"');
+    res.send(csv);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function exportProjectSummaryCsv(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const organizationId = (req.user as any).organizationId as string;
+    const csv = await analyticsService.exportProjectSummaryCsv(db, organizationId);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="project-evaluation-summary.csv"');
     res.send(csv);
   } catch (error) {
     next(error);

@@ -148,17 +148,71 @@ function defaultPhase1TicketPortalFlow() {
 function buildPhase1PlaywrightSpecFromTemplate(templateConfig: any) {
   const flow = templateConfig?.phase1Flow || defaultPhase1TicketPortalFlow();
   const tests = Array.isArray(flow?.tests) && flow.tests.length ? flow.tests : defaultPhase1TicketPortalFlow().tests;
+  const baseUrl = String(templateConfig?.phase2ApiBaseUrl || flow?.baseUrl || 'http://127.0.0.1:4173');
+  const apiChecks = Array.isArray(templateConfig?.phase2ApiChecks) ? templateConfig.phase2ApiChecks : [];
   const testBlocks = tests.map((t: any) => {
     const title = String(t?.title || 'Phase 1 validation');
     const steps = Array.isArray(t?.steps) ? t.steps : [];
     const code = steps.map((s: any) => `  ${stepToPlaywrightCode(s)}`).join('\n');
     return `test(${JSON.stringify(title)}, async ({ page }) => {\n${code}\n});`;
   });
+  const apiBlocks = apiChecks.map((c: any, idx: number) => {
+    const title = String(c?.title || `API contract check ${idx + 1}`);
+    const method = String(c?.method || 'GET').toUpperCase();
+    const pathValue = String(c?.path || '/');
+    const expectedStatus = Number(c?.expectedStatus || 200);
+    const headers = c?.headers && typeof c.headers === 'object' ? c.headers : {};
+    const body = c?.body ?? null;
+    const expectBodyContains = Array.isArray(c?.expectBodyContains)
+      ? c.expectBodyContains.map((v: any) => String(v))
+      : [];
+    const expectJson = c?.expectJsonContains && typeof c.expectJsonContains === 'object'
+      ? c.expectJsonContains
+      : null;
+
+    const bodyContainsCode = expectBodyContains
+      .map((token: string) => `  expect(responseText).toContain(${JSON.stringify(token)});`)
+      .join('\n');
+    const jsonExpectCode = expectJson
+      ? `  const responseJson = JSON.parse(responseText);
+  for (const [keyPath, expectedValue] of Object.entries(${JSON.stringify(expectJson)})) {
+    expect(getByPath(responseJson, keyPath)).toEqual(expectedValue);
+  }`
+      : '';
+
+    return `test(${JSON.stringify(`[API] ${title}`)}, async ({ request }) => {
+  const requestOptions = {
+    method: ${JSON.stringify(method)},
+    headers: ${JSON.stringify(headers)}
+  };
+  if (${JSON.stringify(body)} !== null) requestOptions.data = ${JSON.stringify(body)};
+  const response = await request.fetch(resolveUrl(${JSON.stringify(pathValue)}), requestOptions);
+  expect(response.status()).toBe(${Number.isFinite(expectedStatus) ? expectedStatus : 200});
+  const responseText = await response.text();
+${bodyContainsCode}
+${jsonExpectCode}
+});`;
+  });
 
   return `
 import { test, expect } from 'playwright/test';
 
-${testBlocks.join('\n\n')}
+const API_BASE_URL = ${JSON.stringify(baseUrl)};
+
+function resolveUrl(path) {
+  const cleanedPath = String(path || '/');
+  if (/^https?:\\/\\//i.test(cleanedPath)) return cleanedPath;
+  return API_BASE_URL.replace(/\\/$/, '') + '/' + cleanedPath.replace(/^\\//, '');
+}
+
+function getByPath(obj, keyPath) {
+  return String(keyPath || '')
+    .split('.')
+    .filter(Boolean)
+    .reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
+}
+
+${[...testBlocks, ...apiBlocks].join('\n\n')}
 `;
 }
 
@@ -994,6 +1048,9 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
     .select(['id', 'slug', 'config_json as config'])
     .where('id', '=', (submission as any).evaluatorTemplateId)
     .executeTakeFirst();
+  const evaluatorConfig = (evaluatorTemplate as any)?.config || {};
+  const hasPhase2ApiChecks = Array.isArray(evaluatorConfig?.phase2ApiChecks) && evaluatorConfig.phase2ApiChecks.length > 0;
+  const evaluatorPhase = Number(evaluatorConfig?.phase || (hasPhase2ApiChecks ? 2 : 1)) >= 2 ? 2 : 1;
 
   const existingSubmission = await db
     .selectFrom('project_submissions')
@@ -1037,6 +1094,17 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
 
   const completed = Boolean(detect);
   const actualExecutionCompleted = Boolean(actualRunResult);
+  const effectiveRunnerKind = hasPhase2ApiChecks
+    ? 'phase2_react_vite_playwright_api'
+    : 'phase1_react_vite_playwright';
+  const successState = hasPhase2ApiChecks ? 'browser_api_eval_complete' : 'browser_eval_complete';
+  const failedState = hasPhase2ApiChecks ? 'browser_api_eval_failed' : 'browser_eval_failed';
+  const successMessage = hasPhase2ApiChecks
+    ? 'Phase 2 React/Vite UI+API evaluation completed'
+    : 'Phase 1 React/Vite browser-flow evaluation completed';
+  const failedMessage = hasPhase2ApiChecks
+    ? 'Phase 2 React/Vite UI+API evaluation failed'
+    : 'Phase 1 React/Vite browser-flow evaluation failed';
 
   const run = await db
     .insertInto('project_evaluation_runs')
@@ -1045,21 +1113,21 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
       organization_id: ctx.organizationId,
       status: actualExecutionCompleted ? (actualRunResult.success ? 'completed' : 'failed') : (completed ? 'completed' : 'queued'),
       trigger_type: payload?.triggerType || 'manual',
-      runner_kind: actualExecutionCompleted ? 'phase1_react_vite_playwright' : 'phase1_preflight',
+      runner_kind: actualExecutionCompleted ? effectiveRunnerKind : 'phase1_preflight',
       framework_detected: submission.detectedFramework || existingSubmission.detectedFramework || 'react_vite',
       started_at: (completed || actualExecutionCompleted) ? nowIso() : null,
       completed_at: (completed || actualExecutionCompleted) ? nowIso() : null,
       score: actualExecutionCompleted ? actualRunResult.score : (completed ? score : null),
       max_score: (completed || actualExecutionCompleted) ? 100 : null,
       summary_json: {
-        phase: 1,
+        phase: evaluatorPhase,
         state: actualExecutionCompleted
-          ? (actualRunResult.success ? 'browser_eval_complete' : 'browser_eval_failed')
+          ? (actualRunResult.success ? successState : failedState)
           : completed ? 'preflight_complete' : 'queued',
         message: actualExecutionCompleted
           ? (actualRunResult.success
-              ? 'Phase 1 React/Vite browser-flow evaluation completed'
-              : 'Phase 1 React/Vite browser-flow evaluation failed')
+              ? successMessage
+              : failedMessage)
           : completed
             ? 'ZIP ingestion + stack detection preflight completed (runner orchestration not yet wired for this submission)'
             : 'Queued for Phase 1 Playwright UI-flow evaluation scaffold',
@@ -1071,13 +1139,14 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
       },
       result_json: actualExecutionCompleted
         ? {
-            phase: 1,
-            mode: 'browser_eval',
+            phase: evaluatorPhase,
+            mode: hasPhase2ApiChecks ? 'browser_api_eval' : 'browser_eval',
             detection: detect || null,
             tests: actualRunResult.tests,
             testsPassed: actualRunResult.testsPassed,
             testsTotal: actualRunResult.testsTotal,
-            rawPlaywright: actualRunResult.parsedJson
+            rawPlaywright: actualRunResult.parsedJson,
+            apiChecksConfigured: hasPhase2ApiChecks
           }
         : completed
           ? {
@@ -1114,8 +1183,10 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
           ? (actualRunResult.success ? 'completed' : 'failed')
           : completed ? 'completed' : 'queued',
         queuedAt: nowIso(),
-        phase: 1,
-        mode: actualExecutionCompleted ? 'browser_eval' : completed ? 'preflight' : 'queue_only',
+        phase: evaluatorPhase,
+        mode: actualExecutionCompleted
+          ? (hasPhase2ApiChecks ? 'browser_api_eval' : 'browser_eval')
+          : completed ? 'preflight' : 'queue_only',
         score: actualExecutionCompleted ? actualRunResult.score : (completed ? score : null),
         testsPassed: actualRunResult?.testsPassed ?? null,
         testsTotal: actualRunResult?.testsTotal ?? null

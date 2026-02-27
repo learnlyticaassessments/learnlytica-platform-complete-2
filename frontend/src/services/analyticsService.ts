@@ -30,6 +30,21 @@ export const analyticsService = {
     return response.data;
   },
 
+  getProjectAnalytics: async () => {
+    const response = await client.get('/projects');
+    return response.data;
+  },
+
+  getProjectTrends: async (days = 14) => {
+    const response = await client.get('/projects/trends', { params: { days } });
+    return response.data;
+  },
+
+  getProjectBatchAnalytics: async () => {
+    const response = await client.get('/projects/by-batch');
+    return response.data;
+  },
+
   getAssessmentAnalytics: async (id: string) => {
     const response = await client.get(`/assessments/${id}`);
     return response.data;
@@ -59,6 +74,11 @@ export const analyticsService = {
 
   exportSkillMatrixCsv: async () => {
     const response = await client.get('/exports/skill-matrix-csv', { responseType: 'blob' });
+    return response.data;
+  },
+
+  exportProjectSummaryCsv: async () => {
+    const response = await client.get('/exports/project-summary-csv', { responseType: 'blob' });
     return response.data;
   }
 };
