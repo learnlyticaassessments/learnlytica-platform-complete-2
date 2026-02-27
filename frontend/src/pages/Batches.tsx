@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Layers3, Users, Plus, Loader2, UserPlus, Trash2, ClipboardCheck, RefreshCw, BarChart3 } from 'lucide-react';
+import { Layers3, Users, Plus, Loader2, UserPlus, Trash2, ClipboardCheck, RefreshCw, BarChart3, ChevronDown, ChevronUp } from 'lucide-react';
 import { batchesService, type BatchReentryPolicy, type BatchStatus, type BatchType } from '../services/batchesService';
 import { learnersService } from '../services/learnersService';
 import { assessmentService } from '../services/assessmentService';
@@ -99,6 +99,9 @@ export function Batches() {
   const [resultsSearch, setResultsSearch] = useState('');
   const [resultsStatus, setResultsStatus] = useState('');
   const [resultsAssessmentId, setResultsAssessmentId] = useState('');
+  const [resultsSubmissionFilter, setResultsSubmissionFilter] = useState<'all' | 'submitted' | 'not_submitted'>('all');
+  const [membersPanelExpanded, setMembersPanelExpanded] = useState(true);
+  const [resultsPanelExpanded, setResultsPanelExpanded] = useState(true);
 
   const [newBatch, setNewBatch] = useState({
     name: '',
@@ -444,6 +447,12 @@ export function Batches() {
     );
   }, [batchMembers, memberSearch]);
 
+  const visibleBatchResults = useMemo(() => {
+    if (resultsSubmissionFilter === 'all') return batchResults;
+    if (resultsSubmissionFilter === 'submitted') return batchResults.filter((r) => Boolean(r.submittedAt));
+    return batchResults.filter((r) => !r.submittedAt);
+  }, [batchResults, resultsSubmissionFilter]);
+
   if (loading) {
     return (
       <div className="p-6">
@@ -646,131 +655,146 @@ export function Batches() {
                   <div className="flex items-center gap-2">
                     <Users className="w-5 h-5 text-[var(--accent)]" />
                     <h3 className="text-lg font-semibold">Batch Members ({batchMembers.length})</h3>
+                    <button
+                      type="button"
+                      className="btn-secondary !py-1 !px-2 text-xs"
+                      onClick={() => setMembersPanelExpanded((v) => !v)}
+                      aria-expanded={membersPanelExpanded}
+                      aria-label={membersPanelExpanded ? 'Collapse members section' : 'Expand members section'}
+                    >
+                      {membersPanelExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
                   </div>
-                  <input className="input-field" placeholder="Search current or addable learners" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} />
+                  {membersPanelExpanded ? (
+                    <>
+                      <input className="input-field" placeholder="Search current or addable learners" value={memberSearch} onChange={(e) => setMemberSearch(e.target.value)} />
 
-                  <div className="rounded-xl border border-[var(--border)]">
-                    <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)] font-medium">Current Members</div>
-                    <div className="max-h-[260px] overflow-auto divide-y divide-[var(--border)]">
-                      {filteredBatchMembers.length ? filteredBatchMembers.map((member) => (
-                        <div key={member.membershipId} className="px-4 py-3 flex items-center gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-gray-900 truncate">{member.fullName}</div>
-                            <div className="text-xs text-gray-600 truncate">{member.email}</div>
-                          </div>
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
-                            member.membershipStatus === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                          }`}>
-                            {member.membershipStatus}
+                      <div className="rounded-xl border border-[var(--border)]">
+                        <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)] font-medium sticky top-0 z-10">Current Members</div>
+                        <div className="max-h-[260px] overflow-auto divide-y divide-[var(--border)]">
+                          {filteredBatchMembers.length ? filteredBatchMembers.map((member) => (
+                            <div key={member.membershipId} className="px-4 py-3 flex items-center gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium text-gray-900 truncate">{member.fullName}</div>
+                                <div className="text-xs text-gray-600 truncate">{member.email}</div>
+                              </div>
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
+                                member.membershipStatus === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                              }`}>
+                                {member.membershipStatus}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                disabled={!canManage || busy === `remove-${member.learnerId}`}
+                                onClick={() => void removeMember(member.learnerId, member.fullName)}
+                                title="Remove from batch"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )) : (
+                            <div className="px-4 py-8 text-sm text-gray-600 text-center">No members in this batch yet.</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[var(--border)]">
+                        <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)] font-medium sticky top-0 z-10">Add Learners</div>
+                        <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between gap-2">
+                          <label className="flex items-center gap-2 text-xs text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={showOnlyUnbatchedToAdd}
+                              onChange={(e) => setShowOnlyUnbatchedToAdd(e.target.checked)}
+                            />
+                            Show unbatched learners only
+                          </label>
+                          <span className="text-xs text-gray-500">
+                            {addableLearners.length} available
                           </span>
+                        </div>
+                        <div className="max-h-[220px] overflow-auto divide-y divide-[var(--border)]">
+                          {addableLearners.length ? addableLearners.slice(0, 120).map((learner) => (
+                            <label key={learner.id} className="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[var(--surface-2)]/50">
+                              <input
+                                type="checkbox"
+                                checked={selectedLearnerIdsToAdd.includes(learner.id)}
+                                onChange={() => toggleLearnerToAdd(learner.id)}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium text-gray-900 truncate">{learner.fullName}</div>
+                                <div className="text-xs text-gray-600 truncate">{learner.email}</div>
+                                <div className="text-[10px] text-gray-500 truncate">
+                                  {(learner.batchCount || 0) > 0 ? `In ${(learner.batchCount || 0)} batch(es)` : 'Unbatched'}
+                                </div>
+                              </div>
+                              {!learner.isActive && (
+                                <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-700">inactive account</span>
+                              )}
+                            </label>
+                          )) : (
+                            <div className="px-4 py-8 text-sm text-gray-600 text-center">No available learners to add.</div>
+                          )}
+                        </div>
+                        <div className="px-4 py-3 border-t border-[var(--border)] flex items-center justify-between gap-3">
+                          <span className="text-xs text-gray-600">{selectedLearnerIdsToAdd.length} selected</span>
+                          <button type="button" className="btn-primary" disabled={!canManage || !selectedLearnerIdsToAdd.length || busy === 'add-members'} onClick={addSelectedLearnersToBatch}>
+                            <UserPlus className="w-4 h-4 mr-2" />
+                            {busy === 'add-members' ? 'Adding...' : 'Add Selected'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <UserPlus className="w-4 h-4 text-[var(--accent)]" />
+                          <h4 className="font-semibold">CSV Import Into This Batch</h4>
+                        </div>
+                        <p className="text-xs text-gray-600">
+                          Paste rows as <code>fullName,email,password</code> or <code>email,fullName,password</code>. Existing learners are matched by email and added to this batch.
+                        </p>
+                        <textarea
+                          className="input-field min-h-[120px] font-mono text-xs"
+                          placeholder={`Asha Patel,asha@company.com,Temp@123\nravi@company.com,Ravi Kumar,Temp@123`}
+                          value={batchCsvText}
+                          onChange={(e) => setBatchCsvText(e.target.value)}
+                        />
+                        <input
+                          className="input-field"
+                          value={batchCsvDefaultPassword}
+                          onChange={(e) => setBatchCsvDefaultPassword(e.target.value)}
+                          placeholder="Default password for new learners"
+                        />
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="text-gray-600">Preview rows: {batchCsvPreview.length}</span>
                           <button
                             type="button"
                             className="btn-secondary"
-                            disabled={!canManage || busy === `remove-${member.learnerId}`}
-                            onClick={() => void removeMember(member.learnerId, member.fullName)}
-                            title="Remove from batch"
+                            disabled={!canManage || !batchCsvPreview.length || busy === 'batch-csv-import'}
+                            onClick={importLearnersIntoSelectedBatch}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            {busy === 'batch-csv-import' ? 'Importing...' : 'Import + Add to Batch'}
                           </button>
                         </div>
-                      )) : (
-                        <div className="px-4 py-8 text-sm text-gray-600 text-center">No members in this batch yet.</div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-[var(--border)]">
-                    <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)] font-medium">Add Learners</div>
-                    <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between gap-2">
-                      <label className="flex items-center gap-2 text-xs text-gray-700">
-                        <input
-                          type="checkbox"
-                          checked={showOnlyUnbatchedToAdd}
-                          onChange={(e) => setShowOnlyUnbatchedToAdd(e.target.checked)}
-                        />
-                        Show unbatched learners only
-                      </label>
-                      <span className="text-xs text-gray-500">
-                        {addableLearners.length} available
-                      </span>
-                    </div>
-                    <div className="max-h-[220px] overflow-auto divide-y divide-[var(--border)]">
-                      {addableLearners.length ? addableLearners.slice(0, 120).map((learner) => (
-                        <label key={learner.id} className="px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-[var(--surface-2)]/50">
-                          <input
-                            type="checkbox"
-                            checked={selectedLearnerIdsToAdd.includes(learner.id)}
-                            onChange={() => toggleLearnerToAdd(learner.id)}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-gray-900 truncate">{learner.fullName}</div>
-                            <div className="text-xs text-gray-600 truncate">{learner.email}</div>
-                            <div className="text-[10px] text-gray-500 truncate">
-                              {(learner.batchCount || 0) > 0 ? `In ${(learner.batchCount || 0)} batch(es)` : 'Unbatched'}
-                            </div>
+                        {batchCsvImportResult && (
+                          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs space-y-1">
+                            <div>Created learners: {batchCsvImportResult.importSummary?.created ?? 0}</div>
+                            <div>Skipped learner rows: {batchCsvImportResult.importSummary?.skipped ?? 0}</div>
+                            <div>Added to batch: {batchCsvImportResult.batchAddSummary?.added ?? 0}</div>
+                            <div>Skipped batch adds: {batchCsvImportResult.batchAddSummary?.skipped ?? 0}</div>
+                            {(batchCsvImportResult.importSkipped || []).slice(0, 4).map((s: any) => (
+                              <div key={`${s.index}-${s.email || 'row'}`} className="text-amber-700">
+                                Row {s.index + 1}: {s.reason}
+                              </div>
+                            ))}
                           </div>
-                          {!learner.isActive && (
-                            <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-700">inactive account</span>
-                          )}
-                        </label>
-                      )) : (
-                        <div className="px-4 py-8 text-sm text-gray-600 text-center">No available learners to add.</div>
-                      )}
-                    </div>
-                    <div className="px-4 py-3 border-t border-[var(--border)] flex items-center justify-between gap-3">
-                      <span className="text-xs text-gray-600">{selectedLearnerIdsToAdd.length} selected</span>
-                      <button type="button" className="btn-primary" disabled={!canManage || !selectedLearnerIdsToAdd.length || busy === 'add-members'} onClick={addSelectedLearnersToBatch}>
-                        <UserPlus className="w-4 h-4 mr-2" />
-                        {busy === 'add-members' ? 'Adding...' : 'Add Selected'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <UserPlus className="w-4 h-4 text-[var(--accent)]" />
-                      <h4 className="font-semibold">CSV Import Into This Batch</h4>
-                    </div>
-                    <p className="text-xs text-gray-600">
-                      Paste rows as <code>fullName,email,password</code> or <code>email,fullName,password</code>. Existing learners are matched by email and added to this batch.
-                    </p>
-                    <textarea
-                      className="input-field min-h-[120px] font-mono text-xs"
-                      placeholder={`Asha Patel,asha@company.com,Temp@123\nravi@company.com,Ravi Kumar,Temp@123`}
-                      value={batchCsvText}
-                      onChange={(e) => setBatchCsvText(e.target.value)}
-                    />
-                    <input
-                      className="input-field"
-                      value={batchCsvDefaultPassword}
-                      onChange={(e) => setBatchCsvDefaultPassword(e.target.value)}
-                      placeholder="Default password for new learners"
-                    />
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="text-gray-600">Preview rows: {batchCsvPreview.length}</span>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        disabled={!canManage || !batchCsvPreview.length || busy === 'batch-csv-import'}
-                        onClick={importLearnersIntoSelectedBatch}
-                      >
-                        {busy === 'batch-csv-import' ? 'Importing...' : 'Import + Add to Batch'}
-                      </button>
-                    </div>
-                    {batchCsvImportResult && (
-                      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs space-y-1">
-                        <div>Created learners: {batchCsvImportResult.importSummary?.created ?? 0}</div>
-                        <div>Skipped learner rows: {batchCsvImportResult.importSummary?.skipped ?? 0}</div>
-                        <div>Added to batch: {batchCsvImportResult.batchAddSummary?.added ?? 0}</div>
-                        <div>Skipped batch adds: {batchCsvImportResult.batchAddSummary?.skipped ?? 0}</div>
-                        {(batchCsvImportResult.importSkipped || []).slice(0, 4).map((s: any) => (
-                          <div key={`${s.index}-${s.email || 'row'}`} className="text-amber-700">
-                            Row {s.index + 1}: {s.reason}
-                          </div>
-                        ))}
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </>
+                  ) : (
+                    <div className="text-xs text-[var(--text-muted)]">Collapsed. Expand to manage members, CSV imports, and learner adds.</div>
+                  )}
                 </div>
 
                 <div className="card p-6 space-y-4">
@@ -816,70 +840,90 @@ export function Batches() {
                     <div className="flex items-center gap-2 mb-3">
                       <BarChart3 className="w-4 h-4 text-[var(--accent)]" />
                       <div className="font-semibold">Batch Results</div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                      <input className="input-field" placeholder="Search learner / assessment" value={resultsSearch} onChange={(e) => setResultsSearch(e.target.value)} />
-                      <select className="input-field" value={resultsStatus} onChange={(e) => setResultsStatus(e.target.value)}>
-                        <option value="">All statuses</option>
-                        <option value="assigned">Assigned</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="submitted">Submitted</option>
-                        <option value="graded">Graded</option>
-                        <option value="expired">Expired</option>
-                      </select>
-                      <select className="input-field" value={resultsAssessmentId} onChange={(e) => setResultsAssessmentId(e.target.value)}>
-                        <option value="">All assessments</option>
-                        {assessments.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
-                      </select>
-                    </div>
-                    <div className="flex justify-between items-center mb-3">
-                      <div className="text-xs text-gray-600">
-                        Attempts: <span className="font-semibold">{batchResultsSummary?.assignmentCount ?? batchResults.length}</span>
-                        {' • '}Submitted: <span className="font-semibold">{batchResultsSummary?.submittedCount ?? 0}</span>
-                        {' • '}Pass Rate: <span className="font-semibold">{batchResultsSummary?.passRate ?? 0}%</span>
-                      </div>
-                      <button type="button" className="btn-secondary" onClick={refreshResults} disabled={busy === 'refresh-results'}>
-                        <RefreshCw className={`w-4 h-4 mr-2 ${busy === 'refresh-results' ? 'animate-spin' : ''}`} />
-                        Refresh
+                      <button
+                        type="button"
+                        className="btn-secondary !py-1 !px-2 text-xs"
+                        onClick={() => setResultsPanelExpanded((v) => !v)}
+                        aria-expanded={resultsPanelExpanded}
+                        aria-label={resultsPanelExpanded ? 'Collapse batch results' : 'Expand batch results'}
+                      >
+                        {resultsPanelExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                       </button>
                     </div>
-                    <div className="max-h-[320px] overflow-auto table-shell">
-                      <table className="w-full text-sm">
-                        <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
-                          <tr>
-                            <th className="px-3 py-2 text-left">Learner</th>
-                            <th className="px-3 py-2 text-left">Assessment</th>
-                            <th className="px-3 py-2 text-left">Status</th>
-                            <th className="px-3 py-2 text-left">Score</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[var(--border)]">
-                          {batchResults.length ? batchResults.map((row) => (
-                            <tr key={row.id} className="hover:bg-[var(--surface-2)]/50">
-                              <td className="px-3 py-2">
-                                <div className="font-medium text-gray-900">{row.learnerName}</div>
-                                <div className="text-xs text-gray-600">{row.learnerEmail}</div>
-                              </td>
-                              <td className="px-3 py-2">{row.assessmentTitle}</td>
-                              <td className="px-3 py-2">
-                                <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-[var(--surface-2)] border border-[var(--border)]">
-                                  {row.status}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2">
-                                {row.score == null ? '—' : `${row.score}${row.passed === true ? ' ✓' : row.passed === false ? ' ✕' : ''}`}
-                              </td>
-                            </tr>
-                          )) : (
-                            <tr>
-                              <td colSpan={4} className="px-3 py-8 text-center text-sm text-gray-600">
-                                No batch-attributed assignment results yet.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                    {resultsPanelExpanded ? (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                          <input className="input-field" placeholder="Search learner / assessment" value={resultsSearch} onChange={(e) => setResultsSearch(e.target.value)} />
+                          <select className="input-field" value={resultsStatus} onChange={(e) => setResultsStatus(e.target.value)}>
+                            <option value="">All statuses</option>
+                            <option value="assigned">Assigned</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="submitted">Submitted</option>
+                            <option value="graded">Graded</option>
+                            <option value="expired">Expired</option>
+                          </select>
+                          <select className="input-field" value={resultsAssessmentId} onChange={(e) => setResultsAssessmentId(e.target.value)}>
+                            <option value="">All assessments</option>
+                            {assessments.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          <button type="button" className={`btn-secondary !py-1 !px-2 text-xs ${resultsSubmissionFilter === 'all' ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`} onClick={() => setResultsSubmissionFilter('all')}>All</button>
+                          <button type="button" className={`btn-secondary !py-1 !px-2 text-xs ${resultsSubmissionFilter === 'submitted' ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`} onClick={() => setResultsSubmissionFilter('submitted')}>Has Submission</button>
+                          <button type="button" className={`btn-secondary !py-1 !px-2 text-xs ${resultsSubmissionFilter === 'not_submitted' ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`} onClick={() => setResultsSubmissionFilter('not_submitted')}>No Submission Yet</button>
+                        </div>
+                        <div className="flex justify-between items-center mb-3">
+                          <div className="text-xs text-gray-600">
+                            Attempts: <span className="font-semibold">{batchResultsSummary?.assignmentCount ?? batchResults.length}</span>
+                            {' • '}Submitted: <span className="font-semibold">{batchResultsSummary?.submittedCount ?? 0}</span>
+                            {' • '}Pass Rate: <span className="font-semibold">{batchResultsSummary?.passRate ?? 0}%</span>
+                          </div>
+                          <button type="button" className="btn-secondary" onClick={refreshResults} disabled={busy === 'refresh-results'}>
+                            <RefreshCw className={`w-4 h-4 mr-2 ${busy === 'refresh-results' ? 'animate-spin' : ''}`} />
+                            Refresh
+                          </button>
+                        </div>
+                        <div className="max-h-[320px] overflow-auto table-shell">
+                          <table className="w-full text-sm">
+                            <thead className="bg-[var(--surface-2)] border-b border-[var(--border)] sticky top-0 z-10">
+                              <tr>
+                                <th className="px-3 py-2 text-left">Learner</th>
+                                <th className="px-3 py-2 text-left">Assessment</th>
+                                <th className="px-3 py-2 text-left">Status</th>
+                                <th className="px-3 py-2 text-left">Score</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[var(--border)]">
+                              {visibleBatchResults.length ? visibleBatchResults.map((row) => (
+                                <tr key={row.id} className="hover:bg-[var(--surface-2)]/50">
+                                  <td className="px-3 py-2">
+                                    <div className="font-medium text-gray-900">{row.learnerName}</div>
+                                    <div className="text-xs text-gray-600">{row.learnerEmail}</div>
+                                  </td>
+                                  <td className="px-3 py-2">{row.assessmentTitle}</td>
+                                  <td className="px-3 py-2">
+                                    <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-[var(--surface-2)] border border-[var(--border)]">
+                                      {row.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {row.score == null ? '—' : `${row.score}${row.passed === true ? ' ✓' : row.passed === false ? ' ✕' : ''}`}
+                                  </td>
+                                </tr>
+                              )) : (
+                                <tr>
+                                  <td colSpan={4} className="px-3 py-8 text-center text-sm text-gray-600">
+                                    No batch-attributed assignment results yet.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-xs text-[var(--text-muted)]">Collapsed. Expand to inspect filtered batch results.</div>
+                    )}
                   </div>
                 </div>
               </div>

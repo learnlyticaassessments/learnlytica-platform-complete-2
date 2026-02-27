@@ -68,6 +68,23 @@ function formatEvaluationMode(mode: string) {
   return 'UI';
 }
 
+function getRunnerPhase(runnerKind?: string | null) {
+  const v = String(runnerKind || '').toLowerCase();
+  if (!v) return '-';
+  if (v.includes('phase3')) return 'P3';
+  if (v.includes('phase2')) return 'P2';
+  if (v.includes('phase1')) return 'P1';
+  return '-';
+}
+
+function getRunnerMode(runnerKind?: string | null) {
+  const v = String(runnerKind || '').toLowerCase();
+  if (!v) return '-';
+  if (v.includes('ui_api') || v.includes('api_ui')) return 'UI+API';
+  if (v.includes('api_only') || v.includes('api_contract') || (v.includes('phase2') && !v.includes('ui'))) return 'API';
+  return 'UI';
+}
+
 function getApiContractChecks(config: any) {
   const checks = Array.isArray(config?.phase2ApiChecks) ? config.phase2ApiChecks : [];
   return checks
@@ -254,6 +271,7 @@ export function ProjectEvaluations() {
     dueDate: '',
     assignmentNotes: ''
   });
+  const [assignmentMode, setAssignmentMode] = useState<'batch' | 'individual'>('batch');
   const [lastAutoBriefTemplateId, setLastAutoBriefTemplateId] = useState<string>('');
 
   async function loadAll(preserveSelected = true) {
@@ -358,6 +376,16 @@ export function ProjectEvaluations() {
   );
   const selectedTemplateUiChecks = useMemo(
     () => getUiFlowChecks(selectedEvaluatorTemplate?.config),
+    [selectedEvaluatorTemplate]
+  );
+  const selectedRunTests = useMemo(() => {
+    const tests = Array.isArray(selectedRunDetails?.submission?.latestRunResult?.tests)
+      ? [...selectedRunDetails.submission.latestRunResult.tests]
+      : [];
+    return tests.sort((a: any, b: any) => Number(Boolean(a?.passed)) - Number(Boolean(b?.passed)));
+  }, [selectedRunDetails]);
+  const defaultBriefForSelectedTemplate = useMemo(
+    () => selectedEvaluatorTemplate?.config?.defaultBrief || {},
     [selectedEvaluatorTemplate]
   );
 
@@ -585,8 +613,8 @@ export function ProjectEvaluations() {
     setMsg('');
     try {
       const res = await projectEvaluationsService.assignAssessment(selectedAssessmentId, {
-        learnerIds: assignmentForm.learnerIds,
-        batchId: assignmentForm.batchId || undefined,
+        learnerIds: assignmentMode === 'individual' ? assignmentForm.learnerIds : [],
+        batchId: assignmentMode === 'batch' ? (assignmentForm.batchId || undefined) : undefined,
         dueDate: assignmentForm.dueDate || undefined,
         assignmentNotes: assignmentForm.assignmentNotes || undefined
       });
@@ -601,6 +629,20 @@ export function ProjectEvaluations() {
     } finally {
       setWorking(null);
     }
+  }
+
+  function resetBriefSection(section: keyof typeof projectBrief) {
+    const defaults: Record<string, string> = {
+      businessContext: String(defaultBriefForSelectedTemplate?.businessContext || ''),
+      taskSummary: String(defaultBriefForSelectedTemplate?.taskSummary || ''),
+      expectedFlow: linesToTextarea(defaultBriefForSelectedTemplate?.expectedFlow),
+      requirements: linesToTextarea(defaultBriefForSelectedTemplate?.requirements),
+      acceptanceCriteria: linesToTextarea(defaultBriefForSelectedTemplate?.acceptanceCriteria),
+      submissionInstructions: linesToTextarea(defaultBriefForSelectedTemplate?.submissionInstructions),
+      evaluationNotes: linesToTextarea(defaultBriefForSelectedTemplate?.evaluationNotes),
+      stretchGoals: linesToTextarea(defaultBriefForSelectedTemplate?.stretchGoals)
+    };
+    setProjectBrief((p) => ({ ...p, [section]: defaults[section] || '' }));
   }
 
   async function deleteSelectedAssessment() {
@@ -1042,14 +1084,38 @@ export function ProjectEvaluations() {
             <details className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
               <summary className="cursor-pointer font-semibold text-sm">Learner Project Brief (Structured)</summary>
               <div className="mt-3 space-y-3">
-                <textarea className="input-field min-h-[80px]" placeholder="Business Context (what business problem this project solves)" value={projectBrief.businessContext} onChange={(e) => setProjectBrief((p) => ({ ...p, businessContext: e.target.value }))} />
-                <textarea className="input-field min-h-[80px]" placeholder="Task Summary (what the learner must build)" value={projectBrief.taskSummary} onChange={(e) => setProjectBrief((p) => ({ ...p, taskSummary: e.target.value }))} />
-                <textarea className="input-field min-h-[90px]" placeholder={`Expected User Flow (one step per line)\n1. Open page\n2. Fill form\n3. Submit...`} value={projectBrief.expectedFlow} onChange={(e) => setProjectBrief((p) => ({ ...p, expectedFlow: e.target.value }))} />
-                <textarea className="input-field min-h-[90px]" placeholder={`Functional Requirements (one per line)`} value={projectBrief.requirements} onChange={(e) => setProjectBrief((p) => ({ ...p, requirements: e.target.value }))} />
-                <textarea className="input-field min-h-[90px]" placeholder={`Acceptance Criteria (one per line)`} value={projectBrief.acceptanceCriteria} onChange={(e) => setProjectBrief((p) => ({ ...p, acceptanceCriteria: e.target.value }))} />
-                <textarea className="input-field min-h-[80px]" placeholder={`Submission Instructions (one per line)`} value={projectBrief.submissionInstructions} onChange={(e) => setProjectBrief((p) => ({ ...p, submissionInstructions: e.target.value }))} />
-                <textarea className="input-field min-h-[70px]" placeholder={`Evaluation Notes (one per line)`} value={projectBrief.evaluationNotes} onChange={(e) => setProjectBrief((p) => ({ ...p, evaluationNotes: e.target.value }))} />
-                <textarea className="input-field min-h-[70px]" placeholder={`Stretch Goals (optional, one per line)`} value={projectBrief.stretchGoals} onChange={(e) => setProjectBrief((p) => ({ ...p, stretchGoals: e.target.value }))} />
+                {[
+                  ['businessContext', 'Business Context (what business problem this project solves)', 'min-h-[80px]'],
+                  ['taskSummary', 'Task Summary (what the learner must build)', 'min-h-[80px]'],
+                  ['expectedFlow', 'Expected User Flow (one step per line)\n1. Open page\n2. Fill form\n3. Submit...', 'min-h-[90px]'],
+                  ['requirements', 'Functional Requirements (one per line)', 'min-h-[90px]'],
+                  ['acceptanceCriteria', 'Acceptance Criteria (one per line)', 'min-h-[90px]'],
+                  ['submissionInstructions', 'Submission Instructions (one per line)', 'min-h-[80px]'],
+                  ['evaluationNotes', 'Evaluation Notes (one per line)', 'min-h-[70px]'],
+                  ['stretchGoals', 'Stretch Goals (optional, one per line)', 'min-h-[70px]']
+                ].map(([key, placeholder, height]) => (
+                  <div key={String(key)} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs text-[var(--text-muted)]">
+                        {selectedEvaluatorTemplate?.id ? 'Autofilled from template (editable)' : 'Custom brief content'}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-secondary !py-1 !px-2 text-[11px]"
+                        onClick={() => resetBriefSection(key as keyof typeof projectBrief)}
+                        disabled={!selectedEvaluatorTemplate?.id}
+                      >
+                        Reset to template defaults
+                      </button>
+                    </div>
+                    <textarea
+                      className={`input-field ${height}`}
+                      placeholder={String(placeholder)}
+                      value={String((projectBrief as any)[key] || '')}
+                      onChange={(e) => setProjectBrief((p) => ({ ...p, [key]: e.target.value }))}
+                    />
+                  </div>
+                ))}
               </div>
             </details>
             <button className="btn-primary w-full" onClick={createAssessment} disabled={working === 'assessment'}>
@@ -1259,24 +1325,46 @@ export function ProjectEvaluations() {
                   <div className="text-sm font-semibold">Publish + Assign to Learners/Batches</div>
                   <span className="text-xs text-[var(--text-muted)]">Required before learner submissions</span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <select
-                    className="input-field"
-                    multiple
-                    value={assignmentForm.learnerIds}
-                    onChange={(e) => setAssignmentForm((p) => ({
-                      ...p,
-                      learnerIds: Array.from(e.target.selectedOptions).map((o) => o.value)
-                    }))}
-                    style={{ minHeight: 120 }}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className={`btn-secondary !py-1.5 !px-2.5 text-xs ${assignmentMode === 'batch' ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`}
+                    onClick={() => setAssignmentMode('batch')}
                   >
-                    {learners.map((l) => (
-                      <option key={l.id} value={l.id}>{l.fullName} ({l.email})</option>
-                    ))}
-                  </select>
+                    Assign by Batch
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-secondary !py-1.5 !px-2.5 text-xs ${assignmentMode === 'individual' ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`}
+                    onClick={() => setAssignmentMode('individual')}
+                  >
+                    Assign Individuals
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {assignmentMode === 'individual' ? (
+                    <select
+                      className="input-field"
+                      multiple
+                      value={assignmentForm.learnerIds}
+                      onChange={(e) => setAssignmentForm((p) => ({
+                        ...p,
+                        learnerIds: Array.from(e.target.selectedOptions).map((o) => o.value)
+                      }))}
+                      style={{ minHeight: 140 }}
+                    >
+                      {learners.map((l) => (
+                        <option key={l.id} value={l.id}>{l.fullName} ({l.email})</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-muted)]">
+                      Select a batch on the right. All active learners in that batch will receive this project assessment.
+                    </div>
+                  )}
                   <div className="space-y-3">
                     <select className="input-field" value={assignmentForm.batchId} onChange={(e) => setAssignmentForm((p) => ({ ...p, batchId: e.target.value }))}>
-                      <option value="">Optional batch assignment</option>
+                      <option value="">{assignmentMode === 'batch' ? 'Select batch' : 'Optional batch assignment'}</option>
                       {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                     <input type="datetime-local" className="input-field" value={assignmentForm.dueDate} onChange={(e) => setAssignmentForm((p) => ({ ...p, dueDate: e.target.value }))} />
@@ -1284,7 +1372,11 @@ export function ProjectEvaluations() {
                     <button
                       className="btn-primary w-full"
                       onClick={assignProjectAssessment}
-                      disabled={selectedAssessment.status !== 'published' || working === `assign:${selectedAssessmentId}` || (!assignmentForm.batchId && assignmentForm.learnerIds.length === 0)}
+                      disabled={
+                        selectedAssessment.status !== 'published' ||
+                        working === `assign:${selectedAssessmentId}` ||
+                        (assignmentMode === 'batch' ? !assignmentForm.batchId : assignmentForm.learnerIds.length === 0)
+                      }
                     >
                       {working === `assign:${selectedAssessmentId}` ? 'Assigning...' : 'Assign Project Assessment'}
                     </button>
@@ -1376,6 +1468,9 @@ export function ProjectEvaluations() {
                             <td className="px-3 py-2">{s.status}</td>
                             <td className="px-3 py-2">
                               <div>{s.latestRunStatus || 'none'}</div>
+                              <div className="text-xs text-[var(--text-muted)]">
+                                {getRunnerPhase(s.latestRunRunnerKind)} • {getRunnerMode(s.latestRunRunnerKind)}
+                              </div>
                               {s.latestRunSummary && (
                                 <div className="text-xs text-[var(--text-muted)]">
                                   {s.latestRunSummary.testsPassed ?? '?'}
@@ -1388,6 +1483,9 @@ export function ProjectEvaluations() {
                                   score {Number(s.latestRunScore ?? s.latestScore)}/{Number(s.latestRunMaxScore ?? 100)}
                                 </div>
                               )}
+                              <div className="text-xs text-[var(--text-muted)]">
+                                {s.latestRunCompletedAt ? new Date(s.latestRunCompletedAt).toLocaleString() : (s.latestRunCreatedAt ? new Date(s.latestRunCreatedAt).toLocaleString() : '-')}
+                              </div>
                             </td>
                             <td className="px-3 py-2">
                               <div className="flex items-center gap-2 flex-wrap">
@@ -1527,7 +1625,7 @@ export function ProjectEvaluations() {
               <button className="btn-secondary !py-1.5 !px-2.5 text-xs" onClick={() => setSelectedRunDetails(null)}>Close</button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
               <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
                 <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Status</div>
                 <div className="text-sm font-semibold mt-1">{selectedRunDetails.submission?.latestRunStatus || 'unknown'}</div>
@@ -1552,13 +1650,35 @@ export function ProjectEvaluations() {
                 <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Framework</div>
                 <div className="text-sm font-semibold mt-1">{selectedRunDetails.submission?.latestRunFrameworkDetected || selectedRunDetails.submission?.detectedFramework || '-'}</div>
               </div>
+              </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Phase</div>
+                <div className="text-sm font-semibold mt-1">{getRunnerPhase(selectedRunDetails.submission?.latestRunRunnerKind)}</div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Mode</div>
+                <div className="text-sm font-semibold mt-1">{getRunnerMode(selectedRunDetails.submission?.latestRunRunnerKind)}</div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Run Time</div>
+                <div className="text-sm font-semibold mt-1">
+                  {selectedRunDetails.submission?.latestRunCompletedAt
+                    ? new Date(selectedRunDetails.submission.latestRunCompletedAt).toLocaleString()
+                    : (selectedRunDetails.submission?.latestRunCreatedAt ? new Date(selectedRunDetails.submission.latestRunCreatedAt).toLocaleString() : '-')}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+                <div className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Runner</div>
+                <div className="text-sm font-semibold mt-1">{selectedRunDetails.submission?.latestRunRunnerKind || '-'}</div>
+              </div>
             </div>
 
-            {Array.isArray(selectedRunDetails.submission?.latestRunResult?.tests) && selectedRunDetails.submission.latestRunResult.tests.length > 0 && (
+            {selectedRunTests.length > 0 && (
               <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
-                <div className="font-semibold mb-2">Test Results</div>
+                <div className="font-semibold mb-2">Test Results (failed first)</div>
                 <div className="space-y-2">
-                  {selectedRunDetails.submission.latestRunResult.tests.map((t: any, idx: number) => (
+                  {selectedRunTests.map((t: any, idx: number) => (
                     <div key={`detail-test-${idx}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="font-medium text-sm">{t.name || `Test ${idx + 1}`}</div>
