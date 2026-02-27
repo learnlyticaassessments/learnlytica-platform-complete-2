@@ -32,6 +32,17 @@ function slugify(value: string) {
     .slice(0, 80);
 }
 
+function getTemplatePhase(template: any) {
+  const configPhase = Number(template?.config?.phase || 0);
+  if (configPhase >= 2) return 2;
+  const version = Number(template?.version || 0);
+  return version >= 2 ? 2 : 1;
+}
+
+function getTemplateModeLabel(template: any) {
+  return getTemplatePhase(template) >= 2 ? 'Phase 2 (UI + API)' : 'Phase 1 (UI flow)';
+}
+
 function extractTemplateTips(templateConfig: any) {
   const tests = templateConfig?.phase1Flow?.tests;
   const apiChecks = Array.isArray(templateConfig?.phase2ApiChecks) ? templateConfig.phase2ApiChecks : [];
@@ -219,10 +230,12 @@ export function ProjectEvaluations() {
       }
 
       if (!newAssessment.evaluatorTemplateId && t.data?.length) {
-        setNewAssessment((prev) => ({ ...prev, evaluatorTemplateId: t.data[0].id }));
+        const phase1Template = t.data.find((tpl: any) => getTemplatePhase(tpl) === 1);
+        setNewAssessment((prev) => ({ ...prev, evaluatorTemplateId: (phase1Template || t.data[0]).id }));
       }
       if (!newTemplate.baseTemplateId && t.data?.length) {
-        setNewTemplate((prev) => ({ ...prev, baseTemplateId: t.data[0].id }));
+        const phase1Template = t.data.find((tpl: any) => getTemplatePhase(tpl) === 1);
+        setNewTemplate((prev) => ({ ...prev, baseTemplateId: (phase1Template || t.data[0]).id }));
       }
       if (!newSubmission.studentId && l.data?.length) {
         setNewSubmission((prev) => ({ ...prev, studentId: l.data[0].id }));
@@ -253,6 +266,10 @@ export function ProjectEvaluations() {
   const selectedBaseTemplate = useMemo(
     () => templates.find((t) => t.id === newTemplate.baseTemplateId) || null,
     [templates, newTemplate.baseTemplateId]
+  );
+  const selectedEvaluatorTemplate = useMemo(
+    () => templates.find((t) => t.id === newAssessment.evaluatorTemplateId) || null,
+    [templates, newAssessment.evaluatorTemplateId]
   );
   const validPhase2ChecksCount = useMemo(
     () =>
@@ -582,8 +599,8 @@ export function ProjectEvaluations() {
       {msg && <div className="ll-toast ok">{msg}</div>}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-1 space-y-6">
-          <div className="card space-y-3">
+        <div className="xl:col-span-1 flex flex-col gap-6">
+          <div className="card space-y-3 order-1">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Evaluator Templates</h2>
               <span className="text-xs text-[var(--text-muted)]">{templates.length} active</span>
@@ -593,9 +610,14 @@ export function ProjectEvaluations() {
                 <div key={t.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-medium text-sm">{t.name}</div>
-                    <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--surface-3)] border border-[var(--border)]">
-                      {t.frameworkFamily}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--surface-3)] border border-[var(--border)]">
+                        {getTemplatePhase(t) >= 2 ? 'P2 UI+API' : 'P1 UI'}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-[var(--surface-3)] border border-[var(--border)]">
+                        {t.frameworkFamily}
+                      </span>
+                    </div>
                   </div>
                   <div className="text-xs text-[var(--text-muted)] mt-1">{t.description || 'No description'}</div>
                 </div>
@@ -604,9 +626,9 @@ export function ProjectEvaluations() {
             </div>
           </div>
 
-          <div className="card space-y-3">
+          <div className="card space-y-3 order-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Create Phase 2 Evaluator</h2>
+              <h2 className="text-lg font-semibold">Step 2: Create Phase 2 Evaluator</h2>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-[var(--text-muted)]">UI flow + API checks</span>
                 <button
@@ -741,9 +763,9 @@ export function ProjectEvaluations() {
             )}
           </div>
 
-          <div className="card space-y-3">
+          <div className="card space-y-3 order-2">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Create Project Assessment</h2>
+              <h2 className="text-lg font-semibold">Step 1: Create Project Assessment (Phase 1 UI Flow)</h2>
               <div className="flex items-center gap-2">
                 <Plus className="w-4 h-4 text-[var(--text-muted)]" />
                 <button
@@ -763,8 +785,20 @@ export function ProjectEvaluations() {
             <textarea className="input-field min-h-[90px]" placeholder="Description / expected business flow" value={newAssessment.description} onChange={(e) => setNewAssessment((p) => ({ ...p, description: e.target.value }))} />
             <select className="input-field" value={newAssessment.evaluatorTemplateId} onChange={(e) => setNewAssessment((p) => ({ ...p, evaluatorTemplateId: e.target.value }))}>
               <option value="">Select evaluator template</option>
-              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {getTemplatePhase(t) >= 2 ? '[P2 UI+API]' : '[P1 UI]'} {t.name}
+                </option>
+              ))}
             </select>
+            {selectedEvaluatorTemplate && (
+              <div className="text-xs text-[var(--text-muted)]">
+                Selected evaluator: <span className="font-semibold">{getTemplateModeLabel(selectedEvaluatorTemplate)}</span>
+                {getTemplatePhase(selectedEvaluatorTemplate) >= 2
+                  ? ' (includes API contract checks)'
+                  : ' (frontend UI business flow only)'}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <select className="input-field" value={newAssessment.frameworkScope} onChange={(e) => setNewAssessment((p) => ({ ...p, frameworkScope: e.target.value }))}>
                 <option value="react_vite">react_vite</option>
