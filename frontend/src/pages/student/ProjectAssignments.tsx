@@ -44,7 +44,10 @@ export function ProjectAssignments() {
   }
 
   function hasUploadedZip(row: any) {
-    return Boolean(row?.metadata?.zipUpload?.localPath || row?.metadata?.zipUpload?.fileName);
+    if (row?.metadata?.zipUpload?.localPath || row?.metadata?.zipUpload?.fileName) return true;
+    // Backward-compatible fallback when metadata is not returned by older backend builds.
+    const status = String(row?.status || '').toLowerCase();
+    return ['submitted', 'preflight_completed', 'evaluation_queued', 'evaluation_completed', 'evaluation_failed'].includes(status);
   }
 
   return (

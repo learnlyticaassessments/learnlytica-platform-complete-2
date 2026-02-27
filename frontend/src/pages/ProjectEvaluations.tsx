@@ -87,7 +87,10 @@ function getRunnerMode(runnerKind?: string | null) {
 
 function hasUploadedZip(submission: any) {
   const metadata = submission?.metadata || {};
-  return Boolean(metadata?.zipUpload?.localPath || metadata?.zipUpload?.fileName);
+  if (metadata?.zipUpload?.localPath || metadata?.zipUpload?.fileName) return true;
+  // Backward-compatible fallback when metadata is not returned by older backend builds.
+  const status = String(submission?.status || '').toLowerCase();
+  return ['submitted', 'preflight_completed', 'evaluation_queued', 'evaluation_completed', 'evaluation_failed'].includes(status);
 }
 
 function getApiContractChecks(config: any) {
