@@ -1185,6 +1185,7 @@ export function Batches() {
                     )}
                 </div>
               </div>
+            </div>
             </>
           )}
         </div>
