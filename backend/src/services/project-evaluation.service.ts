@@ -1047,6 +1047,15 @@ export async function learnerSubmitAndEvaluate(db: Kysely<any>, ctx: Ctx, submis
     throw new Error('Project submission not found');
   }
   if ((row as any).submissionKind !== 'learner_assignment') throw new Error('Invalid learner project submission');
+  const submission = await db
+    .selectFrom('project_submissions')
+    .select(['metadata_json as metadata'])
+    .where('id', '=', submissionId)
+    .executeTakeFirst();
+  const metadata = (submission as any)?.metadata || {};
+  if (!metadata?.zipUpload?.localPath) {
+    throw new Error('Upload project ZIP before submitting for evaluation');
+  }
   return queueRun(db, ctx, submissionId, { triggerType: 'learner_submit' });
 }
 

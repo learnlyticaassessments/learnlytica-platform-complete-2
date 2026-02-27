@@ -78,6 +78,10 @@ export function ProjectSubmission() {
     setError('');
     setMsg('');
     try {
+      // If learner picked a new ZIP and clicked submit directly, upload first.
+      if (zipFile) {
+        await projectEvaluationsService.learnerUploadSubmissionZip(submissionId, zipFile);
+      }
       const res = await projectEvaluationsService.learnerSubmitAndEvaluate(submissionId);
       const run = res.data;
       const summary = run?.summary || run?.summary_json || {};
@@ -94,6 +98,7 @@ export function ProjectSubmission() {
       setMsg(run?.status === 'completed'
         ? `${modeLabel} completed (${summary.testsPassed ?? '?'} / ${summary.testsTotal ?? '?'} tests passed, score ${score})`
         : `${modeLabel} failed (${summary.testsPassed ?? '?'} / ${summary.testsTotal ?? '?'} tests passed, score ${score})`);
+      setZipFile(null);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to submit project for evaluation');
@@ -204,7 +209,7 @@ export function ProjectSubmission() {
               </button>
               <button className="btn-primary" onClick={submitAndEvaluate} disabled={!canSubmit || working === 'submit'}>
                 <Play className="w-4 h-4" />
-                {working === 'submit' ? 'Running Evaluation...' : 'Submit & Evaluate'}
+                {working === 'submit' ? 'Running Evaluation...' : (zipFile ? 'Upload & Evaluate' : 'Submit & Evaluate')}
               </button>
             </div>
             <div className="text-xs text-[var(--text-muted)]">
