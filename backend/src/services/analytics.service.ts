@@ -612,6 +612,10 @@ export async function getSystemMonitorStats(db: any, organizationId: string) {
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
   const usedMem = Math.max(0, totalMem - freeMem);
+  const cpuPercent = readHostCpuPercent();
+  const cpuCores = Math.max(1, os.cpus().length);
+  const totalMemMb = Math.round(totalMem / (1024 * 1024));
+  const freeMemMb = Math.round(freeMem / (1024 * 1024));
 
   const queuedRunsRow = await db
     .selectFrom('project_evaluation_runs')
@@ -643,22 +647,78 @@ export async function getSystemMonitorStats(db: any, organizationId: string) {
     .where('status', '=', 'evaluation_queued')
     .executeTakeFirst();
 
+  const classicInProgressRow = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .select(sql`count(*)`.as('count'))
+    .where('a.organization_id', '=', organizationId)
+    .where('sa.status', '=', 'in_progress')
+    .executeTakeFirst();
+
+  const classicSubmittedLast15Row = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .select(sql`count(*)`.as('count'))
+    .where('a.organization_id', '=', organizationId)
+    .where('sa.status', '=', 'submitted')
+    .where(sql`sa.submitted_at >= now() - interval '15 minute'`)
+    .executeTakeFirst();
+
+  const activeRuns = Number((activeRunsRow as any)?.count || 0);
+  const queuedRuns = Number((queuedRunsRow as any)?.count || 0);
+  const queuedSubmissions = Number((queueSubmissionsRow as any)?.count || 0);
+  const classicInProgress = Number((classicInProgressRow as any)?.count || 0);
+  const classicSubmittedLast15m = Number((classicSubmittedLast15Row as any)?.count || 0);
+
+  // Capacity heuristics (single-node): conservative estimates based on current headroom.
+  const cpuHeadroom = Math.max(0, 100 - cpuPercent) / 100;
+  const projectSlotsByCpuMax = Math.max(1, Math.floor(cpuCores * 0.9));
+  const projectSlotsByMemMax = Math.max(1, Math.floor(totalMemMb / 1800));
+  const projectCapacityMax = Math.max(1, Math.min(projectSlotsByCpuMax, projectSlotsByMemMax));
+  const projectSlotsByCpuNow = Math.max(1, Math.floor(projectSlotsByCpuMax * cpuHeadroom));
+  const projectSlotsByMemNow = Math.max(1, Math.floor(freeMemMb / 1800));
+  const projectCapacityCurrent = Math.max(1, Math.min(projectSlotsByCpuNow, projectSlotsByMemNow, projectCapacityMax));
+
+  const assessmentSlotsByCpuMax = Math.max(10, cpuCores * 8);
+  const assessmentSlotsByMemMax = Math.max(10, Math.floor(totalMemMb / 256));
+  const assessmentCapacityMax = Math.max(10, Math.min(assessmentSlotsByCpuMax, assessmentSlotsByMemMax));
+  const assessmentSlotsByCpuNow = Math.max(1, Math.floor(assessmentSlotsByCpuMax * cpuHeadroom));
+  const assessmentSlotsByMemNow = Math.max(1, Math.floor(freeMemMb / 256));
+  const assessmentCapacityCurrent = Math.max(1, Math.min(assessmentSlotsByCpuNow, assessmentSlotsByMemNow, assessmentCapacityMax));
+
   return {
     timestamp: new Date().toISOString(),
     host: {
-      cpuPercent: readHostCpuPercent(),
+      cpuPercent,
+      cpuCores,
       cpuLoad1m: Number(os.loadavg()[0]?.toFixed(2) || 0),
-      memoryTotalMb: Math.round(totalMem / (1024 * 1024)),
+      memoryTotalMb: totalMemMb,
       memoryUsedMb: Math.round(usedMem / (1024 * 1024)),
-      memoryFreeMb: Math.round(freeMem / (1024 * 1024)),
+      memoryFreeMb: freeMemMb,
       memoryUsedPercent: totalMem > 0 ? Number(((usedMem / totalMem) * 100).toFixed(2)) : 0,
       uptimeSec: Math.floor(os.uptime())
     },
     evaluators: {
-      activeRuns: Number((activeRunsRow as any)?.count || 0),
-      queuedRuns: Number((queuedRunsRow as any)?.count || 0),
-      queuedSubmissions: Number((queueSubmissionsRow as any)?.count || 0),
+      activeRuns,
+      queuedRuns,
+      queuedSubmissions,
       completedLast15m: Number((recentCompletedRow as any)?.count || 0)
+    },
+    assessments: {
+      inProgressCount: classicInProgress,
+      submittedLast15m: classicSubmittedLast15m
+    },
+    capacity: {
+      projectEvaluations: {
+        currentLoad: activeRuns + queuedRuns + queuedSubmissions,
+        estimatedNow: projectCapacityCurrent,
+        estimatedMax: projectCapacityMax
+      },
+      assessmentSubmissions: {
+        currentLoad: classicInProgress,
+        estimatedNow: assessmentCapacityCurrent,
+        estimatedMax: assessmentCapacityMax
+      }
     }
   };
 }
