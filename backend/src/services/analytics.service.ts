@@ -5,8 +5,10 @@
 
 import { sql } from 'kysely';
 import Anthropic from '@anthropic-ai/sdk';
+import os from 'os';
 
 let hasProjectSubmissionKindColumnCache: boolean | null = null;
+let lastCpuSnapshot: { idle: number; total: number; ts: number } | null = null;
 
 async function hasProjectSubmissionKindColumn(db: any) {
   if (hasProjectSubmissionKindColumnCache != null) return hasProjectSubmissionKindColumnCache;
@@ -19,6 +21,32 @@ async function hasProjectSubmissionKindColumn(db: any) {
     .executeTakeFirst();
   hasProjectSubmissionKindColumnCache = Number((row as any)?.count || 0) > 0;
   return hasProjectSubmissionKindColumnCache;
+}
+
+function readHostCpuPercent() {
+  const cpus = os.cpus();
+  if (!cpus.length) return 0;
+
+  let idle = 0;
+  let total = 0;
+  for (const cpu of cpus) {
+    idle += cpu.times.idle;
+    total += cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.idle + cpu.times.irq;
+  }
+
+  const now = Date.now();
+  if (!lastCpuSnapshot) {
+    lastCpuSnapshot = { idle, total, ts: now };
+    return 0;
+  }
+
+  const idleDelta = idle - lastCpuSnapshot.idle;
+  const totalDelta = total - lastCpuSnapshot.total;
+  lastCpuSnapshot = { idle, total, ts: now };
+
+  if (totalDelta <= 0) return 0;
+  const usage = (1 - idleDelta / totalDelta) * 100;
+  return Math.max(0, Math.min(100, Number(usage.toFixed(2))));
 }
 
 function parseJsonMaybe<T>(value: any, fallback: T): T {
@@ -578,6 +606,61 @@ export async function exportProjectSummaryCsv(db: any, organizationId: string) {
   return lines
     .map((row) => row.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\n');
+}
+
+export async function getSystemMonitorStats(db: any, organizationId: string) {
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = Math.max(0, totalMem - freeMem);
+
+  const queuedRunsRow = await db
+    .selectFrom('project_evaluation_runs')
+    .select(sql`count(*)`.as('count'))
+    .where('organization_id', '=', organizationId)
+    .where('status', '=', 'queued')
+    .executeTakeFirst();
+
+  const activeRunsRow = await db
+    .selectFrom('project_evaluation_runs')
+    .select(sql`count(*)`.as('count'))
+    .where('organization_id', '=', organizationId)
+    .where('status', 'in', ['queued', 'running'])
+    .where(sql`created_at >= now() - interval '6 hour'`)
+    .executeTakeFirst();
+
+  const recentCompletedRow = await db
+    .selectFrom('project_evaluation_runs')
+    .select(sql`count(*)`.as('count'))
+    .where('organization_id', '=', organizationId)
+    .where('status', 'in', ['completed', 'failed'])
+    .where(sql`completed_at >= now() - interval '15 minute'`)
+    .executeTakeFirst();
+
+  const queueSubmissionsRow = await db
+    .selectFrom('project_submissions')
+    .select(sql`count(*)`.as('count'))
+    .where('organization_id', '=', organizationId)
+    .where('status', '=', 'evaluation_queued')
+    .executeTakeFirst();
+
+  return {
+    timestamp: new Date().toISOString(),
+    host: {
+      cpuPercent: readHostCpuPercent(),
+      cpuLoad1m: Number(os.loadavg()[0]?.toFixed(2) || 0),
+      memoryTotalMb: Math.round(totalMem / (1024 * 1024)),
+      memoryUsedMb: Math.round(usedMem / (1024 * 1024)),
+      memoryFreeMb: Math.round(freeMem / (1024 * 1024)),
+      memoryUsedPercent: totalMem > 0 ? Number(((usedMem / totalMem) * 100).toFixed(2)) : 0,
+      uptimeSec: Math.floor(os.uptime())
+    },
+    evaluators: {
+      activeRuns: Number((activeRunsRow as any)?.count || 0),
+      queuedRuns: Number((queuedRunsRow as any)?.count || 0),
+      queuedSubmissions: Number((queueSubmissionsRow as any)?.count || 0),
+      completedLast15m: Number((recentCompletedRow as any)?.count || 0)
+    }
+  };
 }
 
 export async function getStudentSkillMatrix(

@@ -141,6 +141,15 @@ export async function uploadSubmissionZip(req: Request, res: Response, next: Nex
   }
 }
 
+export async function deleteSubmissionZip(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await projectEvaluationService.deleteSubmissionZip(asDb(req), getCtx(req), req.params.submissionId);
+    res.json({ success: true, data });
+  } catch (error: any) {
+    handleError(res, error);
+  }
+}
+
 export async function listLearnerAssignments(req: Request, res: Response, next: NextFunction) {
   try {
     const data = await projectEvaluationService.listLearnerAssignments(asDb(req), getCtx(req));
@@ -168,6 +177,15 @@ export async function learnerUploadSubmissionZip(req: Request, res: Response, ne
     const file = (req as any).file;
     const data = await projectEvaluationService.learnerUploadSubmissionZip(asDb(req), getCtx(req), req.params.submissionId, file);
     res.status(201).json({ success: true, data });
+  } catch (error: any) {
+    handleError(res, error);
+  }
+}
+
+export async function learnerDeleteSubmissionZip(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await projectEvaluationService.learnerDeleteSubmissionZip(asDb(req), getCtx(req), req.params.submissionId);
+    res.json({ success: true, data });
   } catch (error: any) {
     handleError(res, error);
   }

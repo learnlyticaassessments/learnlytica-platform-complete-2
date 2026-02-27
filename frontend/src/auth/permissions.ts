@@ -57,10 +57,6 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'certificates.manage',
     'library.view',
     'ai.generate',
-    'student.assessments.view',
-    'student.assessments.take',
-    'student.projects.view',
-    'student.projects.submit',
     'labTemplates.manage'
   ]),
   client: new Set<AppAction>([

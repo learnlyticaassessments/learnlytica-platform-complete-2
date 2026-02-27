@@ -22,6 +22,7 @@ router.post('/assessments/:id/submissions', controller.createSubmission);
 
 router.get('/submissions/:submissionId', controller.getSubmission);
 router.post('/submissions/:submissionId/upload-zip', upload.single('file'), controller.uploadSubmissionZip);
+router.delete('/submissions/:submissionId/upload-zip', controller.deleteSubmissionZip);
 router.post('/submissions/:submissionId/runs', controller.queueRun);
 
 export default router;

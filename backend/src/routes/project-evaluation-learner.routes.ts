@@ -12,6 +12,7 @@ router.use(requireRole('student'));
 router.get('/assignments', controller.listLearnerAssignments);
 router.get('/assignments/:submissionId', controller.getLearnerAssignmentDetail);
 router.post('/assignments/:submissionId/upload-zip', upload.single('file'), controller.learnerUploadSubmissionZip);
+router.delete('/assignments/:submissionId/upload-zip', controller.learnerDeleteSubmissionZip);
 router.post('/assignments/:submissionId/submit', controller.learnerSubmitAndEvaluate);
 
 export default router;

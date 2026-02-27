@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { FolderKanban, UploadCloud } from 'lucide-react';
+import { FolderKanban, Trash2, UploadCloud } from 'lucide-react';
 import { projectEvaluationsService } from '../../services/projectEvaluationsService';
 
 export function ProjectAssignments() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [workingId, setWorkingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
 
   async function load() {
     setLoading(true);
@@ -25,6 +27,26 @@ export function ProjectAssignments() {
     load();
   }, []);
 
+  async function deleteUploadedZip(submissionId: string) {
+    if (!confirm('Delete uploaded ZIP and evaluator artifacts for this project submission?')) return;
+    setWorkingId(submissionId);
+    setError('');
+    setMsg('');
+    try {
+      await projectEvaluationsService.learnerDeleteSubmissionZip(submissionId);
+      setMsg('Uploaded ZIP deleted. You can upload a new version anytime.');
+      await load();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to delete uploaded ZIP');
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
+  function hasUploadedZip(row: any) {
+    return Boolean(row?.metadata?.zipUpload?.localPath || row?.metadata?.zipUpload?.fileName);
+  }
+
   return (
     <div className="space-y-6 px-4 sm:px-6 py-6 fade-in">
       <div className="page-header">
@@ -40,6 +62,7 @@ export function ProjectAssignments() {
       </div>
 
       {error && <div className="ll-toast err">{error}</div>}
+      {msg && <div className="ll-toast ok">{msg}</div>}
 
       <div className="card">
         <div className="flex items-center justify-between mb-3">
@@ -77,10 +100,21 @@ export function ProjectAssignments() {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    <Link className="btn-secondary !py-1.5 !px-2.5 text-xs" to={`/student/projects/${r.id}`}>
-                      <UploadCloud className="w-3.5 h-3.5" />
-                      Open
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link className="btn-secondary !py-1.5 !px-2.5 text-xs" to={`/student/projects/${r.id}`}>
+                        <UploadCloud className="w-3.5 h-3.5" />
+                        Open
+                      </Link>
+                      <button
+                        className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                        onClick={() => deleteUploadedZip(r.id)}
+                        disabled={workingId === r.id || !hasUploadedZip(r)}
+                        title={hasUploadedZip(r) ? 'Delete uploaded ZIP' : 'No uploaded ZIP available'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        {workingId === r.id ? 'Deleting...' : 'Delete ZIP'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -94,4 +128,3 @@ export function ProjectAssignments() {
     </div>
   );
 }
-

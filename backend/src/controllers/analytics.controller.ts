@@ -84,6 +84,17 @@ export async function getProjectAnalyticsDebug(req: Request, res: Response, next
   }
 }
 
+export async function getSystemMonitor(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const organizationId = (req.user as any).organizationId as string;
+    const data = await analyticsService.getSystemMonitorStats(db, organizationId);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getAssessmentAnalytics(req: Request, res: Response, next: NextFunction) {
   try {
     const db = (req as any).db;

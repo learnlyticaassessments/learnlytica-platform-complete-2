@@ -52,8 +52,8 @@ export function ProjectSubmission() {
   );
   const canSubmit = useMemo(() => {
     const hasUploadedZip = Boolean(detail?.metadata?.zipUpload?.localPath || detail?.metadata?.zipUpload?.fileName);
-    return Boolean(zipFile || hasUploadedZip);
-  }, [zipFile, detail?.metadata]);
+    return hasUploadedZip;
+  }, [detail?.metadata]);
 
   async function uploadZip() {
     if (!submissionId || !zipFile) return;
@@ -64,6 +64,7 @@ export function ProjectSubmission() {
       const res = await projectEvaluationsService.learnerUploadSubmissionZip(submissionId, zipFile);
       const d = res.data?.detection;
       setMsg(d ? `ZIP uploaded and detected as ${d.detectedFramework} (${d.confidence})` : 'ZIP uploaded');
+      setZipFile(null);
       await load();
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to upload ZIP');
@@ -78,10 +79,6 @@ export function ProjectSubmission() {
     setError('');
     setMsg('');
     try {
-      // If learner picked a new ZIP and clicked submit directly, upload first.
-      if (zipFile) {
-        await projectEvaluationsService.learnerUploadSubmissionZip(submissionId, zipFile);
-      }
       const res = await projectEvaluationsService.learnerSubmitAndEvaluate(submissionId);
       const run = res.data;
       const summary = run?.summary || run?.summary_json || {};
@@ -209,9 +206,14 @@ export function ProjectSubmission() {
               </button>
               <button className="btn-primary" onClick={submitAndEvaluate} disabled={!canSubmit || working === 'submit'}>
                 <Play className="w-4 h-4" />
-                {working === 'submit' ? 'Running Evaluation...' : (zipFile ? 'Upload & Evaluate' : 'Submit & Evaluate')}
+                {working === 'submit' ? 'Running Evaluation...' : 'Submit & Evaluate'}
               </button>
             </div>
+            {zipFile && (
+              <div className="text-xs text-[var(--text-muted)]">
+                ZIP selected but not uploaded yet. Click <span className="font-semibold">Upload ZIP</span> first to enable evaluation.
+              </div>
+            )}
             <div className="text-xs text-[var(--text-muted)]">
               Upload a React/Vite ZIP, then run automated evaluation. Some projects include Phase 2 API checks in addition to UI flow.
             </div>

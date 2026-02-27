@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { FileText, ClipboardList, User, Users, BarChart3, Book, Sparkles, LogOut, Zap, Award, Layers3, Sun, Moon, Monitor, FolderKanban } from 'lucide-react';
+import { FileText, ClipboardList, User, Users, BarChart3, Book, Sparkles, LogOut, Zap, Award, Layers3, Sun, Moon, Monitor, FolderKanban, Activity } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { can, getRoleLabel } from '../auth/permissions';
 import { useTheme } from '../theme/ThemeProvider';
@@ -33,7 +33,8 @@ export function Layout({ children }: LayoutProps) {
     { name: 'My Assessments', href: '/student/assessments', icon: User, canView: can(user?.role, 'student.assessments.view') },
     { name: 'My Projects', href: '/student/projects', icon: FolderKanban, canView: can(user?.role, 'student.projects.view') },
     { name: 'Library', href: '/library', icon: Book, canView: can(user?.role, 'library.view') },
-    { name: 'Analytics', href: '/analytics', icon: BarChart3, canView: can(user?.role, 'analytics.view') }
+    { name: 'Analytics', href: '/analytics', icon: BarChart3, canView: can(user?.role, 'analytics.view') },
+    { name: 'System Monitor', href: '/system-monitor', icon: Activity, canView: can(user?.role, 'analytics.view') }
   ];
 
   const visibleNavigation = navigation.filter((item) => {

@@ -33,6 +33,7 @@ import { ProjectEvaluations } from './pages/ProjectEvaluations';
 
 // Module 5: Analytics
 import { Dashboard as AnalyticsDashboard } from './pages/analytics/Dashboard';
+import { SystemMonitor } from './pages/SystemMonitor';
 
 // Question Library
 import { QuestionLibrary } from './pages/QuestionLibrary';
@@ -106,6 +107,7 @@ function App() {
                 
                 {/* Module 5: Analytics */}
                 <Route path="/analytics" element={<RoleRoute allowedRoles={['admin', 'client']}><AnalyticsDashboard /></RoleRoute>} />
+                <Route path="/system-monitor" element={<RoleRoute allowedRoles={['admin', 'client']}><SystemMonitor /></RoleRoute>} />
                 
                 {/* Question Library */}
                 <Route path="/library" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionLibrary /></RoleRoute>} />

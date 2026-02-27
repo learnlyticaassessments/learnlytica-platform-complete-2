@@ -85,6 +85,11 @@ function getRunnerMode(runnerKind?: string | null) {
   return 'UI';
 }
 
+function hasUploadedZip(submission: any) {
+  const metadata = submission?.metadata || {};
+  return Boolean(metadata?.zipUpload?.localPath || metadata?.zipUpload?.fileName);
+}
+
 function getApiContractChecks(config: any) {
   const checks = Array.isArray(config?.phase2ApiChecks) ? config.phase2ApiChecks : [];
   return checks
@@ -751,6 +756,24 @@ export function ProjectEvaluations() {
       }
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to queue evaluation run');
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function deleteSubmissionZip(submissionId: string) {
+    if (!confirm('Delete uploaded ZIP and evaluator artifacts for this submission?')) return;
+    setWorking(`zip-delete:${submissionId}`);
+    setError('');
+    setMsg('');
+    try {
+      await projectEvaluationsService.deleteSubmissionZip(submissionId);
+      setMsg('Uploaded ZIP and stored artifacts deleted for submission');
+      if (selectedAssessmentId) {
+        await loadAssessmentDetail(selectedAssessmentId);
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to delete submitted ZIP');
     } finally {
       setWorking(null);
     }
@@ -1509,6 +1532,17 @@ export function ProjectEvaluations() {
                                     View Details
                                   </button>
                                 )}
+                                {s.sourceType === 'zip_upload' && (
+                                  <button
+                                    className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                                    onClick={() => deleteSubmissionZip(s.id)}
+                                    disabled={working === `zip-delete:${s.id}` || !hasUploadedZip(s)}
+                                    title={hasUploadedZip(s) ? 'Delete uploaded ZIP + artifacts' : 'No uploaded ZIP stored'}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    {working === `zip-delete:${s.id}` ? 'Deleting ZIP...' : 'Delete ZIP'}
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -1567,6 +1601,7 @@ export function ProjectEvaluations() {
                         <th className="px-3 py-2">Due</th>
                         <th className="px-3 py-2">Status</th>
                         <th className="px-3 py-2">Latest Result</th>
+                        <th className="px-3 py-2">Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1592,10 +1627,25 @@ export function ProjectEvaluations() {
                               </div>
                             )}
                           </td>
+                          <td className="px-3 py-2">
+                            {s.sourceType === 'zip_upload' ? (
+                              <button
+                                className="btn-secondary !py-1.5 !px-2.5 text-xs"
+                                onClick={() => deleteSubmissionZip(s.id)}
+                                disabled={working === `zip-delete:${s.id}` || !hasUploadedZip(s)}
+                                title={hasUploadedZip(s) ? 'Delete uploaded ZIP + artifacts' : 'No uploaded ZIP stored'}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {working === `zip-delete:${s.id}` ? 'Deleting ZIP...' : 'Delete ZIP'}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-[var(--text-muted)]">—</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                       {!assessmentDetail?.learnerAssignments?.length && (
-                        <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={5}>No learner assignments yet. Publish and assign above.</td></tr>
+                        <tr><td className="px-3 py-4 text-[var(--text-muted)]" colSpan={6}>No learner assignments yet. Publish and assign above.</td></tr>
                       )}
                     </tbody>
                   </table>

@@ -622,6 +622,7 @@ export async function getAssessmentDetail(db: Kysely<any>, ctx: Ctx, assessmentI
       'ps.submitted_at as submittedAt',
       'ps.latest_score as latestScore',
       'ps.latest_summary_json as latestSummary',
+      'ps.metadata_json as metadata',
       'ps.assigned_batch_id as assignedBatchId',
       'per.id as latestRunId',
       'per.status as latestRunStatus',
@@ -962,6 +963,7 @@ export async function listLearnerAssignments(db: Kysely<any>, ctx: Ctx) {
       'ps.submitted_at as submittedAt',
       'ps.latest_score as latestScore',
       'ps.latest_summary_json as latestSummary',
+      'ps.metadata_json as metadata',
       'per.id as latestRunId',
       'per.status as latestRunStatus',
       'per.score as latestRunScore',
@@ -1057,6 +1059,15 @@ export async function learnerSubmitAndEvaluate(db: Kysely<any>, ctx: Ctx, submis
     throw new Error('Upload project ZIP before submitting for evaluation');
   }
   return queueRun(db, ctx, submissionId, { triggerType: 'learner_submit' });
+}
+
+export async function learnerDeleteSubmissionZip(db: Kysely<any>, ctx: Ctx, submissionId: string) {
+  const row = await getLearnerOwnedSubmissionRow(db, ctx, submissionId);
+  if (!row || (row as any).organizationId !== ctx.organizationId || (row as any).studentId !== (ctx.userId || '')) {
+    throw new Error('Project submission not found');
+  }
+  if ((row as any).submissionKind !== 'learner_assignment') throw new Error('Invalid learner project submission');
+  return deleteSubmissionZip(db, ctx, submissionId);
 }
 
 export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, payload: any) {
@@ -1295,5 +1306,65 @@ export async function uploadSubmissionZip(
     fileName: file.originalname || 'submission.zip',
     sizeBytes: file.size || file.buffer.length,
     detection
+  };
+}
+
+export async function deleteSubmissionZip(db: Kysely<any>, ctx: Ctx, submissionId: string) {
+  const submission = await db
+    .selectFrom('project_submissions')
+    .select([
+      'id',
+      'organization_id as organizationId',
+      'source_type as sourceType',
+      'submission_kind as submissionKind',
+      'metadata_json as metadata'
+    ])
+    .where('id', '=', submissionId)
+    .executeTakeFirst();
+
+  if (!submission || (submission as any).organizationId !== ctx.organizationId) {
+    throw new Error('Project submission not found');
+  }
+
+  if ((submission as any).sourceType !== 'zip_upload') {
+    throw new Error('Only ZIP-based submissions can be cleaned');
+  }
+
+  const metadata = (((submission as any).metadata || {}) as Record<string, any>);
+  const zipInfo = metadata?.zipUpload || {};
+  const zipLocalPath = zipInfo?.localPath ? String(zipInfo.localPath) : null;
+
+  if (zipLocalPath) {
+    await fs.rm(zipLocalPath, { force: true }).catch(() => {});
+  }
+
+  // Best-effort remove full submission storage folder (zip + evaluator artifacts).
+  await fs.rm(path.join(projectEvalStorageRoot(), submissionId), { recursive: true, force: true }).catch(() => {});
+
+  const nextMetadata: Record<string, any> = { ...metadata };
+  delete nextMetadata.zipUpload;
+  delete nextMetadata.zipDetection;
+
+  const nextStatus = (submission as any).submissionKind === 'learner_assignment' ? 'assigned' : 'submitted';
+
+  await db
+    .updateTable('project_submissions')
+    .set({
+      source_ref: null,
+      detected_framework: null,
+      status: nextStatus,
+      latest_run_id: null,
+      latest_score: null,
+      latest_summary_json: null,
+      metadata_json: nextMetadata
+    })
+    .where('id', '=', submissionId)
+    .execute();
+
+  return {
+    submissionId,
+    cleaned: true,
+    hadZip: Boolean(zipLocalPath),
+    status: nextStatus
   };
 }

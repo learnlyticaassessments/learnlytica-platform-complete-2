@@ -69,6 +69,10 @@ export const projectEvaluationsService = {
     });
     return res.data as { success: boolean; data: any };
   },
+  deleteSubmissionZip: async (submissionId: string) => {
+    const res = await client.delete(`/submissions/${submissionId}/upload-zip`);
+    return res.data as { success: boolean; data: any };
+  },
   getSubmission: async (submissionId: string) => {
     const res = await client.get(`/submissions/${submissionId}`);
     return res.data as { success: boolean; data: any };
@@ -91,6 +95,10 @@ export const projectEvaluationsService = {
     const res = await client.post(`/learner/assignments/${submissionId}/upload-zip`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
+    return res.data as { success: boolean; data: any };
+  },
+  learnerDeleteSubmissionZip: async (submissionId: string) => {
+    const res = await client.delete(`/learner/assignments/${submissionId}/upload-zip`);
     return res.data as { success: boolean; data: any };
   },
   learnerSubmitAndEvaluate: async (submissionId: string) => {
