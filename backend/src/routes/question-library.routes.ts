@@ -3,6 +3,7 @@
  */
 
 import { Router } from 'express';
+import { authenticate, requireRole } from '../middleware/auth.middleware';
 import {
   getTemplatesHandler,
   getSamplesHandler,
@@ -13,6 +14,8 @@ import {
 } from '../controllers/question-library.controller';
 
 const router = Router();
+router.use(authenticate);
+router.use(requireRole('admin', 'client'));
 
 // GET /api/v1/library/templates?language=javascript
 router.get('/templates', getTemplatesHandler);

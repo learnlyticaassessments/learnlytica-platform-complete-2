@@ -177,7 +177,13 @@ export async function importQuestionFromLibrary(
   organizationId: string
 ): Promise<any> {
   try {
-    const content = await fs.readFile(libraryPath, 'utf-8');
+    const sanitized = String(libraryPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!sanitized) throw new Error('Invalid library path');
+    if (sanitized.includes('..')) throw new Error('Invalid library path');
+    const fullPath = path.resolve(LIBRARY_PATH, sanitized);
+    if (!fullPath.startsWith(path.resolve(LIBRARY_PATH))) throw new Error('Invalid library path');
+
+    const content = await fs.readFile(fullPath, 'utf-8');
     const questionData = JSON.parse(content);
 
     // Create question in database
@@ -204,7 +210,7 @@ export async function importQuestionFromLibrary(
 
     return result;
   } catch (error) {
-    throw new Error(`Failed to import question: ${error.message}`);
+    throw new Error(`Failed to import question: ${(error as any).message}`);
   }
 }
 
