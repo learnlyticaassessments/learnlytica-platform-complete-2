@@ -796,91 +796,93 @@ export function Learners() {
             </div>
           </form>
 
-          <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
-            <div className="flex items-center gap-2">
+          <details className="rounded-xl border border-[var(--border)] p-4">
+            <summary className="cursor-pointer font-semibold flex items-center gap-2">
               <Upload className="w-4 h-4 text-[var(--accent)]" />
-              <h3 className="font-semibold">CSV Bulk Assignment</h3>
+              CSV Bulk Assignment
+            </summary>
+            <div className="space-y-3 mt-3">
+              <p className="text-xs text-gray-600">
+                Paste rows as `learnerEmail,assessmentTitleOrId,dueDate,reentryPolicy`.
+                `dueDate` accepts ISO or `YYYY-MM-DD HH:mm`. `reentryPolicy` is `resume_allowed` or `single_session`.
+              </p>
+              <textarea
+                className="input-field min-h-[120px] font-mono text-xs"
+                placeholder={`asha@company.com,Intro JS Assessment,2026-03-01T18:00:00Z,resume_allowed\nravi@company.com,8f1f7d9e-...,2026-03-01 18:00,single_session`}
+                value={bulkAssignCsvText}
+                onChange={(e) => setBulkAssignCsvText(e.target.value)}
+              />
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-600">Preview rows: {bulkAssignCsvPreview.length}</span>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={runBulkAssignmentImport}
+                  disabled={bulkAssigning || !bulkAssignCsvPreview.length}
+                >
+                  {bulkAssigning ? 'Importing Assignments...' : 'Run Bulk Assignment Import'}
+                </button>
+              </div>
+              {bulkAssignResult?.summary && (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs space-y-1">
+                  <div>Requested rows: {bulkAssignResult.summary.requested}</div>
+                  <div>Assigned rows: {bulkAssignResult.summary.assignedRows}</div>
+                  <div>Grouped API requests: {bulkAssignResult.summary.groupedRequests}</div>
+                  <div>Skipped rows: {bulkAssignResult.summary.skipped}</div>
+                  {bulkAssignResult.skipped?.slice(0, 5).map((s: any) => (
+                    <div key={`${s.line}-${s.reason}`} className="text-red-300">
+                      Line {s.line}: {s.reason}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <p className="text-xs text-gray-600">
-              Paste rows as `learnerEmail,assessmentTitleOrId,dueDate,reentryPolicy`.
-              `dueDate` accepts ISO or `YYYY-MM-DD HH:mm`. `reentryPolicy` is `resume_allowed` or `single_session`.
+          </details>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <details className="xl:col-span-1 card p-6" open={false}>
+          <summary className="cursor-pointer text-lg font-semibold text-gray-900">CSV Import Learners</summary>
+          <div className="space-y-4 mt-3">
+            <p className="text-sm text-gray-600">
+              Paste CSV rows as `fullName,email,password` or `email,fullName,password`.
             </p>
             <textarea
-              className="input-field min-h-[120px] font-mono text-xs"
-              placeholder={`asha@company.com,Intro JS Assessment,2026-03-01T18:00:00Z,resume_allowed\nravi@company.com,8f1f7d9e-...,2026-03-01 18:00,single_session`}
-              value={bulkAssignCsvText}
-              onChange={(e) => setBulkAssignCsvText(e.target.value)}
+              className="input-field min-h-[200px] font-mono text-sm"
+              placeholder={`Asha Patel,asha@company.com,Temp@123\nRavi Kumar,ravi@company.com,Temp@123`}
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
             />
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-600">Preview rows: {bulkAssignCsvPreview.length}</span>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={runBulkAssignmentImport}
-                disabled={bulkAssigning || !bulkAssignCsvPreview.length}
-              >
-                {bulkAssigning ? 'Importing Assignments...' : 'Run Bulk Assignment Import'}
-              </button>
+            <div>
+              <label className="block text-sm font-medium mb-1">Default Password (used when row has no password)</label>
+              <input
+                className="input-field"
+                type="text"
+                value={csvDefaultPassword}
+                onChange={(e) => setCsvDefaultPassword(e.target.value)}
+              />
             </div>
-            {bulkAssignResult?.summary && (
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs space-y-1">
-                <div>Requested rows: {bulkAssignResult.summary.requested}</div>
-                <div>Assigned rows: {bulkAssignResult.summary.assignedRows}</div>
-                <div>Grouped API requests: {bulkAssignResult.summary.groupedRequests}</div>
-                <div>Skipped rows: {bulkAssignResult.summary.skipped}</div>
-                {bulkAssignResult.skipped?.slice(0, 5).map((s: any) => (
-                  <div key={`${s.line}-${s.reason}`} className="text-red-300">
-                    Line {s.line}: {s.reason}
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm">
+              Preview rows: <span className="font-semibold">{csvPreview.length}</span>
+            </div>
+            <button className="btn-primary w-full" type="button" onClick={importCsvLearners} disabled={csvImporting || !csvPreview.length}>
+              {csvImporting ? 'Importing...' : 'Import Learners from CSV'}
+            </button>
+            {csvResult?.summary && (
+              <div className="text-xs text-gray-600 space-y-1">
+                <div>Requested: {csvResult.summary.requested}</div>
+                <div>Created: {csvResult.summary.created}</div>
+                <div>Skipped: {csvResult.summary.skipped}</div>
+                {csvResult.skipped?.slice(0, 5).map((s: any) => (
+                  <div key={`${s.index}-${s.email || 'row'}`} className="text-red-300">
+                    Row {s.index + 1}: {s.email || '(no email)'} - {s.reason}
                   </div>
                 ))}
               </div>
             )}
           </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-1 card p-6 space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">CSV Import Learners</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Paste CSV rows as `fullName,email,password` or `email,fullName,password`.
-            </p>
-          </div>
-          <textarea
-            className="input-field min-h-[200px] font-mono text-sm"
-            placeholder={`Asha Patel,asha@company.com,Temp@123\nRavi Kumar,ravi@company.com,Temp@123`}
-            value={csvText}
-            onChange={(e) => setCsvText(e.target.value)}
-          />
-          <div>
-            <label className="block text-sm font-medium mb-1">Default Password (used when row has no password)</label>
-            <input
-              className="input-field"
-              type="text"
-              value={csvDefaultPassword}
-              onChange={(e) => setCsvDefaultPassword(e.target.value)}
-            />
-          </div>
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm">
-            Preview rows: <span className="font-semibold">{csvPreview.length}</span>
-          </div>
-          <button className="btn-primary w-full" type="button" onClick={importCsvLearners} disabled={csvImporting || !csvPreview.length}>
-            {csvImporting ? 'Importing...' : 'Import Learners from CSV'}
-          </button>
-          {csvResult?.summary && (
-            <div className="text-xs text-gray-600 space-y-1">
-              <div>Requested: {csvResult.summary.requested}</div>
-              <div>Created: {csvResult.summary.created}</div>
-              <div>Skipped: {csvResult.summary.skipped}</div>
-              {csvResult.skipped?.slice(0, 5).map((s: any) => (
-                <div key={`${s.index}-${s.email || 'row'}`} className="text-red-300">
-                  Row {s.index + 1}: {s.email || '(no email)'} - {s.reason}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        </details>
 
         <div className="xl:col-span-2 card p-6 space-y-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -1014,104 +1016,105 @@ export function Learners() {
             </table>
           </div>
 
-          <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
-            <div className="flex items-center gap-2">
+          <details className="rounded-xl border border-[var(--border)] p-4" open={false}>
+            <summary className="cursor-pointer font-semibold flex items-center gap-2">
               <UserCog className="w-4 h-4 text-[var(--accent)]" />
-              <h3 className="font-semibold">Bulk Learner Actions</h3>
-            </div>
-            <div className="text-xs text-gray-600">
-              Selected: {selectedAccountLearnerIds.length} learner(s)
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={!selectedAccountLearnerIds.length}
-                onClick={() => void bulkUpdateLearners('activate')}
-              >
-                Activate Selected
-              </button>
-              <button
-                type="button"
-                className="btn-danger"
-                disabled={!selectedAccountLearnerIds.length}
-                onClick={() => void bulkUpdateLearners('deactivate')}
-              >
-                Deactivate Selected
-              </button>
-              <div className="flex gap-2">
-                <input
-                  className="input-field"
-                  placeholder="Temp password"
-                  value={bulkResetPasswordValue}
-                  onChange={(e) => setBulkResetPasswordValue(e.target.value)}
-                />
+              Bulk Learner Actions
+            </summary>
+            <div className="space-y-3 mt-3">
+              <div className="text-xs text-gray-600">
+                Selected: {selectedAccountLearnerIds.length} learner(s)
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <button
                   type="button"
-                  className="btn-secondary"
-                  disabled={!selectedAccountLearnerIds.length || !bulkResetPasswordValue}
-                  onClick={() => void bulkUpdateLearners('resetPassword')}
+                  className="btn-primary"
+                  disabled={!selectedAccountLearnerIds.length}
+                  onClick={() => void bulkUpdateLearners('activate')}
                 >
-                  Reset
+                  Activate Selected
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger"
+                  disabled={!selectedAccountLearnerIds.length}
+                  onClick={() => void bulkUpdateLearners('deactivate')}
+                >
+                  Deactivate Selected
+                </button>
+                <div className="flex gap-2">
+                  <input
+                    className="input-field"
+                    placeholder="Temp password"
+                    value={bulkResetPasswordValue}
+                    onChange={(e) => setBulkResetPasswordValue(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={!selectedAccountLearnerIds.length || !bulkResetPasswordValue}
+                    onClick={() => void bulkUpdateLearners('resetPassword')}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <details className="card p-6" open={false}>
+        <summary className="cursor-pointer text-lg font-semibold text-gray-900">Assignment Operations</summary>
+        <div className="space-y-4 mt-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <p className="text-sm text-gray-600">Extend due dates, change re-entry policy, or revoke unsubmitted attempts.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full lg:w-auto">
+              <input
+                className="input-field min-w-[220px]"
+                placeholder="Search learner / assessment"
+                value={assignmentSearch}
+                onChange={(e) => setAssignmentSearch(e.target.value)}
+              />
+              <select
+                className="input-field"
+                value={assignmentStatusFilter}
+                onChange={(e) => setAssignmentStatusFilter(e.target.value)}
+              >
+                <option value="">All statuses</option>
+                <option value="assigned">Assigned</option>
+                <option value="in_progress">In progress</option>
+                <option value="submitted">Submitted</option>
+                <option value="graded">Graded</option>
+                <option value="expired">Expired</option>
+              </select>
+              <div className="flex gap-2">
+                <button className="btn-secondary" type="button" onClick={loadData}>
+                  Refresh
+                </button>
+                <button
+                  className={liveSubmissionView ? 'btn-primary' : 'btn-secondary'}
+                  type="button"
+                  onClick={() => setLiveSubmissionView((v) => !v)}
+                  title="Auto-refresh every 10s"
+                >
+                  Live
+                </button>
+                <button className="btn-secondary" type="button" onClick={exportAssignmentsCsv} title="Export current filtered rows as CSV">
+                  <Download className="w-4 h-4" />
+                  Export
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="card p-6 space-y-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Assignment Operations</h2>
-            <p className="text-sm text-gray-600">Extend due dates, change re-entry policy, or revoke unsubmitted attempts.</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full lg:w-auto">
-            <input
-              className="input-field min-w-[220px]"
-              placeholder="Search learner / assessment"
-              value={assignmentSearch}
-              onChange={(e) => setAssignmentSearch(e.target.value)}
-            />
-            <select
-              className="input-field"
-              value={assignmentStatusFilter}
-              onChange={(e) => setAssignmentStatusFilter(e.target.value)}
-            >
-              <option value="">All statuses</option>
-              <option value="assigned">Assigned</option>
-              <option value="in_progress">In progress</option>
-              <option value="submitted">Submitted</option>
-              <option value="graded">Graded</option>
-              <option value="expired">Expired</option>
-            </select>
-            <div className="flex gap-2">
-              <button className="btn-secondary" type="button" onClick={loadData}>
-                Refresh
-              </button>
-              <button
-                className={liveSubmissionView ? 'btn-primary' : 'btn-secondary'}
-                type="button"
-                onClick={() => setLiveSubmissionView((v) => !v)}
-                title="Auto-refresh every 10s"
-              >
-                Live
-              </button>
-              <button className="btn-secondary" type="button" onClick={exportAssignmentsCsv} title="Export current filtered rows as CSV">
-                <Download className="w-4 h-4" />
-                Export
-              </button>
+          {liveSubmissionView && (
+            <div className="text-xs text-gray-600">
+              Live submission view is ON (auto-refresh every 10 seconds).
             </div>
-          </div>
-        </div>
-        {liveSubmissionView && (
-          <div className="text-xs text-gray-600">
-            Live submission view is ON (auto-refresh every 10 seconds).
-          </div>
-        )}
+          )}
 
-        <div className="overflow-x-auto table-shell">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto table-shell">
+            <table className="w-full text-sm">
             <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
               <tr>
                 <th className="px-3 py-3 text-left">Learner</th>
@@ -1224,9 +1227,10 @@ export function Learners() {
                 );
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
         </div>
-      </div>
+      </details>
     </div>
   );
 }

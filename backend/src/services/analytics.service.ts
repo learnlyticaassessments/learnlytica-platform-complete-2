@@ -6,6 +6,21 @@
 import { sql } from 'kysely';
 import Anthropic from '@anthropic-ai/sdk';
 
+let hasProjectSubmissionKindColumnCache: boolean | null = null;
+
+async function hasProjectSubmissionKindColumn(db: any) {
+  if (hasProjectSubmissionKindColumnCache != null) return hasProjectSubmissionKindColumnCache;
+  const row = await db
+    .selectFrom('information_schema.columns as c')
+    .select(sql`count(*)`.as('count'))
+    .where('c.table_schema', '=', 'public')
+    .where('c.table_name', '=', 'project_submissions')
+    .where('c.column_name', '=', 'submission_kind')
+    .executeTakeFirst();
+  hasProjectSubmissionKindColumnCache = Number((row as any)?.count || 0) > 0;
+  return hasProjectSubmissionKindColumnCache;
+}
+
 function parseJsonMaybe<T>(value: any, fallback: T): T {
   if (value == null) return fallback;
   if (typeof value === 'string') {
@@ -87,6 +102,11 @@ ${JSON.stringify(matrix)}
 }
 
 export async function getDashboardStats(db: any, organizationId: string) {
+  const hasSubmissionKind = await hasProjectSubmissionKindColumn(db);
+  const learnerKindFilter = hasSubmissionKind
+    ? sql`coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment'`
+    : sql`true`;
+
   // Total counts
   const totals = await db
     .selectFrom('questions')
@@ -120,12 +140,12 @@ export async function getDashboardStats(db: any, organizationId: string) {
   const projectStats = await db
     .selectFrom('project_submissions as ps')
     .select([
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment')`.as('totalAssigned'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status in ('submitted','preflight_completed','evaluation_queued','evaluation_completed','evaluation_failed'))`.as('submitted'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status = 'evaluation_completed')`.as('completed'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status = 'evaluation_failed')`.as('failed'),
-      sql`avg(ps.latest_score) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.latest_score is not null)`.as('averageScore')
+      sql`count(*) filter (where ${learnerKindFilter})`.as('totalAssigned'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status in ('submitted','preflight_completed','evaluation_queued','evaluation_completed','evaluation_failed'))`.as('submitted'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status = 'evaluation_completed')`.as('completed'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status = 'evaluation_failed')`.as('failed'),
+      sql`avg(ps.latest_score) filter (where ${learnerKindFilter} and ps.latest_score is not null)`.as('averageScore')
     ])
     .where('ps.organization_id', '=', organizationId)
     .executeTakeFirst();
@@ -136,14 +156,14 @@ export async function getDashboardStats(db: any, organizationId: string) {
     .innerJoin('project_evaluator_templates as pet', 'pet.id', 'pa.evaluator_template_id')
     .select([
       'pet.name as templateName',
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment')`.as('assigned'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status = 'evaluation_completed')`.as('passed'),
-      sql`avg(ps.latest_score) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.latest_score is not null)`.as('avgScore')
+      sql`count(*) filter (where ${learnerKindFilter})`.as('assigned'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status = 'evaluation_completed')`.as('passed'),
+      sql`avg(ps.latest_score) filter (where ${learnerKindFilter} and ps.latest_score is not null)`.as('avgScore')
     ])
     .where('pa.organization_id', '=', organizationId)
     .groupBy('pet.name')
-    .orderBy(sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment')`, 'desc')
+    .orderBy(sql`count(*) filter (where ${learnerKindFilter})`, 'desc')
     .execute();
 
   return {
@@ -194,15 +214,20 @@ export async function getProjectEvaluationAnalytics(db: any, organizationId: str
 }
 
 export async function getProjectAnalyticsDebug(db: any, organizationId: string) {
+  const hasSubmissionKind = await hasProjectSubmissionKindColumn(db);
+
   const kindStatusRows = await db
     .selectFrom('project_submissions as ps')
     .select([
-      sql`coalesce(ps.submission_kind, 'null')`.as('submissionKind'),
+      (hasSubmissionKind ? sql`coalesce(ps.submission_kind, 'null')` : sql`'legacy_no_submission_kind'`).as('submissionKind'),
       sql`coalesce(ps.status, 'null')`.as('status'),
       sql`count(*)`.as('count')
     ])
     .where('ps.organization_id', '=', organizationId)
-    .groupBy('submissionKind', 'status')
+    .groupBy(
+      hasSubmissionKind ? sql`coalesce(ps.submission_kind, 'null')` : sql`'legacy_no_submission_kind'`,
+      sql`coalesce(ps.status, 'null')`
+    )
     .orderBy(sql`count(*)`, 'desc')
     .execute();
 
@@ -213,7 +238,7 @@ export async function getProjectAnalyticsDebug(db: any, organizationId: string) 
       sql`count(*)`.as('count')
     ])
     .where('ps.organization_id', '=', organizationId)
-    .groupBy('status')
+    .groupBy(sql`coalesce(ps.status, 'null')`)
     .orderBy(sql`count(*)`, 'desc')
     .execute();
 
@@ -223,7 +248,7 @@ export async function getProjectAnalyticsDebug(db: any, organizationId: string) 
     .leftJoin('project_evaluation_runs as per', 'per.id', 'ps.latest_run_id')
     .select([
       'ps.id',
-      'ps.submission_kind as submissionKind',
+      (hasSubmissionKind ? sql`ps.submission_kind` : sql`null`).as('submissionKind'),
       'ps.status',
       'ps.latest_score as latestScore',
       'ps.submitted_at as submittedAt',
@@ -430,19 +455,24 @@ export async function exportOrganizationAttemptsCsv(db: any, organizationId: str
 }
 
 export async function getProjectEvaluationTrends(db: any, organizationId: string, days = 14) {
+  const hasSubmissionKind = await hasProjectSubmissionKindColumn(db);
+  const learnerKindFilter = hasSubmissionKind
+    ? sql`coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment'`
+    : sql`true`;
   const safeDays = Math.max(1, Math.min(60, Number(days) || 14));
+  const trendDayExpr = sql`to_char(date_trunc('day', coalesce(ps.submitted_at, ps.assigned_at)), 'YYYY-MM-DD')`;
   const rows = await db
     .selectFrom('project_submissions as ps')
     .select([
-      sql`to_char(date_trunc('day', coalesce(ps.submitted_at, ps.assigned_at)), 'YYYY-MM-DD')`.as('day'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment')`.as('assigned'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status in ('submitted','preflight_completed','evaluation_queued','evaluation_completed','evaluation_failed'))`.as('submitted'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status = 'evaluation_completed')`.as('passed')
+      trendDayExpr.as('day'),
+      sql`count(*) filter (where ${learnerKindFilter})`.as('assigned'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status in ('submitted','preflight_completed','evaluation_queued','evaluation_completed','evaluation_failed'))`.as('submitted'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status = 'evaluation_completed')`.as('passed')
     ])
     .where('ps.organization_id', '=', organizationId)
     .where(sql`coalesce(ps.submitted_at, ps.assigned_at) >= now() - (${safeDays} * interval '1 day')`)
-    .groupBy('day')
+    .groupBy(trendDayExpr)
     .orderBy('day', 'asc')
     .execute();
 
@@ -456,20 +486,26 @@ export async function getProjectEvaluationTrends(db: any, organizationId: string
 }
 
 export async function getProjectBatchAnalytics(db: any, organizationId: string) {
+  const hasSubmissionKind = await hasProjectSubmissionKindColumn(db);
+  const learnerKindFilter = hasSubmissionKind
+    ? sql`coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment'`
+    : sql`true`;
+  const batchIdExpr = sql`coalesce(b.id::text, 'unbatched')`;
+  const batchNameExpr = sql`coalesce(b.name, 'Unbatched / Direct Assignments')`;
   const rows = await db
     .selectFrom('project_submissions as ps')
     .leftJoin('batches as b', 'b.id', 'ps.assigned_batch_id')
     .select([
-      sql`coalesce(b.id::text, 'unbatched')`.as('batchId'),
-      sql`coalesce(b.name, 'Unbatched / Direct Assignments')`.as('batchName'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment')`.as('assigned'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
-      sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.status = 'evaluation_completed')`.as('passed'),
-      sql`avg(ps.latest_score) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment' and ps.latest_score is not null)`.as('avgScore')
+      batchIdExpr.as('batchId'),
+      batchNameExpr.as('batchName'),
+      sql`count(*) filter (where ${learnerKindFilter})`.as('assigned'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status in ('evaluation_completed','evaluation_failed'))`.as('evaluated'),
+      sql`count(*) filter (where ${learnerKindFilter} and ps.status = 'evaluation_completed')`.as('passed'),
+      sql`avg(ps.latest_score) filter (where ${learnerKindFilter} and ps.latest_score is not null)`.as('avgScore')
     ])
     .where('ps.organization_id', '=', organizationId)
-    .groupBy('batchId', 'batchName')
-    .orderBy(sql`count(*) filter (where coalesce(ps.submission_kind, 'learner_assignment') = 'learner_assignment')`, 'desc')
+    .groupBy(batchIdExpr, batchNameExpr)
+    .orderBy(sql`count(*) filter (where ${learnerKindFilter})`, 'desc')
     .execute();
 
   return rows.map((r: any) => {
