@@ -312,26 +312,6 @@ export function ProjectEvaluations() {
       .catch((e) => setError(e?.response?.data?.error || 'Failed to load project assessment detail'));
   }, [selectedAssessmentId]);
 
-  useEffect(() => {
-    if (!selectedEvaluatorTemplate?.id) return;
-    if (lastAutoBriefTemplateId === selectedEvaluatorTemplate.id) return;
-    const defaultBrief = selectedEvaluatorTemplate?.config?.defaultBrief || {};
-    setProjectBrief({
-      businessContext: String(defaultBrief?.businessContext || ''),
-      taskSummary: String(defaultBrief?.taskSummary || ''),
-      expectedFlow: linesToTextarea(defaultBrief?.expectedFlow),
-      requirements: linesToTextarea(defaultBrief?.requirements),
-      acceptanceCriteria: linesToTextarea(defaultBrief?.acceptanceCriteria),
-      submissionInstructions: linesToTextarea(defaultBrief?.submissionInstructions),
-      evaluationNotes: linesToTextarea(defaultBrief?.evaluationNotes),
-      stretchGoals: linesToTextarea(defaultBrief?.stretchGoals)
-    });
-    if (!String(newAssessment.description || '').trim() && selectedEvaluatorTemplate?.description) {
-      setNewAssessment((prev) => ({ ...prev, description: String(selectedEvaluatorTemplate.description) }));
-    }
-    setLastAutoBriefTemplateId(selectedEvaluatorTemplate.id);
-  }, [selectedEvaluatorTemplate, lastAutoBriefTemplateId, newAssessment.description]);
-
   const selectedAssessment = useMemo(
     () => assessments.find((a) => a.id === selectedAssessmentId) || null,
     [assessments, selectedAssessmentId]
@@ -380,6 +360,26 @@ export function ProjectEvaluations() {
     () => getUiFlowChecks(selectedEvaluatorTemplate?.config),
     [selectedEvaluatorTemplate]
   );
+
+  useEffect(() => {
+    if (!selectedEvaluatorTemplate?.id) return;
+    if (lastAutoBriefTemplateId === selectedEvaluatorTemplate.id) return;
+    const defaultBrief = selectedEvaluatorTemplate?.config?.defaultBrief || {};
+    setProjectBrief({
+      businessContext: String(defaultBrief?.businessContext || ''),
+      taskSummary: String(defaultBrief?.taskSummary || ''),
+      expectedFlow: linesToTextarea(defaultBrief?.expectedFlow),
+      requirements: linesToTextarea(defaultBrief?.requirements),
+      acceptanceCriteria: linesToTextarea(defaultBrief?.acceptanceCriteria),
+      submissionInstructions: linesToTextarea(defaultBrief?.submissionInstructions),
+      evaluationNotes: linesToTextarea(defaultBrief?.evaluationNotes),
+      stretchGoals: linesToTextarea(defaultBrief?.stretchGoals)
+    });
+    if (!String(newAssessment.description || '').trim() && selectedEvaluatorTemplate?.description) {
+      setNewAssessment((prev) => ({ ...prev, description: String(selectedEvaluatorTemplate.description) }));
+    }
+    setLastAutoBriefTemplateId(selectedEvaluatorTemplate.id);
+  }, [selectedEvaluatorTemplate, lastAutoBriefTemplateId, newAssessment.description]);
 
   useEffect(() => {
     if (!templates.length) return;
