@@ -770,7 +770,8 @@ export function ProjectEvaluations() {
       await projectEvaluationsService.deleteSubmissionZip(submissionId);
       setMsg('Uploaded ZIP and stored artifacts deleted for submission');
       if (selectedAssessmentId) {
-        await loadAssessmentDetail(selectedAssessmentId);
+        const detail = await projectEvaluationsService.getAssessment(selectedAssessmentId);
+        setAssessmentDetail(detail.data);
       }
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to delete submitted ZIP');
