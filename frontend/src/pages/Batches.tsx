@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layers3, Users, Plus, Loader2, UserPlus, Trash2, ClipboardCheck, RefreshCw, BarChart3, ChevronDown, ChevronUp } from 'lucide-react';
 import { batchesService, type BatchReentryPolicy, type BatchStatus, type BatchType } from '../services/batchesService';
 import { learnersService } from '../services/learnersService';
@@ -109,7 +109,10 @@ export function Batches() {
   const [resultsAssessmentId, setResultsAssessmentId] = useState('');
   const [resultsSubmissionFilter, setResultsSubmissionFilter] = useState<'all' | 'submitted' | 'not_submitted'>('all');
   const [membersPanelExpanded, setMembersPanelExpanded] = useState(true);
+  const [step3Expanded, setStep3Expanded] = useState(true);
+  const [step3Mode, setStep3Mode] = useState<'classic' | 'project'>('classic');
   const [resultsPanelExpanded, setResultsPanelExpanded] = useState(true);
+  const batchCsvFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [newBatch, setNewBatch] = useState({
     name: '',
@@ -133,6 +136,11 @@ export function Batches() {
   const [batchCsvText, setBatchCsvText] = useState('');
   const [batchCsvDefaultPassword, setBatchCsvDefaultPassword] = useState('Learner@123');
   const [batchCsvImportResult, setBatchCsvImportResult] = useState<any>(null);
+  const [quickLearner, setQuickLearner] = useState({
+    fullName: '',
+    email: '',
+    password: 'Learner@123'
+  });
   const [assignConfig, setAssignConfig] = useState({
     assessmentId: '',
     dueDate: '',
@@ -410,6 +418,21 @@ export function Batches() {
     }
   };
 
+  const onBatchCsvFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setBatchCsvText(String(text || '').replace(/\r\n/g, '\n'));
+      setSuccess(`Loaded CSV file: ${file.name}`);
+      setError(null);
+    } catch {
+      setError('Failed to read CSV file');
+    } finally {
+      if (batchCsvFileInputRef.current) batchCsvFileInputRef.current.value = '';
+    }
+  };
+
   const removeMember = async (learnerId: string, fullName: string) => {
     if (!selectedBatchId) return;
     if (!confirm(`Remove ${fullName} from this batch?`)) return;
@@ -493,6 +516,38 @@ export function Batches() {
       await loadBase(false);
     } catch (e: any) {
       setError(e?.response?.data?.error || 'Failed to delete batch');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const quickAddLearnerToBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBatchId) {
+      setError('Select a batch first');
+      return;
+    }
+    const fullName = quickLearner.fullName.trim();
+    const email = quickLearner.email.trim().toLowerCase();
+    const password = quickLearner.password.trim();
+    if (!fullName || !email || !password) {
+      setError('Full name, email and password are required');
+      return;
+    }
+    setBusy('quick-add-learner');
+    setError(null);
+    setSuccess(null);
+    try {
+      const created = await learnersService.create({ fullName, email, password });
+      const learnerId = created?.data?.id;
+      if (!learnerId) throw new Error('Learner created but id missing');
+      await batchesService.addMembers(selectedBatchId, [learnerId]);
+      setSuccess(`${fullName} created and added to batch`);
+      setQuickLearner((p) => ({ ...p, fullName: '', email: '' }));
+      await loadBase(true);
+      await loadSelectedBatchData(selectedBatchId);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Failed to quick add learner');
     } finally {
       setBusy(null);
     }
@@ -777,6 +832,49 @@ export function Batches() {
 
                       <div className="rounded-xl border border-[var(--border)]">
                         <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)] font-medium sticky top-0 z-10">Add Learners</div>
+                        <form className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface)]/70 space-y-2" onSubmit={quickAddLearnerToBatch}>
+                          <div className="text-xs font-semibold text-[var(--text-muted)]">Quick Add Learner (create + add to this batch)</div>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <input
+                              className="input-field"
+                              placeholder="Full name"
+                              value={quickLearner.fullName}
+                              onChange={(e) => setQuickLearner((p) => ({ ...p, fullName: e.target.value }))}
+                            />
+                            <input
+                              className="input-field"
+                              placeholder="Email"
+                              type="email"
+                              value={quickLearner.email}
+                              onChange={(e) => setQuickLearner((p) => ({ ...p, email: e.target.value }))}
+                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                className="input-field"
+                                placeholder="Password"
+                                value={quickLearner.password}
+                                onChange={(e) => setQuickLearner((p) => ({ ...p, password: e.target.value }))}
+                              />
+                              <button
+                                type="button"
+                                className="btn-secondary !py-2 !px-2 text-xs whitespace-nowrap"
+                                onClick={() => setQuickLearner((p) => ({ ...p, password: generateStrongPassword(12) }))}
+                                title="Generate strong password"
+                              >
+                                Generate
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex justify-end">
+                            <button
+                              type="submit"
+                              className="btn-primary"
+                              disabled={!canManage || busy === 'quick-add-learner' || !quickLearner.fullName.trim() || !quickLearner.email.trim() || !quickLearner.password.trim()}
+                            >
+                              {busy === 'quick-add-learner' ? 'Adding...' : 'Quick Add Learner'}
+                            </button>
+                          </div>
+                        </form>
                         <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between gap-2">
                           <label className="flex items-center gap-2 text-xs text-gray-700">
                             <input
@@ -837,16 +935,31 @@ export function Batches() {
                           onChange={(e) => setBatchCsvText(e.target.value)}
                         />
                         <input
+                          ref={batchCsvFileInputRef}
+                          type="file"
+                          accept=".csv,text/csv"
+                          className="hidden"
+                          onChange={onBatchCsvFileSelected}
+                        />
+                        <input
                           className="input-field"
                           value={batchCsvDefaultPassword}
                           onChange={(e) => setBatchCsvDefaultPassword(e.target.value)}
                           placeholder="Default password for new learners"
                         />
-                        <div className="flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                           <span className="text-gray-600">Preview rows: {batchCsvPreview.length}</span>
                           <button
                             type="button"
                             className="btn-secondary"
+                            disabled={!canManage || busy === 'batch-csv-import'}
+                            onClick={() => batchCsvFileInputRef.current?.click()}
+                          >
+                            Upload CSV
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-primary"
                             disabled={!canManage || !batchCsvPreview.length || busy === 'batch-csv-import'}
                             onClick={importLearnersIntoSelectedBatch}
                           >
@@ -874,83 +987,114 @@ export function Batches() {
                 </div>
 
                 <div className="card p-6 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <ClipboardCheck className="w-5 h-5 text-[var(--accent)]" />
-                    <h3 className="text-lg font-semibold">Step 3A: Assign Classic Assessment to Batch</h3>
-                  </div>
-                  <form className="space-y-4" onSubmit={assignAssessmentToBatch}>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Published Assessment</label>
-                      <select className="input-field" value={assignConfig.assessmentId} onChange={(e) => setAssignConfig((p) => ({ ...p, assessmentId: e.target.value }))} required>
-                        <option value="">Select assessment</option>
-                        {assessments.map((a) => (
-                          <option key={a.id} value={a.id}>{a.title}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Due Date (optional)</label>
-                        <input type="datetime-local" className="input-field" value={assignConfig.dueDate} onChange={(e) => setAssignConfig((p) => ({ ...p, dueDate: e.target.value }))} />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">Re-entry Policy</label>
-                        <select className="input-field" value={assignConfig.reentryPolicy} onChange={(e) => setAssignConfig((p) => ({ ...p, reentryPolicy: e.target.value as BatchReentryPolicy }))}>
-                          <option value="resume_allowed">Resume allowed</option>
-                          <option value="single_session">Single session</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm">
-                      <div className="text-xs uppercase tracking-wide text-[var(--text-dim)] font-semibold">Assignment Scope</div>
-                      <div className="mt-1">
-                        {selectedBatch.summary?.activeMemberCount || 0} active learner(s) will receive the selected assessment.
-                      </div>
-                    </div>
-                    <button className="btn-primary w-full" disabled={!canManage || busy === 'assign-batch' || !assignConfig.assessmentId}>
-                      {busy === 'assign-batch' ? 'Assigning...' : 'Assign to Batch'}
-                    </button>
-                  </form>
-
-                  <div className="rounded-xl border border-[var(--border)] p-4 space-y-3">
+                  <div className="flex items-center gap-2 justify-between">
                     <div className="flex items-center gap-2">
-                      <ClipboardCheck className="w-4 h-4 text-[var(--accent)]" />
-                      <h4 className="font-semibold">Step 3B: Assign Project Assessment to Batch</h4>
+                      <ClipboardCheck className="w-5 h-5 text-[var(--accent)]" />
+                      <h3 className="text-lg font-semibold">Step 3: Assign to Batch</h3>
                     </div>
-                    <form className="space-y-3" onSubmit={assignProjectAssessmentToBatch}>
-                      <select
-                        className="input-field"
-                        value={projectAssignConfig.assessmentId}
-                        onChange={(e) => setProjectAssignConfig((p) => ({ ...p, assessmentId: e.target.value }))}
-                        required
-                      >
-                        <option value="">Select published project assessment</option>
-                        {projectAssessments.map((a) => (
-                          <option key={a.id} value={a.id}>{a.title}</option>
-                        ))}
-                      </select>
-                      <input
-                        type="datetime-local"
-                        className="input-field"
-                        value={projectAssignConfig.dueDate}
-                        onChange={(e) => setProjectAssignConfig((p) => ({ ...p, dueDate: e.target.value }))}
-                        placeholder="Due date (optional)"
-                      />
-                      <input
-                        className="input-field"
-                        value={projectAssignConfig.assignmentNotes}
-                        onChange={(e) => setProjectAssignConfig((p) => ({ ...p, assignmentNotes: e.target.value }))}
-                        placeholder="Assignment notes (optional)"
-                      />
-                      <button
-                        className="btn-primary w-full"
-                        disabled={!canManage || busy === 'assign-project-batch' || !projectAssignConfig.assessmentId}
-                      >
-                        {busy === 'assign-project-batch' ? 'Assigning...' : 'Assign Project Assessment'}
-                      </button>
-                    </form>
+                    <button
+                      type="button"
+                      className="btn-secondary !py-1 !px-2 text-xs"
+                      onClick={() => setStep3Expanded((v) => !v)}
+                      aria-expanded={step3Expanded}
+                      aria-label={step3Expanded ? 'Collapse step 3' : 'Expand step 3'}
+                    >
+                      {step3Expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
                   </div>
+                  {step3Expanded ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className={`btn-secondary !py-1.5 !px-2.5 text-xs ${step3Mode === 'classic' ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`}
+                          onClick={() => setStep3Mode('classic')}
+                        >
+                          Assign Classic Assessment to Batch
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn-secondary !py-1.5 !px-2.5 text-xs ${step3Mode === 'project' ? '!border-[var(--accent)] !text-[var(--accent)]' : ''}`}
+                          onClick={() => setStep3Mode('project')}
+                        >
+                          Assign Project Assessment to Batch
+                        </button>
+                      </div>
+                      {step3Mode === 'classic' ? (
+                        <form className="space-y-4" onSubmit={assignAssessmentToBatch}>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Published Assessment</label>
+                            <select className="input-field" value={assignConfig.assessmentId} onChange={(e) => setAssignConfig((p) => ({ ...p, assessmentId: e.target.value }))} required>
+                              <option value="">Select assessment</option>
+                              {assessments.map((a) => (
+                                <option key={a.id} value={a.id}>{a.title}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Due Date (optional)</label>
+                              <input type="datetime-local" className="input-field" value={assignConfig.dueDate} onChange={(e) => setAssignConfig((p) => ({ ...p, dueDate: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Re-entry Policy</label>
+                              <select className="input-field" value={assignConfig.reentryPolicy} onChange={(e) => setAssignConfig((p) => ({ ...p, reentryPolicy: e.target.value as BatchReentryPolicy }))}>
+                                <option value="resume_allowed">Resume allowed</option>
+                                <option value="single_session">Single session</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm">
+                            <div className="text-xs uppercase tracking-wide text-[var(--text-dim)] font-semibold">Assignment Scope</div>
+                            <div className="mt-1">
+                              {selectedBatch.summary?.activeMemberCount || 0} active learner(s) will receive the selected assessment.
+                            </div>
+                          </div>
+                          <button className="btn-primary w-full" disabled={!canManage || busy === 'assign-batch' || !assignConfig.assessmentId}>
+                            {busy === 'assign-batch' ? 'Assigning...' : 'Assign to Batch'}
+                          </button>
+                        </form>
+                      ) : (
+                        <form className="space-y-3" onSubmit={assignProjectAssessmentToBatch}>
+                          <select
+                            className="input-field"
+                            value={projectAssignConfig.assessmentId}
+                            onChange={(e) => setProjectAssignConfig((p) => ({ ...p, assessmentId: e.target.value }))}
+                            required
+                          >
+                            <option value="">Select published project assessment</option>
+                            {projectAssessments.map((a) => (
+                              <option key={a.id} value={a.id}>{a.title}</option>
+                            ))}
+                          </select>
+                          <input
+                            type="datetime-local"
+                            className="input-field"
+                            value={projectAssignConfig.dueDate}
+                            onChange={(e) => setProjectAssignConfig((p) => ({ ...p, dueDate: e.target.value }))}
+                            placeholder="Due date (optional)"
+                          />
+                          <input
+                            className="input-field"
+                            value={projectAssignConfig.assignmentNotes}
+                            onChange={(e) => setProjectAssignConfig((p) => ({ ...p, assignmentNotes: e.target.value }))}
+                            placeholder="Assignment notes (optional)"
+                          />
+                          <button
+                            className="btn-primary w-full"
+                            disabled={!canManage || busy === 'assign-project-batch' || !projectAssignConfig.assessmentId}
+                          >
+                            {busy === 'assign-project-batch' ? 'Assigning...' : 'Assign Project Assessment'}
+                          </button>
+                        </form>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-xs text-[var(--text-muted)]">Collapsed. Expand to assign classic or project assessments to this batch.</div>
+                  )}
+                </div>
 
+                <div className="card p-6 space-y-4">
                   <div className="rounded-xl border border-[var(--border)] p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <BarChart3 className="w-4 h-4 text-[var(--accent)]" />
@@ -1039,7 +1183,6 @@ export function Batches() {
                     ) : (
                       <div className="text-xs text-[var(--text-muted)]">Collapsed. Expand to inspect filtered batch results.</div>
                     )}
-                  </div>
                 </div>
               </div>
             </>
@@ -1065,4 +1208,24 @@ function toDateTimeLocalValue(iso?: string | null) {
   if (Number.isNaN(d.getTime())) return '';
   const tzOffset = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+}
+
+function generateStrongPassword(length = 12) {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnopqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '@#$%';
+  const all = upper + lower + digits + symbols;
+
+  const pick = (set: string) => set[Math.floor(Math.random() * set.length)];
+  const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)];
+  while (chars.length < length) chars.push(pick(all));
+
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = chars[i];
+    chars[i] = chars[j];
+    chars[j] = tmp;
+  }
+  return chars.join('');
 }
