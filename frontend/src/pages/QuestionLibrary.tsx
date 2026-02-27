@@ -47,8 +47,9 @@ export function QuestionLibrary() {
     setLoading(true);
     setError('');
     try {
-      const [qRes, pRes, templatesRes, samplesRes, guidelinesRes, statsRes] = await Promise.all([
-        questionService.list({ page: 1, limit: 200 }),
+      const [qResPage1, qResPage2, pRes, templatesRes, samplesRes, guidelinesRes, statsRes] = await Promise.all([
+        questionService.list({ page: 1, limit: 100 }),
+        questionService.list({ page: 2, limit: 100 }),
         projectEvaluationsService.listTemplates(),
         libraryService.listTemplates(),
         libraryService.listSamples(),
@@ -57,7 +58,12 @@ export function QuestionLibrary() {
       ]);
       const labRes = await labTemplateService.list({ isActive: true, limit: 200 });
 
-      setQuestions(qRes.questions || []);
+      const mergedQuestions = [...(qResPage1?.questions || []), ...(qResPage2?.questions || [])];
+      const byId = new Map<string, any>();
+      mergedQuestions.forEach((q: any) => {
+        if (q?.id) byId.set(q.id, q);
+      });
+      setQuestions(Array.from(byId.values()));
       setProjectTemplates((pRes.data || []).slice().sort((a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
       setTemplates(templatesRes.data || []);
       setSamples(samplesRes.data || []);
