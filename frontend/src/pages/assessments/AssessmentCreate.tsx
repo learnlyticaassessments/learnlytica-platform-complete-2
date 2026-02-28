@@ -202,9 +202,9 @@ export function AssessmentCreate() {
           </div>
 
           <div className="card">
-            <h2 className="text-xl font-semibold mb-4">Lab Environment</h2>
+            <h2 className="text-xl font-semibold mb-4">Lab Runtime</h2>
             <div>
-              <label className="block text-sm font-medium mb-1">Select Lab Template</label>
+              <label className="block text-sm font-medium mb-1">Select Runtime Template</label>
               <select
                 required
                 className="input-field"
@@ -218,6 +218,9 @@ export function AssessmentCreate() {
                   </option>
                 ))}
               </select>
+              <p className="mt-2 text-xs text-gray-600">
+                Learners always code in the embedded Monaco editor. This runtime template controls execution image and framework compatibility.
+              </p>
             </div>
             {selectedLabTemplate && (
               <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
