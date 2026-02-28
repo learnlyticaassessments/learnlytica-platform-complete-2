@@ -313,6 +313,9 @@ function parsePytestResults(output: string, testCases: any[]): TestResult[] {
 
 function parseDotnetResults(output: string, testCases: any[]): TestResult[] {
   const text = String(output || '');
+  const trx = extractTrxResults(text, testCases);
+  if (trx.length) return trx;
+
   const passedSet = new Set<string>();
   const failedSet = new Set<string>();
   const durationByName = new Map<string, number>();
@@ -363,6 +366,63 @@ function parseDotnetResults(output: string, testCases: any[]): TestResult[] {
       duration: durationByName.get(name)
     };
   });
+}
+
+function extractTrxResults(output: string, testCases: any[]): TestResult[] {
+  const text = String(output || '');
+  const markerMatch = text.match(/---TRX_START---\s*([\s\S]*?)\s*---TRX_END---/);
+  const trxXml = markerMatch?.[1];
+  if (!trxXml) return [];
+
+  const entries: Array<{ name: string; passed: boolean; duration?: number }> = [];
+  const unitResultRegex = /<UnitTestResult\b([^>]*?)\/>/g;
+  let m: RegExpExecArray | null;
+  while ((m = unitResultRegex.exec(trxXml)) !== null) {
+    const attrs = String(m[1] || '');
+    const name = decodeXmlEntities(readXmlAttr(attrs, 'testName') || readXmlAttr(attrs, 'testId') || 'dotnet test');
+    const outcome = String(readXmlAttr(attrs, 'outcome') || '').toLowerCase();
+    const durationRaw = readXmlAttr(attrs, 'duration');
+    entries.push({
+      name,
+      passed: outcome === 'passed',
+      duration: parseTrxDurationToMs(durationRaw)
+    });
+  }
+  if (!entries.length) return [];
+
+  return entries.map((entry, idx) => ({
+    name: entry.name || testCases?.[idx]?.name || `Test ${idx + 1}`,
+    passed: entry.passed,
+    points: Number(testCases?.[idx]?.points || 0),
+    error: entry.passed ? undefined : 'dotnet test assertion failed',
+    duration: entry.duration
+  }));
+}
+
+function readXmlAttr(attrs: string, key: string): string | undefined {
+  const match = String(attrs || '').match(new RegExp(`${key}="([^"]*)"`, 'i'));
+  return match?.[1];
+}
+
+function decodeXmlEntities(input: string): string {
+  return String(input || '')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function parseTrxDurationToMs(value?: string): number | undefined {
+  const raw = String(value || '').trim();
+  if (!raw) return undefined;
+  const m = raw.match(/^(\d+):(\d+):(\d+)(?:\.(\d+))?$/);
+  if (!m) return undefined;
+  const h = Number(m[1] || 0);
+  const min = Number(m[2] || 0);
+  const sec = Number(m[3] || 0);
+  const frac = Number((m[4] || '0').slice(0, 3).padEnd(3, '0'));
+  return (((h * 60 + min) * 60 + sec) * 1000) + frac;
 }
 
 function extractJsonObject(output: string): any | null {
