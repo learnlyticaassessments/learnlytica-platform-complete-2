@@ -35,11 +35,20 @@ function formatDuration(totalSeconds: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-function getLanguageFromQuestion(question: any): 'javascript' | 'python' | 'java' {
+function getLanguageFromQuestion(question: any): 'javascript' | 'python' | 'java' | 'csharp' {
   const framework = question?.testFramework;
   if (framework === 'pytest') return 'python';
   if (framework === 'junit') return 'java';
+  if (framework === 'dotnet') return 'csharp';
   return 'javascript';
+}
+
+function getLanguageLabel(question: any): string {
+  const language = getLanguageFromQuestion(question);
+  if (language === 'python') return 'Python';
+  if (language === 'java') return 'Java';
+  if (language === 'csharp') return 'C#/.NET';
+  return 'JavaScript';
 }
 
 export function AssessmentTake() {
@@ -163,6 +172,15 @@ export function AssessmentTake() {
   const questions = assessment?.questions || [];
   const currentQuestionWrapper = questions[currentQuestionIndex];
   const question = currentQuestionWrapper?.question;
+  const runtimeTemplate = assessment?.labTemplate;
+  const runtimeTemplateName =
+    runtimeTemplate?.name ||
+    runtimeTemplate?.template_name ||
+    'Assessment Runtime';
+  const runtimeImage =
+    runtimeTemplate?.dockerImage ||
+    runtimeTemplate?.docker_image ||
+    '';
   const questionId = question?.id;
   const currentCode = questionId ? codeByQuestion[questionId] ?? '' : '';
   const currentResult = questionId ? testResultsByQuestion[questionId] : null;
@@ -615,6 +633,22 @@ export function AssessmentTake() {
                 <div className="min-w-0">
                   <div className="text-xs" style={{ color: 'var(--text-dim)' }}>
                     {question?.category || 'coding'} · {question?.testFramework || getLanguageFromQuestion(question)}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+                    <span className="px-2 py-0.5 rounded-full" style={{ background: 'var(--surface-3)', color: 'var(--text-dim)' }}>
+                      Runtime: {runtimeTemplateName} (auto)
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full" style={{ background: 'var(--surface-2)', color: 'var(--text-dim)' }}>
+                      Language: {getLanguageLabel(question)}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full" style={{ background: 'var(--surface-2)', color: 'var(--text-dim)' }}>
+                      Framework: {question?.testFramework || 'n/a'}
+                    </span>
+                    {!!runtimeImage && (
+                      <span className="px-2 py-0.5 rounded-full truncate max-w-[280px]" style={{ background: 'var(--surface-2)', color: 'var(--text-dim)' }} title={runtimeImage}>
+                        {runtimeImage}
+                      </span>
+                    )}
                   </div>
                   <h2 className="font-semibold truncate">{question?.title}</h2>
                 </div>
