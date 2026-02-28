@@ -37,7 +37,13 @@ export interface TestExecutionResult {
     framework: string;
     parser: string;
     parseWarning?: string;
-    failureType?: 'timeout' | 'runtime_error' | 'parse_error' | 'assertion_failure' | 'unsupported_framework';
+    failureType?:
+      | 'timeout'
+      | 'runtime_error'
+      | 'parse_error'
+      | 'assertion_failure'
+      | 'unsupported_framework'
+      | 'compilation_error';
   };
 }
 
