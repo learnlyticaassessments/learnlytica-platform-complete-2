@@ -106,7 +106,18 @@ function normalizeSolution(generated: any, starterPath: string, language: string
   };
 }
 
-function normalizeTestCases(generated: any, framework: TestFramework, totalPoints: number) {
+function normalizeTestCases(
+  generated: any,
+  framework: TestFramework,
+  totalPoints: number,
+  rubric?: {
+    basicWeight?: number;
+    edgeWeight?: number;
+    negativeWeight?: number;
+    performanceWeight?: number;
+    hiddenTestPercent?: number;
+  }
+) {
   const raw = Array.isArray(generated?.testConfig?.testCases) ? generated.testConfig.testCases : [];
   const fallbackCount = 6;
   const source = raw.length ? raw : Array.from({ length: fallbackCount }).map((_, i) => ({
@@ -134,8 +145,14 @@ function normalizeTestCases(generated: any, framework: TestFramework, totalPoint
     category: tc.category ? String(tc.category).toLowerCase() : undefined
   }));
 
-  if (!normalized.some((tc: any) => tc.visible === false) && normalized.length > 0) {
-    normalized[normalized.length - 1].visible = false;
+  const hiddenPct = Math.max(0, Math.min(90, Number(rubric?.hiddenTestPercent ?? 35)));
+  const targetHidden = normalized.length > 0 ? Math.max(1, Math.round((normalized.length * hiddenPct) / 100)) : 0;
+  let hiddenCount = normalized.filter((tc: any) => tc.visible === false).length;
+  for (let i = normalized.length - 1; i >= 0 && hiddenCount < targetHidden; i -= 1) {
+    if (normalized[i].visible !== false) {
+      normalized[i].visible = false;
+      hiddenCount++;
+    }
   }
 
   const hasEdge = normalized.some((tc: any) => tc.category === 'edge');
@@ -146,6 +163,38 @@ function normalizeTestCases(generated: any, framework: TestFramework, totalPoint
   if (!hasNegative && normalized.length > 2) normalized[2].category = 'negative';
   if (!hasPerformance && normalized.length > 0) normalized[normalized.length - 1].category = 'performance';
 
+  const categoryWeights = {
+    basic: Math.max(1, Number(rubric?.basicWeight ?? 40)),
+    edge: Math.max(1, Number(rubric?.edgeWeight ?? 25)),
+    negative: Math.max(1, Number(rubric?.negativeWeight ?? 20)),
+    performance: Math.max(1, Number(rubric?.performanceWeight ?? 15))
+  };
+
+  const group = {
+    basic: normalized.filter((tc: any) => (tc.category || 'basic') === 'basic'),
+    edge: normalized.filter((tc: any) => tc.category === 'edge'),
+    negative: normalized.filter((tc: any) => tc.category === 'negative'),
+    performance: normalized.filter((tc: any) => tc.category === 'performance')
+  };
+  const presentCategories = (Object.keys(group) as Array<keyof typeof group>).filter((k) => group[k].length > 0);
+  const totalWeight = presentCategories.reduce((sum, c) => sum + categoryWeights[c], 0) || 1;
+  let allocated = 0;
+  for (const cat of presentCategories) {
+    const catPoints = Math.floor((totalPoints * categoryWeights[cat]) / totalWeight);
+    const perCase = Math.max(1, Math.floor(catPoints / group[cat].length));
+    for (const tc of group[cat]) {
+      tc.points = perCase;
+      allocated += perCase;
+    }
+  }
+  let remainder = totalPoints - allocated;
+  let idx = 0;
+  while (remainder > 0 && normalized.length > 0) {
+    normalized[idx % normalized.length].points += 1;
+    remainder -= 1;
+    idx += 1;
+  }
+
   return normalized;
 }
 
@@ -154,11 +203,12 @@ function toCreateQuestionDto(generated: any, request: any): CreateQuestionDTO {
   const framework = mapFramework(language, generated?.testConfig?.framework);
   const difficulty = mapDifficulty(generated?.difficulty || request?.difficulty);
   const category = mapCategory(generated?.category, request?.questionType);
-  const points = Math.max(10, Number(generated?.points || request?.points || 100));
+  const rubricTotal = Number(request?.rubric?.totalPoints || 0);
+  const points = Math.max(10, Number(rubricTotal || generated?.points || request?.points || 100));
   const starterCode = normalizeStarterCode(generated, language, String(request?.questionType || 'algorithm'));
   const starterPath = starterCode.files?.[0]?.path || defaultStarterPath(language, String(request?.questionType || 'algorithm'));
   const solution = normalizeSolution(generated, starterPath, language);
-  const testCases = normalizeTestCases(generated, framework, points);
+  const testCases = normalizeTestCases(generated, framework, points, request?.rubric);
   const totalFromCases = testCases.reduce((sum: number, tc: any) => sum + Number(tc.points || 0), 0);
   const scoringTotal = totalFromCases > 0 ? totalFromCases : points;
 
@@ -186,7 +236,7 @@ function toCreateQuestionDto(generated: any, request: any): CreateQuestionDTO {
       testCases,
       scoring: {
         total: scoringTotal,
-        passing: Math.max(1, Math.ceil(scoringTotal * 0.6))
+        passing: Math.max(1, Math.ceil(scoringTotal * (Math.max(1, Math.min(100, Number(request?.rubric?.passingPercent || 60))) / 100)))
       }
     },
     solution,
@@ -223,7 +273,8 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       audienceExperience,
       targetMaturity,
       domain,
-      audienceNotes
+      audienceNotes,
+      rubric
     } = req.body;
 
     if (!topic || !language || !difficulty || !questionType) {
@@ -247,7 +298,8 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       audienceExperience,
       targetMaturity,
       domain,
-      audienceNotes
+      audienceNotes,
+      rubric
     };
     const pipelineContext: PipelineContext = {
       organizationId: (req as any).user?.organizationId || '00000000-0000-0000-0000-000000000000',
@@ -304,7 +356,8 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       audienceExperience,
       targetMaturity,
       domain,
-      audienceNotes
+      audienceNotes,
+      rubric
     } = req.body;
     const userId = (req as any).user?.id;
     const organizationId = (req as any).user?.organizationId;
@@ -330,7 +383,8 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       audienceExperience,
       targetMaturity,
       domain,
-      audienceNotes
+      audienceNotes,
+      rubric
     };
     const pipelineContext: PipelineContext = {
       organizationId,

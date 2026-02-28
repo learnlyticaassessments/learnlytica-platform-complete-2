@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Loader2, Check, AlertCircle, Cpu, Star, TrendingUp, Wand2 } from 'lucide-react';
 import { aiService, AI_PROVIDER_OPTIONS, AI_QUESTION_TYPE_OPTIONS, GenerateQuestionRequest } from '../services/aiService';
+import JSZip from 'jszip';
 
 export function AIQuestionGenerator() {
   const navigate = useNavigate();
@@ -14,9 +15,18 @@ export function AIQuestionGenerator() {
     model: 'claude-sonnet-4-20250514',
     audienceType: 'fresher',
     targetMaturity: 'beginner',
-    domain: ''
+    domain: '',
+    rubric: {
+      basicWeight: 40,
+      edgeWeight: 25,
+      negativeWeight: 20,
+      performanceWeight: 15,
+      hiddenTestPercent: 35,
+      passingPercent: 60
+    }
   });
   const [loading, setLoading] = useState(false);
+  const [atomicLoading, setAtomicLoading] = useState(false);
   const [generatedQuestion, setGeneratedQuestion] = useState<any>(null);
   const [generationPipeline, setGenerationPipeline] = useState<any>(null);
   const [error, setError] = useState('');
@@ -24,6 +34,7 @@ export function AIQuestionGenerator() {
   const [wizardStep, setWizardStep] = useState(0);
   const [utilityLoading, setUtilityLoading] = useState<'tests' | 'improve' | 'review' | null>(null);
   const [utilityError, setUtilityError] = useState('');
+  const [downloadingZip, setDownloadingZip] = useState(false);
 
   const [testGenCode, setTestGenCode] = useState('function solve(input) {\n  return input;\n}');
   const [testGenDescription, setTestGenDescription] = useState('');
@@ -144,6 +155,134 @@ export function AIQuestionGenerator() {
       setUtilityError(err?.message || err.response?.data?.error || 'Failed to review code');
     } finally {
       setUtilityLoading(null);
+    }
+  };
+
+  const handleDownloadQuestionZip = async () => {
+    if (!generatedQuestion) return;
+    await downloadQuestionZipFromPayload(generatedQuestion);
+  };
+
+  const downloadQuestionZipFromPayload = async (payloadQuestion: any, filenamePrefix?: string) => {
+    if (!payloadQuestion) return;
+    setDownloadingZip(true);
+    try {
+      const zip = new JSZip();
+      const framework =
+        payloadQuestion?.testFramework ||
+        (formData.language === 'python' ? 'pytest' : formData.language === 'java' ? 'junit' : 'jest');
+      const testExt = framework === 'pytest' ? 'py' : framework === 'junit' ? 'java' : 'js';
+
+      const starterFiles = payloadQuestion?.starterCode?.files || [];
+      const solutionFiles = payloadQuestion?.solution?.files || [];
+      const testCases = payloadQuestion?.testConfig?.testCases || [];
+
+      for (const file of starterFiles) {
+        if (file?.path) zip.file(`starter/${file.path}`, String(file?.content || ''));
+      }
+      for (const file of solutionFiles) {
+        if (file?.path) zip.file(`solution/${file.path}`, String(file?.content || ''));
+      }
+
+      const manifestTestCases = testCases.map((tc: any, idx: number) => {
+        const id = String(tc?.id || `tc_${String(idx + 1).padStart(3, '0')}`);
+        const testCodePath = `tests/${id}.${testExt}`;
+        zip.file(testCodePath, String(tc?.testCode || ''));
+        return {
+          id,
+          name: String(tc?.name || `Test ${idx + 1}`),
+          file: String(tc?.file || (framework === 'junit' ? 'src/test/java/SolutionTest.java' : framework === 'pytest' ? 'tests/test_solution.py' : 'tests/solution.spec.js')),
+          testName: String(tc?.testName || `test_${idx + 1}`),
+          points: Number(tc?.points || 0),
+          visible: tc?.visible ?? true,
+          category: String(tc?.category || 'basic'),
+          description: tc?.description ? String(tc.description) : '',
+          testCodePath
+        };
+      });
+
+      const manifest = {
+        schemaVersion: 1,
+        title: payloadQuestion?.title || 'AI Generated Question',
+        description: payloadQuestion?.description || '',
+        category: payloadQuestion?.category || 'backend',
+        difficulty: payloadQuestion?.difficulty || 'medium',
+        testFramework: payloadQuestion?.testFramework || 'jest',
+        points: Number(payloadQuestion?.points || 100),
+        timeEstimate: Number(payloadQuestion?.timeEstimate || 30),
+        skills: Array.isArray(payloadQuestion?.skills) ? payloadQuestion.skills : [],
+        tags: Array.isArray(payloadQuestion?.tags) ? payloadQuestion.tags : [],
+        starterCode: {
+          files: starterFiles.map((f: any) => ({
+            path: f.path,
+            source: `starter/${f.path}`,
+            language: f.language || 'javascript'
+          }))
+        },
+        solution: {
+          files: solutionFiles.map((f: any) => ({
+            path: f.path,
+            source: `solution/${f.path}`,
+            language: f.language || 'javascript'
+          }))
+        },
+        testCases: manifestTestCases
+      };
+
+      zip.file('learnlytica-question.json', JSON.stringify(manifest, null, 2));
+      zip.file(
+        'README.txt',
+        [
+          'Learnlytica AI Generated Question Package',
+          '',
+          'This ZIP is generated from AI output after validation/verification pipeline.',
+          'You can import this package in Question Authoring for round-trip workflow.'
+        ].join('\n')
+      );
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const safeTitle = String(filenamePrefix || payloadQuestion?.title || 'ai-question')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${safeTitle || 'ai-question'}-${payloadQuestion?.testFramework || 'jest'}.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to generate ZIP package');
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
+
+  const handleGenerateCreateAndDownload = async () => {
+    if (!formData.topic.trim()) {
+      setError('Please enter a topic');
+      return;
+    }
+
+    setAtomicLoading(true);
+    setError('');
+    try {
+      const response = await aiService.generateAndCreate(formData);
+      const createdQuestion = response?.data?.question;
+      if (!createdQuestion) {
+        throw new Error('Question was not returned by server');
+      }
+
+      setGeneratedQuestion(createdQuestion);
+      setGenerationPipeline(response?.data?.pipeline || null);
+      await downloadQuestionZipFromPayload(createdQuestion, `${createdQuestion.title || 'ai-question'}-verified-draft`);
+      navigate(`/questions/${createdQuestion.id}`);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to generate, create, and download');
+    } finally {
+      setAtomicLoading(false);
     }
   };
 
@@ -424,6 +563,93 @@ export function AIQuestionGenerator() {
                         placeholder="Auto"
                       />
                     </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Hidden Tests %</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={90}
+                        value={formData.rubric?.hiddenTestPercent ?? 35}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          rubric: { ...(formData.rubric || {}), hiddenTestPercent: parseInt(e.target.value || '35', 10) }
+                        })}
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Passing %</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={formData.rubric?.passingPercent ?? 60}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          rubric: { ...(formData.rubric || {}), passingPercent: parseInt(e.target.value || '60', 10) }
+                        })}
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Rubric Total Points</label>
+                      <input
+                        type="number"
+                        min={10}
+                        value={formData.rubric?.totalPoints ?? ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          rubric: { ...(formData.rubric || {}), totalPoints: parseInt(e.target.value || '0', 10) || undefined }
+                        })}
+                        className="input-field"
+                        placeholder="Optional override"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {wizardStep === 3 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Basic Weight</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={formData.rubric?.basicWeight ?? 40}
+                        onChange={(e) => setFormData({ ...formData, rubric: { ...(formData.rubric || {}), basicWeight: parseInt(e.target.value || '40', 10) } })}
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Edge Weight</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={formData.rubric?.edgeWeight ?? 25}
+                        onChange={(e) => setFormData({ ...formData, rubric: { ...(formData.rubric || {}), edgeWeight: parseInt(e.target.value || '25', 10) } })}
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Negative Weight</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={formData.rubric?.negativeWeight ?? 20}
+                        onChange={(e) => setFormData({ ...formData, rubric: { ...(formData.rubric || {}), negativeWeight: parseInt(e.target.value || '20', 10) } })}
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Performance Weight</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={formData.rubric?.performanceWeight ?? 15}
+                        onChange={(e) => setFormData({ ...formData, rubric: { ...(formData.rubric || {}), performanceWeight: parseInt(e.target.value || '15', 10) } })}
+                        className="input-field"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -628,6 +854,24 @@ export function AIQuestionGenerator() {
 
           <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <button
+              onClick={handleGenerateCreateAndDownload}
+              disabled={atomicLoading || loading || !formData.topic}
+              className="btn-ai flex items-center justify-center gap-2 min-h-[46px]"
+            >
+              {atomicLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Running Full Flow...
+                </>
+              ) : (
+                <>
+                  <Check className="w-5 h-5" />
+                  Generate + Verify + Create + Download ZIP
+                </>
+              )}
+            </button>
+
+            <button
               onClick={handleGenerate}
               disabled={loading || !formData.topic}
               className="btn-ai flex items-center justify-center gap-2 min-h-[46px]"
@@ -652,6 +896,16 @@ export function AIQuestionGenerator() {
               >
                 <Check className="w-5 h-5" />
                 Create Question in Database
+              </button>
+            )}
+            {generatedQuestion && (
+              <button
+                onClick={handleDownloadQuestionZip}
+                disabled={downloadingZip}
+                className="btn-secondary flex items-center justify-center gap-2 min-h-[46px]"
+              >
+                {downloadingZip ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                {downloadingZip ? 'Preparing ZIP...' : 'Download Question ZIP'}
               </button>
             )}
           </div>

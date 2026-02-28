@@ -39,6 +39,15 @@ export interface GenerateQuestionRequest {
   targetMaturity?: 'beginner' | 'intermediate' | 'advanced' | 'expert';
   domain?: string;
   audienceNotes?: string;
+  rubric?: {
+    basicWeight?: number;
+    edgeWeight?: number;
+    negativeWeight?: number;
+    performanceWeight?: number;
+    hiddenTestPercent?: number;
+    passingPercent?: number;
+    totalPoints?: number;
+  };
 }
 
 export const AI_PROVIDER_OPTIONS: Array<{

@@ -24,6 +24,15 @@ export interface GenerateQuestionRequest {
   targetMaturity?: 'beginner' | 'intermediate' | 'advanced' | 'expert';
   domain?: string;
   audienceNotes?: string;
+  rubric?: {
+    basicWeight?: number;
+    edgeWeight?: number;
+    negativeWeight?: number;
+    performanceWeight?: number;
+    hiddenTestPercent?: number;
+    passingPercent?: number;
+    totalPoints?: number;
+  };
 }
 
 export interface AIProviderOptions {
@@ -209,6 +218,15 @@ REQUIREMENTS:
     ? `Additional Notes:\n${request.audienceNotes}`
     : 'Additional Notes: none';
 
+  const rubric = request.rubric || {};
+  const rubricBlock = [
+    'Rubric Guidance (must influence test/score design):',
+    `- totalPoints: ${rubric.totalPoints ?? request.points ?? 'auto'}`,
+    `- passingPercent: ${rubric.passingPercent ?? 60}`,
+    `- hiddenTestPercent target: ${rubric.hiddenTestPercent ?? 35}%`,
+    `- category weights: basic=${rubric.basicWeight ?? 40}, edge=${rubric.edgeWeight ?? 25}, negative=${rubric.negativeWeight ?? 20}, performance=${rubric.performanceWeight ?? 15}`
+  ].join('\n');
+
   const userPrompt = `Generate a ${request.difficulty} ${request.language} question about: ${request.topic}
 
 Question Type: ${request.questionType}
@@ -219,6 +237,8 @@ ${audienceBlock}
 ${curriculumBlock}
 
 ${notesBlock}
+
+${rubricBlock}
 
 Create a complete question with comprehensive test cases that students can solve.
 Ensure tone, complexity, naming, and acceptance criteria fit the audience profile and domain.
