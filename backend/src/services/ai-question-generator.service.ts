@@ -16,6 +16,8 @@ export interface GenerateQuestionRequest {
   questionType: string;
   problemStyle?: 'algorithmic' | 'scenario_driven' | 'debugging' | 'implementation' | 'optimization' | 'design_tradeoff';
   generationMode?: 'production' | 'design';
+  retryWithFallback?: boolean;
+  randomSeed?: number;
   questionCount?: number;
   questionTypeMode?: 'single' | 'mixed';
   mixedQuestionTypes?: string[];
@@ -75,6 +77,22 @@ export interface GeneratedQuestion {
   tags: string[];
 }
 
+type ModelCallResult = {
+  text: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  provider: 'claude' | 'gpt';
+  model: string;
+  fallbackUsed?: boolean;
+};
+
+type UsageEstimate = {
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  estimatedTotalTokens: number;
+  estimatedCostUsd: number;
+};
+
 function cleanJsonBlock(input: string): string {
   let cleaned = String(input || '').trim();
   if (cleaned.startsWith('```json')) {
@@ -89,23 +107,30 @@ function resolveProvider(request: GenerateQuestionRequest): 'claude' | 'gpt' {
   return request.provider === 'gpt' ? 'gpt' : 'claude';
 }
 
-async function generateWithClaude(systemPrompt: string, userPrompt: string, model?: string): Promise<string> {
+async function generateWithClaude(systemPrompt: string, userPrompt: string, model?: string): Promise<ModelCallResult> {
   if (!anthropic) {
     throw new Error('Claude provider is not configured. Set ANTHROPIC_API_KEY.');
   }
 
+  const resolvedModel = model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
   const message = await anthropic.messages.create({
-    model: model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+    model: resolvedModel,
     max_tokens: 4096,
     temperature: 0.7,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }]
   });
 
-  return message.content[0]?.type === 'text' ? message.content[0].text : '';
+  return {
+    text: message.content[0]?.type === 'text' ? message.content[0].text : '',
+    inputTokens: (message as any)?.usage?.input_tokens,
+    outputTokens: (message as any)?.usage?.output_tokens,
+    provider: 'claude',
+    model: resolvedModel
+  };
 }
 
-async function generateWithGpt(systemPrompt: string, userPrompt: string, model?: string): Promise<string> {
+async function generateWithGpt(systemPrompt: string, userPrompt: string, model?: string): Promise<ModelCallResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('GPT provider is not configured. Set OPENAI_API_KEY.');
@@ -116,6 +141,7 @@ async function generateWithGpt(systemPrompt: string, userPrompt: string, model?:
     throw new Error('Fetch API is not available in this Node runtime.');
   }
 
+  const resolvedModel = model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
   const response = await fetchFn('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -123,7 +149,7 @@ async function generateWithGpt(systemPrompt: string, userPrompt: string, model?:
       Authorization: `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: model || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      model: resolvedModel,
       temperature: 0.7,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -138,7 +164,65 @@ async function generateWithGpt(systemPrompt: string, userPrompt: string, model?:
   }
 
   const json = await response.json();
-  return json?.choices?.[0]?.message?.content || '';
+  return {
+    text: json?.choices?.[0]?.message?.content || '',
+    inputTokens: json?.usage?.prompt_tokens,
+    outputTokens: json?.usage?.completion_tokens,
+    provider: 'gpt',
+    model: resolvedModel
+  };
+}
+
+async function callPrimaryWithFallback(
+  request: GenerateQuestionRequest,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<ModelCallResult> {
+  const primaryProvider = resolveProvider(request);
+  const shouldFallback = request.retryWithFallback !== false;
+
+  const callProvider = async (provider: 'claude' | 'gpt') => {
+    if (provider === 'gpt') return generateWithGpt(systemPrompt, userPrompt, request.model);
+    return generateWithClaude(systemPrompt, userPrompt, request.model);
+  };
+
+  try {
+    return await callProvider(primaryProvider);
+  } catch (primaryErr: any) {
+    if (!shouldFallback) throw primaryErr;
+    const fallbackProvider: 'claude' | 'gpt' = primaryProvider === 'claude' ? 'gpt' : 'claude';
+    try {
+      const fallbackResult = await callProvider(fallbackProvider);
+      return { ...fallbackResult, fallbackUsed: true };
+    } catch {
+      throw primaryErr;
+    }
+  }
+}
+
+function estimateTokenUsage(
+  provider: 'claude' | 'gpt',
+  systemPrompt: string,
+  userPrompt: string
+): UsageEstimate {
+  const totalChars = `${systemPrompt}\n${userPrompt}`.length;
+  const estimatedInputTokens = Math.max(100, Math.ceil(totalChars / 4));
+  const estimatedOutputTokens = 1600;
+  const estimatedTotalTokens = estimatedInputTokens + estimatedOutputTokens;
+
+  // Approximate default model pricing (USD / 1K tokens) for UI pre-run guidance.
+  const rateInPer1k = provider === 'claude' ? 0.003 : 0.00015;
+  const rateOutPer1k = provider === 'claude' ? 0.015 : 0.0006;
+  const estimatedCostUsd = Number(
+    ((estimatedInputTokens / 1000) * rateInPer1k + (estimatedOutputTokens / 1000) * rateOutPer1k).toFixed(4)
+  );
+
+  return {
+    estimatedInputTokens,
+    estimatedOutputTokens,
+    estimatedTotalTokens,
+    estimatedCostUsd
+  };
 }
 
 /**
@@ -240,6 +324,7 @@ Generation Mode: ${request.generationMode || 'production'}
 Question Type Mode: ${request.questionTypeMode || 'single'}
 Mixed Question Types: ${(request.mixedQuestionTypes || []).join(', ') || 'none'}
 Requested Question Count: ${Math.max(1, Math.min(25, Number(request.questionCount || 1)))}
+Random Seed: ${request.randomSeed ?? 'none'}
 Target Points: ${request.points || 'auto-determine based on difficulty'}
 Time Limit: ${request.timeLimit || 'auto-determine based on difficulty'} minutes
 ${audienceBlock}
@@ -255,12 +340,8 @@ Ensure tone, complexity, naming, and acceptance criteria fit the audience profil
 If curriculum context is provided, align problem statement and skills directly to it.`;
 
   try {
-    const provider = resolveProvider(request);
-    const responseText = provider === 'gpt'
-      ? await generateWithGpt(systemPrompt, userPrompt, request.model)
-      : await generateWithClaude(systemPrompt, userPrompt, request.model);
-
-    const cleanedResponse = cleanJsonBlock(responseText);
+    const modelResult = await callPrimaryWithFallback(request, systemPrompt, userPrompt);
+    const cleanedResponse = cleanJsonBlock(modelResult.text);
 
     // Parse JSON
     const question: GeneratedQuestion = JSON.parse(cleanedResponse);
@@ -270,7 +351,17 @@ If curriculum context is provided, align problem statement and skills directly t
       throw new Error('Invalid question structure generated');
     }
 
-    return question;
+    return {
+      ...question,
+      __generationMeta: {
+        provider: modelResult.provider,
+        model: modelResult.model,
+        inputTokens: modelResult.inputTokens,
+        outputTokens: modelResult.outputTokens,
+        fallbackUsed: Boolean(modelResult.fallbackUsed),
+        usageEstimate: estimateTokenUsage(resolveProvider(request), systemPrompt, userPrompt)
+      }
+    } as any;
 
   } catch (error: any) {
     console.error('AI Generation Error:', error);
@@ -317,11 +408,11 @@ ${code}
 Generate 8 comprehensive test cases.`;
 
   try {
-    const responseText = options?.provider === 'gpt'
+    const responseObj = options?.provider === 'gpt'
       ? await generateWithGpt(systemPrompt, userPrompt, options.model)
       : await generateWithClaude(systemPrompt, userPrompt, options?.model);
 
-    const cleaned = cleanJsonBlock(responseText || '[]');
+    const cleaned = cleanJsonBlock(responseObj.text || '[]');
 
     return JSON.parse(cleaned);
 
@@ -358,11 +449,11 @@ Suggest:
 4. Any missing requirements`;
 
   try {
-    const responseText = options?.provider === 'gpt'
+    const responseObj = options?.provider === 'gpt'
       ? await generateWithGpt(systemPrompt, userPrompt, options.model)
       : await generateWithClaude(systemPrompt, userPrompt, options?.model);
 
-    const cleaned = cleanJsonBlock(responseText || '{}');
+    const cleaned = cleanJsonBlock(responseObj.text || '{}');
 
     return JSON.parse(cleaned);
 
@@ -407,11 +498,11 @@ Test Results:
 Provide constructive feedback on correctness, performance, code quality, and best practices.`;
 
   try {
-    const responseText = options?.provider === 'gpt'
+    const responseObj = options?.provider === 'gpt'
       ? await generateWithGpt(systemPrompt, userPrompt, options.model)
       : await generateWithClaude(systemPrompt, userPrompt, options?.model);
 
-    const cleaned = cleanJsonBlock(responseText || '{}');
+    const cleaned = cleanJsonBlock(responseObj.text || '{}');
 
     return JSON.parse(cleaned);
 

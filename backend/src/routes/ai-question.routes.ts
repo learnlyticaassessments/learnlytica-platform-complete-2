@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { authenticate } from '../middleware/auth.middleware';
 import {
   getAICapabilitiesHandler,
+  dryRunPreviewHandler,
   generateQuestionHandler,
   generateAndCreateHandler,
   generateTestsHandler,
@@ -20,6 +21,9 @@ router.get('/capabilities', authenticate, getAICapabilitiesHandler);
 
 // POST /api/v1/ai/generate-question
 router.post('/generate-question', authenticate, generateQuestionHandler);
+
+// POST /api/v1/ai/dry-run-preview
+router.post('/dry-run-preview', authenticate, dryRunPreviewHandler);
 
 // POST /api/v1/ai/generate-and-create
 router.post('/generate-and-create', authenticate, generateAndCreateHandler);

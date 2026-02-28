@@ -5,6 +5,110 @@ import { aiService, AI_PROVIDER_OPTIONS, AI_QUESTION_TYPE_OPTIONS, AICapabilityM
 import JSZip from 'jszip';
 import { questionService } from '../services/questionService';
 
+type GeneratorPreset = {
+  id: string;
+  name: string;
+  audienceType?: GenerateQuestionRequest['audienceType'];
+  targetMaturity?: GenerateQuestionRequest['targetMaturity'];
+  domain?: string;
+  questionType?: string;
+  problemStyle?: GenerateQuestionRequest['problemStyle'];
+  language?: GenerateQuestionRequest['language'];
+  generationMode?: GenerateQuestionRequest['generationMode'];
+  rubric?: GenerateQuestionRequest['rubric'];
+  provider?: GenerateQuestionRequest['provider'];
+  model?: string;
+};
+
+function buildIdempotencyKey(payload: GenerateQuestionRequest) {
+  const key = [
+    payload.topic,
+    payload.language,
+    payload.difficulty,
+    payload.questionType,
+    payload.problemStyle,
+    payload.questionCount
+  ].join('|');
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash << 5) - hash + key.charCodeAt(i);
+    hash |= 0;
+  }
+  return `ai-gen-${Math.abs(hash)}-${Date.now()}`;
+}
+
+function classifyUiError(err: any): { category: string; message: string } {
+  const status = Number(err?.response?.status || 0);
+  const errorType = String(err?.response?.data?.errorType || '').toLowerCase();
+  const message = String(err?.response?.data?.error || err?.message || 'Request failed');
+
+  if (errorType) return { category: errorType, message };
+  if (status === 400 || status === 422) return { category: 'validation', message };
+  if (status === 429) return { category: 'rate_limit', message };
+  if (status === 401 || status === 403) return { category: 'authorization', message };
+  if (status >= 500) return { category: 'provider_or_server', message };
+  return { category: 'unknown', message };
+}
+
+function curriculumCompleteness(curriculumText: string) {
+  const sections = [
+    'program overview',
+    'learning objectives',
+    'technical stack',
+    'module breakdown',
+    'assessment guidance',
+    'rubric expectations'
+  ];
+  const text = String(curriculumText || '').toLowerCase();
+  const hits = sections.filter((section) => text.includes(section));
+  const score = sections.length ? Math.round((hits.length / sections.length) * 100) : 0;
+  return { score, missing: sections.filter((s) => !hits.includes(s)) };
+}
+
+function scoreQuestionQuality(question: any) {
+  const titleLen = String(question?.title || '').trim().length;
+  const descriptionLen = String(question?.description || '').trim().length;
+  const tests = Array.isArray(question?.testConfig?.testCases) ? question.testConfig.testCases : [];
+  const categories = new Set(tests.map((t: any) => String(t?.category || 'basic').toLowerCase()));
+  const visibleCount = tests.filter((t: any) => t?.visible !== false).length;
+  const hiddenCount = tests.length - visibleCount;
+  const hiddenPct = tests.length ? Math.round((hiddenCount / tests.length) * 100) : 0;
+  const realismSignals = /api|customer|business|workflow|portal|ticket|claim|order/i.test(String(question?.description || ''));
+
+  const clarity = Math.min(100, (titleLen >= 8 ? 35 : 10) + (descriptionLen >= 300 ? 65 : Math.round(descriptionLen / 5)));
+  const testBalance = Math.min(
+    100,
+    (tests.length >= 6 ? 40 : tests.length * 6) +
+      (categories.size >= 3 ? 40 : categories.size * 12) +
+      (hiddenPct >= 20 && hiddenPct <= 45 ? 20 : 8)
+  );
+  const realism = realismSignals ? 90 : 60;
+  const total = Math.round((clarity + testBalance + realism) / 3);
+  return { clarity, testBalance, realism, total, hiddenPct, testsCount: tests.length };
+}
+
+function scanHiddenLeak(question: any) {
+  const tests = Array.isArray(question?.testConfig?.testCases) ? question.testConfig.testCases : [];
+  const hiddenNames = tests
+    .filter((t: any) => t?.visible === false)
+    .map((t: any) => String(t?.name || '').trim())
+    .filter(Boolean);
+  const exposedText = `${question?.description || ''}\n${(question?.hints || []).join('\n')}\n${question?.starterCode?.files?.[0]?.content || ''}`.toLowerCase();
+  const leaks = hiddenNames.filter((name: string) => exposedText.includes(name.toLowerCase()));
+  return { hasLeak: leaks.length > 0, leaks };
+}
+
+function scanUnsafePatterns(question: any) {
+  const patterns = [/rm\s+-rf/i, /child_process/i, /process\.env/i, /while\s*\(\s*true\s*\)/i, /eval\s*\(/i];
+  const codeBlocks: string[] = [];
+  const tests = Array.isArray(question?.testConfig?.testCases) ? question.testConfig.testCases : [];
+  tests.forEach((t: any) => codeBlocks.push(String(t?.testCode || '')));
+  (question?.solution?.files || []).forEach((f: any) => codeBlocks.push(String(f?.content || '')));
+  const content = codeBlocks.join('\n');
+  const hits = patterns.filter((p) => p.test(content)).map((p) => p.toString());
+  return { hasUnsafe: hits.length > 0, hits };
+}
+
 export function AIQuestionGenerator() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState<GenerateQuestionRequest>({
@@ -19,6 +123,7 @@ export function AIQuestionGenerator() {
     mixedQuestionTypes: [],
     provider: 'claude',
     model: 'claude-sonnet-4-20250514',
+    retryWithFallback: true,
     audienceType: 'fresher',
     targetMaturity: 'beginner',
     domain: '',
@@ -49,6 +154,23 @@ export function AIQuestionGenerator() {
   const [creatingBatchIndex, setCreatingBatchIndex] = useState<number | null>(null);
   const [downloadingBatch, setDownloadingBatch] = useState(false);
   const [capabilities, setCapabilities] = useState<AICapabilityMatrix | null>(null);
+  const [dryRunPreview, setDryRunPreview] = useState<any | null>(null);
+  const [apiPayloadCopied, setApiPayloadCopied] = useState(false);
+  const [selectedBatchDraftIndexes, setSelectedBatchDraftIndexes] = useState<number[]>([]);
+  const [batchCreateReport, setBatchCreateReport] = useState<any | null>(null);
+  const [diffLeftIndex, setDiffLeftIndex] = useState<number>(0);
+  const [diffRightIndex, setDiffRightIndex] = useState<number>(1);
+  const [savedPresets, setSavedPresets] = useState<GeneratorPreset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [presetNameInput, setPresetNameInput] = useState('');
+  const [wizardStepError, setWizardStepError] = useState('');
+  const [structuredError, setStructuredError] = useState<{ category: string; message: string } | null>(null);
+  const [promoteChecks, setPromoteChecks] = useState({
+    acceptanceCriteria: false,
+    hiddenTestCoverage: false,
+    edgeCasesCovered: false,
+    domainRealismReviewed: false
+  });
 
   const [testGenCode, setTestGenCode] = useState('function solve(input) {\n  return input;\n}');
   const [testGenDescription, setTestGenDescription] = useState('');
@@ -67,6 +189,17 @@ export function AIQuestionGenerator() {
     { label: 'Quality', value: 'Perfect', icon: Star },
     { label: 'Cost', value: '$0.03', icon: TrendingUp }
   ];
+  const curriculumScore = useMemo(() => curriculumCompleteness(formData.curriculumText || ''), [formData.curriculumText]);
+  const tokenCostEstimate = useMemo(() => {
+    const promptChars = `${formData.topic || ''}\n${formData.curriculumText || ''}\n${formData.audienceNotes || ''}`.length;
+    const inTokens = Math.max(100, Math.ceil(promptChars / 4));
+    const outTokens = 1600;
+    const isClaude = (formData.provider || 'claude') === 'claude';
+    const inRate = isClaude ? 0.003 : 0.00015;
+    const outRate = isClaude ? 0.015 : 0.0006;
+    const cost = Number((((inTokens / 1000) * inRate) + ((outTokens / 1000) * outRate)).toFixed(4));
+    return { inTokens, outTokens, totalTokens: inTokens + outTokens, cost };
+  }, [formData.topic, formData.curriculumText, formData.audienceNotes, formData.provider]);
   const wizardSteps = [
     'Audience Profile',
     'Domain & Curriculum',
@@ -267,6 +400,117 @@ export function AIQuestionGenerator() {
     return [formData.questionType];
   };
 
+  const validateWizardStep = (step: number): string | null => {
+    if (!wizardEnabled) return null;
+    if (step === 0) {
+      if (!formData.audienceType) return 'Audience is required';
+      if (!formData.targetMaturity) return 'Target maturity is required';
+      return null;
+    }
+    if (step === 1) {
+      if (!String(formData.domain || '').trim()) return 'Domain is required';
+      if (!String(formData.curriculumText || '').trim()) return 'Curriculum brief is required';
+      return null;
+    }
+    if (step === 2) {
+      if (!formData.language || !formData.questionType || !formData.problemStyle) return 'Language, type, and problem style are required';
+      if ((formData.questionTypeMode || 'single') === 'mixed' && !(formData.mixedQuestionTypes || []).length) {
+        return 'Select at least one mixed type';
+      }
+      return null;
+    }
+    if (step === 3) {
+      if (!formData.provider || !String(formData.model || '').trim()) return 'Provider and model are required';
+      return null;
+    }
+    return null;
+  };
+
+  const validateCriticalInputs = (): string | null => {
+    if (!formData.topic.trim()) return 'Topic is required';
+    const requiredSteps = [0, 1, 2, 3];
+    for (const step of requiredSteps) {
+      const err = validateWizardStep(step);
+      if (err) return err;
+    }
+    return null;
+  };
+
+  const handleWizardNext = () => {
+    const nextError = validateWizardStep(wizardStep);
+    if (nextError) {
+      setWizardStepError(nextError);
+      return;
+    }
+    setWizardStepError('');
+    setWizardStep((s) => Math.min(wizardSteps.length - 1, s + 1));
+  };
+
+  const handleWizardBack = () => {
+    setWizardStepError('');
+    setWizardStep((s) => Math.max(0, s - 1));
+  };
+
+  const handleSavePreset = () => {
+    const name = presetNameInput.trim() || `${formData.domain || 'preset'}-${new Date().toISOString().slice(0, 10)}`;
+    const preset: GeneratorPreset = {
+      id: `preset-${Date.now()}`,
+      name,
+      audienceType: formData.audienceType,
+      targetMaturity: formData.targetMaturity,
+      domain: formData.domain,
+      questionType: formData.questionType,
+      problemStyle: formData.problemStyle,
+      language: formData.language,
+      generationMode: formData.generationMode,
+      rubric: formData.rubric,
+      provider: formData.provider,
+      model: formData.model
+    };
+    const next = [preset, ...savedPresets].slice(0, 20);
+    setSavedPresets(next);
+    localStorage.setItem('ai_generator_presets_v1', JSON.stringify(next));
+    setSelectedPresetId(preset.id);
+    setPresetNameInput('');
+  };
+
+  const handleApplyPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    const preset = savedPresets.find((p) => p.id === presetId);
+    if (!preset) return;
+    setFormData((prev) => ({
+      ...prev,
+      audienceType: preset.audienceType || prev.audienceType,
+      targetMaturity: preset.targetMaturity || prev.targetMaturity,
+      domain: preset.domain ?? prev.domain,
+      questionType: preset.questionType || prev.questionType,
+      problemStyle: preset.problemStyle || prev.problemStyle,
+      language: preset.language || prev.language,
+      generationMode: preset.generationMode || prev.generationMode,
+      rubric: { ...(prev.rubric || {}), ...(preset.rubric || {}) },
+      provider: preset.provider || prev.provider,
+      model: preset.model || prev.model
+    }));
+  };
+
+  const handleDryRunPreview = async () => {
+    try {
+      const preview = await aiService.dryRunPreview(formData);
+      setDryRunPreview(preview);
+    } catch (err: any) {
+      const classified = classifyUiError(err);
+      setStructuredError(classified);
+      setError(classified.message);
+    }
+  };
+
+  const handleCopyPayload = async () => {
+    const payload = JSON.stringify(formData, null, 2);
+    await navigator.clipboard.writeText(payload);
+    setApiPayloadCopied(true);
+    setTimeout(() => setApiPayloadCopied(false), 1200);
+  };
+
   const selectedCapability = useMemo(() => {
     const languageState = languageOptions.find((l) => l.value === formData.language)?.state || 'planned';
     const typeState = normalizedTypeOptions.find((t) => t.value === formData.questionType)?.state || 'planned';
@@ -296,21 +540,44 @@ export function AIQuestionGenerator() {
   }, []);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem('ai_generator_presets_v1');
+      if (raw) setSavedPresets(JSON.parse(raw));
+    } catch {
+      setSavedPresets([]);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!generatedQuestion) return;
     setImproveQuestionInput(JSON.stringify(generatedQuestion, null, 2));
     setReviewQuestionInput(JSON.stringify({ title: generatedQuestion.title || 'Generated Question' }, null, 2));
   }, [generatedQuestion]);
 
+  const qualityScore = useMemo(() => scoreQuestionQuality(generatedQuestion), [generatedQuestion]);
+  const hiddenLeakScan = useMemo(() => scanHiddenLeak(generatedQuestion), [generatedQuestion]);
+  const unsafeScan = useMemo(() => scanUnsafePatterns(generatedQuestion), [generatedQuestion]);
+  const promoteReady =
+    Object.values(promoteChecks).every(Boolean) &&
+    qualityScore.total >= 70 &&
+    !hiddenLeakScan.hasLeak &&
+    !unsafeScan.hasUnsafe;
+
   const handleGenerate = async () => {
-    if (!formData.topic.trim()) {
-      setError('Please enter a topic');
+    const validationError = validateCriticalInputs();
+    if (validationError) {
+      setWizardStepError(validationError);
+      setError(validationError);
       return;
     }
 
     setLoading(true);
     setError('');
+    setStructuredError(null);
     setBatchGenerationSummary('');
     setGeneratedBatchQuestions([]);
+    setBatchCreateReport(null);
+    setSelectedBatchDraftIndexes([]);
 
     try {
       const requestedCount = getRequestedQuestionCount();
@@ -321,6 +588,12 @@ export function AIQuestionGenerator() {
         setGeneratedQuestion(response.data);
         setGenerationPipeline(response.pipeline || null);
         setGeneratedBatchQuestions([]);
+        setPromoteChecks({
+          acceptanceCriteria: true,
+          hiddenTestCoverage: false,
+          edgeCasesCovered: false,
+          domainRealismReviewed: false
+        });
       } else {
         const generatedItems: any[] = [];
         for (let i = 0; i < requestedCount; i += 1) {
@@ -328,8 +601,9 @@ export function AIQuestionGenerator() {
           const requestForItem: GenerateQuestionRequest = {
             ...formData,
             questionType: selectedType,
-            questionCount: 1,
-            questionTypeMode: 'single'
+            questionCount: requestedCount,
+            questionTypeMode: 'single',
+            randomSeed: Date.now() + i
           };
           const response = await aiService.generateQuestion(requestForItem);
           generatedItems.push(response.data);
@@ -342,12 +616,17 @@ export function AIQuestionGenerator() {
         setGeneratedQuestion(generatedItems[0]);
         setGenerationPipeline(null);
         setGeneratedBatchQuestions(generatedItems);
+        setSelectedBatchDraftIndexes(generatedItems.map((_, idx) => idx));
+        setDiffLeftIndex(0);
+        setDiffRightIndex(Math.min(1, generatedItems.length - 1));
         setBatchGenerationSummary(
           `Generated ${generatedItems.length} question drafts using types: ${plannedTypes.join(', ')}. Showing the first draft below.`
         );
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to generate question');
+      const classified = classifyUiError(err);
+      setStructuredError(classified);
+      setError(classified.message || 'Failed to generate question');
     } finally {
       setLoading(false);
     }
@@ -360,16 +639,19 @@ export function AIQuestionGenerator() {
     }
     setLoading(true);
     setError('');
+    setStructuredError(null);
 
     try {
-      const response = await aiService.generateAndCreate(formData);
+      const response = await aiService.generateAndCreate({ ...formData, idempotencyKey: buildIdempotencyKey(formData) });
       const tests = response?.data?.pipeline
         ? `${response.data.pipeline.testsPassed}/${response.data.pipeline.testsRun}`
         : '-';
       alert(`Question created successfully. Verification tests: ${tests}`);
       navigate(`/questions/${response.data.question.id}`);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create question');
+      const classified = classifyUiError(err);
+      setStructuredError(classified);
+      setError(classified.message || 'Failed to create question');
     } finally {
       setLoading(false);
     }
@@ -381,7 +663,9 @@ export function AIQuestionGenerator() {
       const created = await questionService.create(question);
       navigate(`/questions/${created.id}`);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || 'Failed to create selected batch question');
+      const classified = classifyUiError(err);
+      setStructuredError(classified);
+      setError(classified.message || 'Failed to create selected batch question');
     } finally {
       setCreatingBatchIndex(null);
     }
@@ -400,7 +684,8 @@ export function AIQuestionGenerator() {
       );
       setGeneratedTests(response?.data || response || []);
     } catch (err: any) {
-      setUtilityError(err.response?.data?.error || 'Failed to generate tests');
+      const classified = classifyUiError(err);
+      setUtilityError(`[${classified.category}] ${classified.message || 'Failed to generate tests'}`);
     } finally {
       setUtilityLoading(null);
     }
@@ -414,7 +699,8 @@ export function AIQuestionGenerator() {
       const response = await aiService.improveQuestion(parsed, formData.provider, formData.model);
       setImprovementOutput(response?.data || response || null);
     } catch (err: any) {
-      setUtilityError(err?.message || err.response?.data?.error || 'Failed to improve question');
+      const classified = classifyUiError(err);
+      setUtilityError(`[${classified.category}] ${classified.message || 'Failed to improve question'}`);
     } finally {
       setUtilityLoading(null);
     }
@@ -435,7 +721,8 @@ export function AIQuestionGenerator() {
       );
       setReviewOutput(response?.data || response || null);
     } catch (err: any) {
-      setUtilityError(err?.message || err.response?.data?.error || 'Failed to review code');
+      const classified = classifyUiError(err);
+      setUtilityError(`[${classified.category}] ${classified.message || 'Failed to review code'}`);
     } finally {
       setUtilityLoading(null);
     }
@@ -591,8 +878,10 @@ export function AIQuestionGenerator() {
   };
 
   const handleGenerateCreateAndDownload = async () => {
-    if (!formData.topic.trim()) {
-      setError('Please enter a topic');
+    const validationError = validateCriticalInputs();
+    if (validationError) {
+      setWizardStepError(validationError);
+      setError(validationError);
       return;
     }
     if (getRequestedQuestionCount() > 1) {
@@ -602,8 +891,9 @@ export function AIQuestionGenerator() {
 
     setAtomicLoading(true);
     setError('');
+    setStructuredError(null);
     try {
-      const response = await aiService.generateAndCreate(formData);
+      const response = await aiService.generateAndCreate({ ...formData, idempotencyKey: buildIdempotencyKey(formData) });
       const createdQuestion = response?.data?.question;
       if (!createdQuestion) {
         throw new Error('Question was not returned by server');
@@ -614,7 +904,9 @@ export function AIQuestionGenerator() {
       await downloadQuestionZipFromPayload(createdQuestion, `${createdQuestion.title || 'ai-question'}-verified-draft`);
       navigate(`/questions/${createdQuestion.id}`);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || 'Failed to generate, create, and download');
+      const classified = classifyUiError(err);
+      setStructuredError(classified);
+      setError(classified.message || 'Failed to generate, create, and download');
     } finally {
       setAtomicLoading(false);
     }
@@ -627,6 +919,131 @@ export function AIQuestionGenerator() {
       setFormData((prev) => ({ ...prev, curriculumText: text.slice(0, 12000) }));
     } catch {
       setError('Failed to read curriculum file');
+    }
+  };
+
+  const handleDownloadCurriculumTemplate = () => {
+    const template = [
+      '# Curriculum Input Template for AI Question Generator',
+      '',
+      '## Program Overview',
+      '- Program Name:',
+      '- Target Role(s):',
+      '- Audience Type: Fresher / Experienced / Mixed',
+      '- Experience Band:',
+      '- Domain: BFSI / Retail / Healthcare / etc.',
+      '',
+      '## Learning Objectives',
+      '- Objective 1:',
+      '- Objective 2:',
+      '- Objective 3:',
+      '',
+      '## Technical Stack',
+      '- Primary Language(s): JavaScript / Python / Java',
+      '- Frameworks:',
+      '- Tools:',
+      '',
+      '## Module Breakdown',
+      '### Module 1: <name>',
+      '- Topics:',
+      '- Skills:',
+      '- Expected outcomes:',
+      '- Suggested problem styles: algorithmic / scenario_driven / debugging / implementation / optimization / design_tradeoff',
+      '',
+      '### Module 2: <name>',
+      '- Topics:',
+      '- Skills:',
+      '- Expected outcomes:',
+      '',
+      '## Assessment Guidance',
+      '- Preferred difficulty mix: beginner/intermediate/advanced',
+      '- Preferred technical focuses: algorithm/api/component/fullstack/testing/security/performance/etc.',
+      '- Must-cover edge cases:',
+      '- Business constraints:',
+      '',
+      '## Rubric Expectations',
+      '- Visible test ratio:',
+      '- Hidden test ratio:',
+      '- Passing threshold (%):',
+      '- Quality expectations:',
+      '',
+      '## Real-world Case Study Context (Optional but Recommended)',
+      '- Business scenario:',
+      '- User journey:',
+      '- API/data flow expectations:',
+      '- Non-functional expectations (performance/security/reliability):'
+    ].join('\n');
+
+    const blob = new Blob([template], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'curriculum-template-for-ai-generator.md';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleRegenerateVariant = async () => {
+    const seed = Date.now();
+    setLoading(true);
+    setError('');
+    try {
+      const response = await aiService.generateQuestion({ ...formData, randomSeed: seed });
+      setGeneratedQuestion(response.data);
+      setGenerationPipeline(response.pipeline || null);
+      setBatchGenerationSummary(`Regenerated variant using seed ${seed}.`);
+    } catch (err: any) {
+      const classified = classifyUiError(err);
+      setStructuredError(classified);
+      setError(classified.message || 'Failed to regenerate variant');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateSelectedBatchWithRollback = async () => {
+    if (!selectedBatchDraftIndexes.length) {
+      setError('Select at least one draft to create.');
+      return;
+    }
+    const createdIds: string[] = [];
+    const failures: Array<{ index: number; title: string; reason: string }> = [];
+    setLoading(true);
+    setBatchCreateReport(null);
+    try {
+      for (const idx of selectedBatchDraftIndexes) {
+        const draft = generatedBatchQuestions[idx];
+        try {
+          const created = await questionService.create(draft);
+          createdIds.push(created.id);
+        } catch (err: any) {
+          failures.push({
+            index: idx,
+            title: draft?.title || `Draft ${idx + 1}`,
+            reason: classifyUiError(err).message
+          });
+          break;
+        }
+      }
+      if (failures.length) {
+        for (const id of createdIds) {
+          try {
+            await questionService.delete(id);
+          } catch {
+            // best effort rollback
+          }
+        }
+      }
+      setBatchCreateReport({
+        attempted: selectedBatchDraftIndexes.length,
+        created: failures.length ? 0 : createdIds.length,
+        rolledBack: failures.length ? createdIds.length : 0,
+        failures
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -684,6 +1101,49 @@ export function AIQuestionGenerator() {
               {downloadingBatch ? 'Preparing Batch ZIP...' : 'Download Batch Draft Pack'}
             </button>
           </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 mb-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setSelectedBatchDraftIndexes(generatedBatchQuestions.map((_, idx) => idx))}>
+                Select All
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setSelectedBatchDraftIndexes([])}>
+                Clear Selection
+              </button>
+              <button type="button" className="btn-secondary" onClick={handleCreateSelectedBatchWithRollback} disabled={loading || selectedBatchDraftIndexes.length === 0}>
+                Create Selected + Rollback On Failure
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Diff Left</label>
+                <select className="input-field" value={diffLeftIndex} onChange={(e) => setDiffLeftIndex(Number(e.target.value))}>
+                  {generatedBatchQuestions.map((_, idx) => <option key={`dl-${idx}`} value={idx}>Draft {idx + 1}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Diff Right</label>
+                <select className="input-field" value={diffRightIndex} onChange={(e) => setDiffRightIndex(Number(e.target.value))}>
+                  {generatedBatchQuestions.map((_, idx) => <option key={`dr-${idx}`} value={idx}>Draft {idx + 1}</option>)}
+                </select>
+              </div>
+            </div>
+            {generatedBatchQuestions[diffLeftIndex] && generatedBatchQuestions[diffRightIndex] && diffLeftIndex !== diffRightIndex && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                <pre className="text-xs bg-slate-900 text-slate-100 rounded p-2 max-h-56 overflow-auto">{JSON.stringify(generatedBatchQuestions[diffLeftIndex], null, 2)}</pre>
+                <pre className="text-xs bg-slate-900 text-slate-100 rounded p-2 max-h-56 overflow-auto">{JSON.stringify(generatedBatchQuestions[diffRightIndex], null, 2)}</pre>
+              </div>
+            )}
+            {batchCreateReport && (
+              <div className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-700">
+                Attempted: {batchCreateReport.attempted} | Created: {batchCreateReport.created} | Rolled back: {batchCreateReport.rolledBack}
+                {batchCreateReport.failures?.length > 0 && (
+                  <div className="mt-1 text-red-700">
+                    Failed: {batchCreateReport.failures.map((f: any) => `${f.title} (${f.reason})`).join('; ')}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="space-y-3">
             {generatedBatchQuestions.map((q, index) => (
@@ -694,6 +1154,18 @@ export function AIQuestionGenerator() {
                     <div className="font-semibold text-slate-900">{q?.title || `Generated Draft ${index + 1}`}</div>
                   </div>
                   <div className="flex gap-2">
+                    <label className="inline-flex items-center gap-1 text-xs text-slate-600 px-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedBatchDraftIndexes.includes(index)}
+                        onChange={(e) =>
+                          setSelectedBatchDraftIndexes((prev) =>
+                            e.target.checked ? [...prev, index] : prev.filter((v) => v !== index)
+                          )
+                        }
+                      />
+                      select
+                    </label>
                     <button
                       type="button"
                       className="btn-secondary"
@@ -756,18 +1228,62 @@ export function AIQuestionGenerator() {
               </span>
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
                   setFormData((prev) => ({
                     ...prev,
                     language: curriculumSuggestions.language,
                     questionType: curriculumSuggestions.questionType,
                     problemStyle: curriculumSuggestions.problemStyle
-                  }))
-                }
+                  }));
+                  setBatchGenerationSummary(
+                    `Applied suggestions -> Language: ${curriculumSuggestions.language}, Type: ${curriculumSuggestions.questionType}, Style: ${curriculumSuggestions.problemStyle}`
+                  );
+                }}
                 className="px-2 py-1 rounded bg-indigo-50 border border-indigo-200 text-indigo-700"
               >
                 Apply Curriculum Suggestions
               </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <div className="text-sm font-semibold text-slate-900">Save Generator Preset</div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={presetNameInput}
+                  onChange={(e) => setPresetNameInput(e.target.value)}
+                  placeholder="Preset name (e.g., BFSI Fresher API)"
+                  className="input-field flex-1"
+                />
+                <button type="button" className="btn-secondary whitespace-nowrap" onClick={handleSavePreset}>
+                  Save
+                </button>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Load Preset</label>
+                <select className="input-field" value={selectedPresetId} onChange={(e) => handleApplyPreset(e.target.value)}>
+                  <option value="">Select preset</option>
+                  {savedPresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>{preset.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <div className="text-sm font-semibold text-slate-900">Curriculum Parser Score</div>
+              <div className="text-2xl font-bold text-slate-900">{curriculumScore.score}%</div>
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full bg-indigo-500" style={{ width: `${curriculumScore.score}%` }} />
+              </div>
+              {curriculumScore.missing.length > 0 ? (
+                <div className="text-xs text-amber-700">
+                  Missing sections: {curriculumScore.missing.join(', ')}
+                </div>
+              ) : (
+                <div className="text-xs text-emerald-700">All key curriculum sections present.</div>
+              )}
             </div>
           </div>
 
@@ -861,15 +1377,24 @@ export function AIQuestionGenerator() {
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <label className="block text-sm font-semibold text-slate-700">Curriculum Context</label>
-                        <label className="text-xs px-2 py-1 rounded bg-slate-100 border border-slate-200 cursor-pointer">
-                          Upload
-                          <input
-                            type="file"
-                            className="hidden"
-                            accept=".txt,.md,.json,.csv"
-                            onChange={(e) => handleCurriculumUpload(e.target.files?.[0] || null)}
-                          />
-                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleDownloadCurriculumTemplate}
+                            className="text-xs px-2 py-1 rounded bg-indigo-50 border border-indigo-200 text-indigo-700"
+                          >
+                            Download Sample
+                          </button>
+                          <label className="text-xs px-2 py-1 rounded bg-slate-100 border border-slate-200 cursor-pointer">
+                            Upload
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept=".txt,.md,.json,.csv"
+                              onChange={(e) => handleCurriculumUpload(e.target.files?.[0] || null)}
+                            />
+                          </label>
+                        </div>
                       </div>
                       <textarea
                         value={formData.curriculumText || ''}
@@ -896,23 +1421,6 @@ export function AIQuestionGenerator() {
                           </option>
                         ))}
                       </select>
-                      <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
-                        <label className="block text-xs font-semibold tracking-wide text-indigo-800 mb-2">
-                          Add Custom Type
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={customQuestionTypeInput}
-                            onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
-                            placeholder="Example: distributed-systems, fraud-detection, reconciliation-engine"
-                            className="input-field flex-1 min-w-0"
-                          />
-                          <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap">
-                            Add Type
-                          </button>
-                        </div>
-                      </div>
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">Problem Style</label>
@@ -1039,6 +1547,25 @@ export function AIQuestionGenerator() {
                     </div>
                   </div>
                 )}
+                {wizardStep === 2 && (
+                  <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+                    <label className="block text-sm font-semibold tracking-wide text-indigo-900 mb-2">
+                      Add Custom Type
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={customQuestionTypeInput}
+                        onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
+                        placeholder="Example: distributed-systems, fraud-detection, reconciliation-engine"
+                        className="input-field flex-1 min-w-0 text-sm"
+                      />
+                      <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap px-4">
+                        Add Type
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {wizardStep === 3 && (
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -1130,6 +1657,16 @@ export function AIQuestionGenerator() {
                         placeholder="Optional override"
                       />
                     </div>
+                    <div className="sm:col-span-2">
+                      <label className="inline-flex items-center gap-2 text-sm text-slate-700 mt-7">
+                        <input
+                          type="checkbox"
+                          checked={formData.retryWithFallback !== false}
+                          onChange={(e) => setFormData({ ...formData, retryWithFallback: e.target.checked })}
+                        />
+                        Retry with fallback model if primary provider fails
+                      </label>
+                    </div>
                   </div>
                 )}
 
@@ -1181,7 +1718,7 @@ export function AIQuestionGenerator() {
                 <div className="flex items-center justify-between">
                   <button
                     type="button"
-                    onClick={() => setWizardStep((s) => Math.max(0, s - 1))}
+                    onClick={handleWizardBack}
                     disabled={wizardStep === 0}
                     className="btn-secondary disabled:opacity-50"
                   >
@@ -1189,17 +1726,24 @@ export function AIQuestionGenerator() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setWizardStep((s) => Math.min(wizardSteps.length - 1, s + 1))}
+                    onClick={handleWizardNext}
                     disabled={wizardStep === wizardSteps.length - 1}
                     className="btn-secondary disabled:opacity-50"
                   >
                     Next
                   </button>
                 </div>
+                {wizardStepError && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                    {wizardStepError}
+                  </div>
+                )}
               </div>
             )}
           </div>
 
+          {!wizardEnabled && (
+          <>
           <details className="rounded-xl border border-slate-200 p-4" open={!wizardEnabled}>
             <summary className="cursor-pointer text-sm font-semibold text-slate-800">Audience + Domain + Curriculum Brief</summary>
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1263,15 +1807,24 @@ export function AIQuestionGenerator() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-sm font-semibold text-slate-700">Curriculum Context</label>
-                  <label className="text-xs px-2 py-1 rounded bg-slate-100 border border-slate-200 cursor-pointer">
-                    Upload Curriculum
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".txt,.md,.json,.csv"
-                      onChange={(e) => handleCurriculumUpload(e.target.files?.[0] || null)}
-                    />
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDownloadCurriculumTemplate}
+                      className="text-xs px-2 py-1 rounded bg-indigo-50 border border-indigo-200 text-indigo-700"
+                    >
+                      Download Sample
+                    </button>
+                    <label className="text-xs px-2 py-1 rounded bg-slate-100 border border-slate-200 cursor-pointer">
+                      Upload Curriculum
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".txt,.md,.json,.csv"
+                        onChange={(e) => handleCurriculumUpload(e.target.files?.[0] || null)}
+                      />
+                    </label>
+                  </div>
                 </div>
                 <textarea
                   value={formData.curriculumText || ''}
@@ -1364,23 +1917,6 @@ export function AIQuestionGenerator() {
                   </option>
                 ))}
               </select>
-              <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
-                <label className="block text-xs font-semibold tracking-wide text-indigo-800 mb-2">
-                  Add Custom Type
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={customQuestionTypeInput}
-                    onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
-                    placeholder="Example: distributed-systems, fraud-detection, reconciliation-engine"
-                    className="input-field flex-1 min-w-0"
-                  />
-                  <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap">
-                    Add Type
-                  </button>
-                </div>
-              </div>
               <p className="mt-2 text-xs" style={{ color: 'var(--text-dim)' }}>
                 {
                   questionTypeOptions.find((option) => option.value === formData.questionType)
@@ -1498,6 +2034,26 @@ export function AIQuestionGenerator() {
             </div>
           )}
 
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+            <label className="block text-sm font-semibold tracking-wide text-indigo-900 mb-2">
+              Add Custom Type
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customQuestionTypeInput}
+                onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
+                placeholder="Example: distributed-systems, fraud-detection, reconciliation-engine"
+                className="input-field flex-1 min-w-0 text-sm"
+              />
+              <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap px-4">
+                Add Type
+              </button>
+            </div>
+          </div>
+          </>
+          )}
+
           <div className={`rounded-lg border p-3 text-sm ${
             selectedCapability.overall === 'ready'
               ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
@@ -1506,13 +2062,31 @@ export function AIQuestionGenerator() {
                 : 'border-slate-200 bg-slate-50 text-slate-700'
           }`}>
             <div className="font-semibold">Evaluator Confidence: {selectedCapability.confidencePercent}%</div>
-            <div className="mt-1">
-              Language: {selectedCapability.languageState} • Focus: {selectedCapability.typeState} • Style: {selectedCapability.styleState}
-            </div>
+            <div className="mt-1">Language: <span className="font-medium">{selectedCapability.languageState}</span></div>
+            <div>Focus: <span className="font-medium">{selectedCapability.typeState}</span></div>
+            <div>Style: <span className="font-medium">{selectedCapability.styleState}</span></div>
             {formData.generationMode === 'production' && selectedCapability.overall !== 'ready' && (
               <div className="mt-1">
                 Production mode requires all three checks to be <span className="font-semibold">ready</span>.
               </div>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+            <div className="font-semibold text-slate-900">Pre-run Cost Estimate</div>
+            <div className="mt-1 text-slate-700">
+              ~{tokenCostEstimate.totalTokens} tokens ({tokenCostEstimate.inTokens} in / {tokenCostEstimate.outTokens} out), estimated cost ${tokenCostEstimate.cost}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className="btn-secondary" onClick={handleDryRunPreview}>Dry Run Prompt Preview</button>
+              <button type="button" className="btn-secondary" onClick={handleCopyPayload}>
+                {apiPayloadCopied ? 'Copied API Payload' : 'Copy as API Payload'}
+              </button>
+            </div>
+            {dryRunPreview && (
+              <pre className="mt-3 text-xs bg-slate-900 text-slate-100 rounded-lg p-3 overflow-auto max-h-64">
+                {JSON.stringify(dryRunPreview, null, 2)}
+              </pre>
             )}
           </div>
 
@@ -1555,7 +2129,7 @@ export function AIQuestionGenerator() {
             {generatedQuestion && (
               <button
                 onClick={handleCreateQuestion}
-                disabled={loading || getRequestedQuestionCount() > 1}
+                disabled={loading || getRequestedQuestionCount() > 1 || !promoteReady}
                 className="btn-secondary flex items-center justify-center gap-2 min-h-[46px]"
               >
                 <Check className="w-5 h-5" />
@@ -1573,6 +2147,11 @@ export function AIQuestionGenerator() {
               </button>
             )}
           </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary" onClick={handleRegenerateVariant} disabled={loading || atomicLoading || !formData.topic}>
+              Regenerate Variant
+            </button>
+          </div>
           {getRequestedQuestionCount() > 1 && (
             <p className="text-xs text-amber-700">
               Batch mode generates preview drafts only. To create/verify a question in DB, set Question Count to 1.
@@ -1588,6 +2167,11 @@ export function AIQuestionGenerator() {
             <div className="flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
               <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+          {structuredError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+              Error Type: <span className="font-semibold">{structuredError.category}</span>
             </div>
           )}
 
@@ -1744,6 +2328,35 @@ export function AIQuestionGenerator() {
           </div>
 
           <div className="mb-7">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 mb-4">
+              <div className="text-sm font-semibold text-slate-900 mb-2">Promote to Production-ready Checklist</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                {Object.keys(promoteChecks).map((key) => (
+                  <label key={key} className="inline-flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={(promoteChecks as any)[key]}
+                      onChange={(e) => setPromoteChecks((prev) => ({ ...prev, [key]: e.target.checked }))}
+                    />
+                    {key.replace(/([A-Z])/g, ' $1')}
+                  </label>
+                ))}
+              </div>
+              <div className="mt-3 text-xs text-slate-700">
+                Quality score: {qualityScore.total}/100 (clarity {qualityScore.clarity}, test balance {qualityScore.testBalance}, realism {qualityScore.realism})
+              </div>
+              <div className={`mt-1 text-xs ${hiddenLeakScan.hasLeak ? 'text-red-700' : 'text-emerald-700'}`}>
+                Hidden-test leak scan: {hiddenLeakScan.hasLeak ? `Leak detected in ${hiddenLeakScan.leaks.join(', ')}` : 'No leaks detected'}
+              </div>
+              <div className={`mt-1 text-xs ${unsafeScan.hasUnsafe ? 'text-red-700' : 'text-emerald-700'}`}>
+                Unsafe pattern scan: {unsafeScan.hasUnsafe ? unsafeScan.hits.join(', ') : 'No unsafe patterns found'}
+              </div>
+              {!promoteReady && (
+                <div className="mt-2 text-xs text-amber-700">
+                  Creation is gated until checklist + scans are green.
+                </div>
+              )}
+            </div>
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-lg font-semibold text-slate-900">Description</h3>
             </div>
@@ -1820,7 +2433,7 @@ export function AIQuestionGenerator() {
           <div className="mt-8 flex flex-col sm:flex-row gap-3">
             <button
               onClick={handleCreateQuestion}
-              disabled={loading || getRequestedQuestionCount() > 1}
+              disabled={loading || getRequestedQuestionCount() > 1 || !promoteReady}
               className="btn-ai flex items-center justify-center gap-2"
             >
               {loading ? (

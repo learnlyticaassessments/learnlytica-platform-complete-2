@@ -20,6 +20,108 @@ type PipelineContext = {
   userRole: string;
 };
 
+const generationCooldownMs = Math.max(1000, Number(process.env.AI_BATCH_COOLDOWN_MS || 15000));
+const generationRateWindowMs = Math.max(5000, Number(process.env.AI_BATCH_RATE_WINDOW_MS || 60000));
+const generationRateLimit = Math.max(1, Number(process.env.AI_BATCH_RATE_LIMIT || 4));
+const requestWindowByUser = new Map<string, { lastAt: number; hits: number; windowStart: number }>();
+
+type ErrorCategory = 'validation' | 'provider' | 'evaluator' | 'network' | 'authorization' | 'unknown';
+
+function categorizeError(err: any): ErrorCategory {
+  const msg = String(err?.message || '').toLowerCase();
+  const code = Number(err?.statusCode || err?.status || 0);
+  if (code === 401 || code === 403) return 'authorization';
+  if (code === 400 || code === 422 || msg.includes('missing required') || msg.includes('invalid')) return 'validation';
+  if (msg.includes('openai') || msg.includes('anthropic') || msg.includes('provider') || msg.includes('model')) return 'provider';
+  if (msg.includes('verification') || msg.includes('tests') || msg.includes('draft')) return 'evaluator';
+  if (msg.includes('timeout') || msg.includes('network') || msg.includes('fetch')) return 'network';
+  return 'unknown';
+}
+
+function buildIdempotencyKey(req: Request): string | null {
+  const headerKey = String(req.headers['x-idempotency-key'] || '').trim();
+  if (headerKey) return headerKey.slice(0, 120);
+  const bodyKey = String((req.body as any)?.idempotencyKey || '').trim();
+  if (bodyKey) return bodyKey.slice(0, 120);
+  return null;
+}
+
+function enforceGenerationRateLimit(userId: string, questionCount: number) {
+  if (questionCount <= 1) return;
+  const now = Date.now();
+  const state = requestWindowByUser.get(userId) || { lastAt: 0, hits: 0, windowStart: now };
+  if (now - state.lastAt < generationCooldownMs) {
+    const err: any = new Error(`Batch generation cooldown active. Retry in ${Math.ceil((generationCooldownMs - (now - state.lastAt)) / 1000)}s.`);
+    err.statusCode = 429;
+    err.errorType = 'rate_limit';
+    throw err;
+  }
+  if (now - state.windowStart > generationRateWindowMs) {
+    state.windowStart = now;
+    state.hits = 0;
+  }
+  state.hits += 1;
+  state.lastAt = now;
+  requestWindowByUser.set(userId, state);
+  if (state.hits > generationRateLimit) {
+    const err: any = new Error('Batch generation rate limit exceeded for this user.');
+    err.statusCode = 429;
+    err.errorType = 'rate_limit';
+    throw err;
+  }
+}
+
+async function persistGenerationAudit(db: any, params: {
+  organizationId: string;
+  userId: string;
+  userRole: string;
+  requestPayload: any;
+  outcome: 'generated' | 'created' | 'failed';
+  capability?: any;
+  pipeline?: any;
+  generatedMeta?: any;
+  errorType?: string;
+  errorMessage?: string;
+}) {
+  try {
+    await db.insertInto('ai_generation_audit').values({
+      organization_id: params.organizationId,
+      user_id: params.userId,
+      user_role: params.userRole,
+      request_json: params.requestPayload || {},
+      capability_json: params.capability || {},
+      pipeline_json: params.pipeline || {},
+      generation_meta_json: params.generatedMeta || {},
+      outcome: params.outcome,
+      error_type: params.errorType || null,
+      error_message: params.errorMessage || null
+    }).execute();
+  } catch (err) {
+    console.warn('AI generation audit insert failed', err);
+  }
+}
+
+async function queueManualReview(db: any, params: {
+  organizationId: string;
+  userId: string;
+  capability: any;
+  requestPayload: any;
+  reason: string;
+}) {
+  try {
+    await db.insertInto('ai_generation_manual_reviews').values({
+      organization_id: params.organizationId,
+      requested_by: params.userId,
+      capability_state: String(params.capability?.state || 'planned'),
+      reason: params.reason,
+      request_json: params.requestPayload || {},
+      capability_json: params.capability || {}
+    }).execute();
+  } catch (err) {
+    console.warn('AI manual review queue insert failed', err);
+  }
+}
+
 function mapDifficulty(value: string): QuestionDifficulty {
   const normalized = String(value || '').toLowerCase();
   if (normalized === 'beginner' || normalized === 'easy') return 'easy';
@@ -304,6 +406,7 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       timeLimit,
       provider,
       model,
+      retryWithFallback,
       curriculumText,
       audienceType,
       audienceExperience,
@@ -312,13 +415,19 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       audienceNotes,
       rubric
     } = req.body;
+    const userId = (req as any).user?.id || '00000000-0000-0000-0000-000000000000';
+    const organizationId = (req as any).user?.organizationId || '00000000-0000-0000-0000-000000000000';
+    const userRole = (req as any).user?.role || 'admin';
 
     if (!topic || !language || !difficulty || !questionType) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: topic, language, difficulty, questionType'
+        error: 'Missing required fields: topic, language, difficulty, questionType',
+        errorType: 'validation'
       });
     }
+
+    enforceGenerationRateLimit(userId, Math.max(1, Number(req.body?.questionCount || 1)));
 
     const requestPayload = {
       topic,
@@ -331,6 +440,7 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       timeLimit,
       provider,
       model,
+      retryWithFallback,
       curriculumText,
       audienceType,
       audienceExperience,
@@ -340,17 +450,42 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       rubric
     };
     const pipelineContext: PipelineContext = {
-      organizationId: (req as any).user?.organizationId || '00000000-0000-0000-0000-000000000000',
-      userId: (req as any).user?.id || '00000000-0000-0000-0000-000000000000',
-      userRole: (req as any).user?.role || 'admin'
+      organizationId,
+      userId,
+      userRole
     };
 
     const capability = enforceCapabilityOrThrow(requestPayload);
-    const { dto, validation, verification } = await runGenerationPipeline(
+    if (capability.state !== 'ready') {
+      await queueManualReview(req.app.locals.db, {
+        organizationId,
+        userId,
+        capability,
+        requestPayload,
+        reason: 'Non-ready capability combination used for generation'
+      });
+    }
+    const { generated, dto, validation, verification } = await runGenerationPipeline(
       req.app.locals.db,
       requestPayload,
       pipelineContext
     );
+    const generatedMeta = (generated as any)?.__generationMeta || undefined;
+    await persistGenerationAudit(req.app.locals.db, {
+      organizationId,
+      userId,
+      userRole,
+      requestPayload,
+      outcome: 'generated',
+      capability,
+      pipeline: {
+        validated: Boolean(validation?.valid),
+        verified: Boolean(verification?.success),
+        testsRun: verification?.testsRun || 0,
+        testsPassed: verification?.testsPassed || 0
+      },
+      generatedMeta
+    });
 
     res.json({
       success: true,
@@ -364,15 +499,27 @@ export async function generateQuestionHandler(req: Request, res: Response) {
         totalPoints: verification?.totalPoints || 0
       },
       capability,
+      generationMeta: generatedMeta,
       message: 'Question generated, validated, and verified successfully'
     });
 
   } catch (error: any) {
     console.error('Generate Question Error:', error);
+    await persistGenerationAudit(req.app.locals.db, {
+      organizationId: (req as any).user?.organizationId || '00000000-0000-0000-0000-000000000000',
+      userId: (req as any).user?.id || '00000000-0000-0000-0000-000000000000',
+      userRole: (req as any).user?.role || 'admin',
+      requestPayload: req.body || {},
+      outcome: 'failed',
+      errorType: categorizeError(error),
+      errorMessage: error?.message || 'Failed to generate question',
+      capability: error?.capability
+    });
     res.status(error?.statusCode || 500).json({
       success: false,
       error: error.message || 'Failed to generate question',
-      capability: error?.capability
+      capability: error?.capability,
+      errorType: error?.errorType || categorizeError(error)
     });
   }
 }
@@ -394,6 +541,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       timeLimit,
       provider,
       model,
+      retryWithFallback,
       curriculumText,
       audienceType,
       audienceExperience,
@@ -408,8 +556,26 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
     if (!userId) {
       return res.status(401).json({
         success: false,
-        error: 'User not authenticated'
+        error: 'User not authenticated',
+        errorType: 'authorization'
       });
+    }
+
+    const idempotencyKey = buildIdempotencyKey(req);
+    if (idempotencyKey) {
+      const existing = await req.app.locals.db
+        .selectFrom('ai_generation_idempotency')
+        .select(['response_json', 'status_code'])
+        .where('organization_id', '=', organizationId)
+        .where('user_id', '=', userId)
+        .where('idempotency_key', '=', idempotencyKey)
+        .executeTakeFirst();
+      if (existing?.response_json) {
+        const payload = typeof existing.response_json === 'string'
+          ? JSON.parse(existing.response_json)
+          : existing.response_json;
+        return res.status(Number(existing.status_code || 200)).json(payload);
+      }
     }
 
     const requestPayload = {
@@ -423,6 +589,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       timeLimit,
       provider,
       model,
+      retryWithFallback,
       curriculumText,
       audienceType,
       audienceExperience,
@@ -437,6 +604,15 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       userRole: (req as any).user?.role || 'admin'
     };
     const capability = enforceCapabilityOrThrow(requestPayload);
+    if (capability.state !== 'ready') {
+      await queueManualReview(req.app.locals.db, {
+        organizationId,
+        userId,
+        capability,
+        requestPayload,
+        reason: 'Generate-and-create invoked with non-ready capability'
+      });
+    }
     const { generated, dto, validation, verification } = await runGenerationPipeline(
       req.app.locals.db,
       requestPayload,
@@ -474,7 +650,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       }
     );
 
-    res.status(201).json({
+    const responsePayload = {
       success: true,
       data: {
         question,
@@ -487,17 +663,110 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
           pointsEarned: verification?.pointsEarned || 0,
           totalPoints: verification?.totalPoints || 0
         },
-        capability
+        capability,
+        generationMeta: (generated as any)?.__generationMeta || null
       },
       message: 'Question generated, validated, verified, and created successfully'
+    };
+
+    if (idempotencyKey) {
+      await req.app.locals.db
+        .insertInto('ai_generation_idempotency')
+        .values({
+          organization_id: organizationId,
+          user_id: userId,
+          idempotency_key: idempotencyKey,
+          status_code: 201,
+          response_json: responsePayload
+        })
+        .onConflict((oc: any) => oc.columns(['organization_id', 'user_id', 'idempotency_key']).doNothing())
+        .execute();
+    }
+
+    await persistGenerationAudit(req.app.locals.db, {
+      organizationId,
+      userId,
+      userRole: (req as any).user?.role || 'admin',
+      requestPayload,
+      outcome: 'created',
+      capability,
+      pipeline: {
+        validated: Boolean(validation?.valid),
+        verified: Boolean(verification?.success),
+        testsRun: verification?.testsRun || 0,
+        testsPassed: verification?.testsPassed || 0
+      },
+      generatedMeta: (generated as any)?.__generationMeta || null
     });
+
+    res.status(201).json(responsePayload);
 
   } catch (error: any) {
     console.error('Generate and Create Error:', error);
+    await persistGenerationAudit(req.app.locals.db, {
+      organizationId: (req as any).user?.organizationId || '00000000-0000-0000-0000-000000000000',
+      userId: (req as any).user?.id || '00000000-0000-0000-0000-000000000000',
+      userRole: (req as any).user?.role || 'admin',
+      requestPayload: req.body || {},
+      outcome: 'failed',
+      errorType: categorizeError(error),
+      errorMessage: error?.message || 'Failed to generate and create question',
+      capability: error?.capability
+    });
     res.status(error?.statusCode || 500).json({
       success: false,
       error: error.message || 'Failed to generate and create question',
-      capability: error?.capability
+      capability: error?.capability,
+      errorType: error?.errorType || categorizeError(error)
+    });
+  }
+}
+
+/**
+ * POST /api/v1/ai/dry-run-preview
+ * Returns sanitized payload + prompt summary before generation
+ */
+export async function dryRunPreviewHandler(req: Request, res: Response) {
+  try {
+    const requestPayload = {
+      topic: String(req.body?.topic || '').trim(),
+      language: String(req.body?.language || 'javascript'),
+      difficulty: String(req.body?.difficulty || 'intermediate'),
+      questionType: String(req.body?.questionType || 'algorithm'),
+      problemStyle: String(req.body?.problemStyle || 'implementation'),
+      generationMode: String(req.body?.generationMode || 'production'),
+      provider: String(req.body?.provider || 'claude'),
+      model: String(req.body?.model || ''),
+      questionCount: Math.max(1, Math.min(25, Number(req.body?.questionCount || 1))),
+      curriculumChars: String(req.body?.curriculumText || '').length,
+      domain: String(req.body?.domain || ''),
+      audienceType: String(req.body?.audienceType || ''),
+      targetMaturity: String(req.body?.targetMaturity || ''),
+      rubric: req.body?.rubric || {}
+    };
+    const capability = evaluateAICapability(
+      requestPayload.language,
+      requestPayload.questionType,
+      requestPayload.problemStyle
+    );
+    res.json({
+      success: true,
+      data: {
+        payload: requestPayload,
+        capability,
+        summary: [
+          `${requestPayload.generationMode} mode`,
+          `${requestPayload.language}/${requestPayload.questionType}/${requestPayload.problemStyle}`,
+          `count=${requestPayload.questionCount}`,
+          `provider=${requestPayload.provider} model=${requestPayload.model || 'default'}`
+        ].join(' | ')
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to build dry run preview',
+      errorType: categorizeError(error)
     });
   }
 }

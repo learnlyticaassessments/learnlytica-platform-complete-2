@@ -32,12 +32,14 @@ export interface GenerateQuestionRequest {
   questionType: string;
   generationMode?: 'production' | 'design';
   questionCount?: number;
+  randomSeed?: number;
   questionTypeMode?: 'single' | 'mixed';
   mixedQuestionTypes?: string[];
   points?: number;
   timeLimit?: number;
   provider?: 'claude' | 'gpt';
   model?: string;
+  retryWithFallback?: boolean;
   curriculumText?: string;
   audienceType?: 'fresher' | 'experienced' | 'mixed';
   audienceExperience?: string;
@@ -53,6 +55,7 @@ export interface GenerateQuestionRequest {
     passingPercent?: number;
     totalPoints?: number;
   };
+  idempotencyKey?: string;
 }
 
 export interface AICapabilityItem {
@@ -114,8 +117,16 @@ export const aiService = {
 
   // Generate and create question in database
   generateAndCreate: async (request: GenerateQuestionRequest) => {
-    const response = await client.post('/generate-and-create', request);
+    const idempotencyKey = request.idempotencyKey;
+    const response = await client.post('/generate-and-create', request, {
+      headers: idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : undefined
+    });
     return response.data;
+  },
+
+  dryRunPreview: async (request: GenerateQuestionRequest) => {
+    const response = await client.post('/dry-run-preview', request);
+    return response.data?.data;
   },
 
   // Generate test cases for code
