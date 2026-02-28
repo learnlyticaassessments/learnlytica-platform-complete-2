@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCreateAssessment, useLabTemplates } from '../../hooks/useAssessments';
-import { useQuestions } from '../../hooks/useQuestions';
+import { useQuestionCurricula, useQuestions } from '../../hooks/useQuestions';
 import { AlertTriangle, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 function checkCompatibility(question: any, template: any): string[] {
@@ -41,7 +41,18 @@ export function AssessmentCreate() {
   const navigate = useNavigate();
   const createMutation = useCreateAssessment();
   const { data: labTemplatesData } = useLabTemplates({ isActive: true });
-  const { data: questionsData } = useQuestions({ status: 'published' });
+  const [questionFilters, setQuestionFilters] = useState({
+    curriculum: '',
+    search: ''
+  });
+  const { data: questionsData } = useQuestions({
+    status: 'published',
+    limit: 200,
+    curriculum: questionFilters.curriculum || undefined,
+    search: questionFilters.search.trim().length >= 2 ? questionFilters.search.trim() : undefined
+  });
+  const { data: allQuestionsData } = useQuestions({ status: 'published', limit: 200 });
+  const { data: curriculaData } = useQuestionCurricula();
 
   const [formData, setFormData] = useState({
     title: '',
@@ -55,7 +66,34 @@ export function AssessmentCreate() {
 
   const labTemplates = labTemplatesData?.data || [];
   const questions = questionsData?.questions || [];
+  const allQuestions = allQuestionsData?.questions || [];
   const selectedLabTemplate = labTemplates.find((t: any) => t.id === formData.labTemplateId);
+
+  const fallbackCurriculumOptions = useMemo(() => {
+    const set = new Set<string>();
+    const collect = (items: any[]) => {
+      for (const item of items || []) {
+        const raw = String(item || '').trim();
+        if (!raw) continue;
+        const lower = raw.toLowerCase();
+        if (lower.startsWith('curriculum:')) {
+          set.add(raw.slice('curriculum:'.length).trim());
+        } else if (lower.startsWith('curriculum-')) {
+          set.add(raw.slice('curriculum-'.length).trim());
+        }
+      }
+    };
+
+    for (const q of allQuestions) {
+      collect(Array.isArray(q.tags) ? q.tags : []);
+      collect(Array.isArray(q.skills) ? q.skills : []);
+    }
+    return Array.from(set)
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b))
+      .map((slug) => ({ slug, name: slug.replace(/-/g, ' ') }));
+  }, [allQuestions]);
+  const curriculumOptions = (curriculaData?.map((c: any) => ({ slug: c.slug, name: c.name || c.slug })) || fallbackCurriculumOptions).filter((c: any) => c?.slug);
 
   const selectedQuestionObjects = useMemo(
     () => questions.filter((q: any) => formData.selectedQuestions.includes(q.id)),
@@ -164,6 +202,32 @@ export function AssessmentCreate() {
 
           <div className="card">
             <h2 className="text-xl font-semibold mb-4">Questions</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Filter by Curriculum</label>
+                <select
+                  className="input-field"
+                  value={questionFilters.curriculum}
+                  onChange={(e) => setQuestionFilters((prev) => ({ ...prev, curriculum: e.target.value }))}
+                >
+                  <option value="">All Curricula</option>
+                  {curriculumOptions.map((c: any) => (
+                    <option key={c.slug} value={c.slug}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Search Questions</label>
+                <input
+                  className="input-field"
+                  value={questionFilters.search}
+                  onChange={(e) => setQuestionFilters((prev) => ({ ...prev, search: e.target.value }))}
+                  placeholder="Type at least 2 characters"
+                />
+              </div>
+            </div>
             <div className="mb-3 text-sm text-gray-600">
               Selected <span className="font-semibold">{selectedQuestionObjects.length}</span> question(s) •
               Total points <span className="font-semibold ml-1">{totalSelectedPoints}</span>

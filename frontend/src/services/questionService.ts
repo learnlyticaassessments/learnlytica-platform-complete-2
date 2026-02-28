@@ -126,6 +126,7 @@ export const questionService = {
       if (filters.category) params.append('category', filters.category);
       if (filters.difficulty) params.append('difficulty', filters.difficulty);
       if (filters.status) params.append('status', filters.status);
+      if (filters.curriculum) params.append('curriculum', filters.curriculum);
       if (filters.testFramework) params.append('testFramework', filters.testFramework);
       if (filters.search) params.append('search', filters.search);
       if (filters.createdBy) params.append('createdBy', filters.createdBy);
@@ -162,6 +163,13 @@ export const questionService = {
       totalPages: response.data.pagination.totalPages,
       hasMore: response.data.pagination.hasMore
     };
+  },
+
+  async listCurricula(): Promise<Array<{ id: string; slug: string; name: string; description?: string | null }>> {
+    const response = await apiClient.get<{ success: boolean; data: Array<{ id: string; slug: string; name: string; description?: string | null }> }>(
+      '/questions/curricula'
+    );
+    return response.data.data || [];
   },
 
   /**

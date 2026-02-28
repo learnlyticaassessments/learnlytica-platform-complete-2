@@ -115,6 +115,21 @@ export async function listQuestions(
   if (filters.difficulty) query = query.where('difficulty', '=', filters.difficulty);
   if (filters.status) query = query.where('status', '=', filters.status);
   if (filters.createdBy) query = query.where('created_by', '=', filters.createdBy);
+  if (filters.curriculum) {
+    const slug = String(filters.curriculum).trim().toLowerCase();
+    query = query.where((eb: any) =>
+      eb.exists(
+        db
+          .selectFrom('question_curricula as qc')
+          .innerJoin('curricula as c', 'c.id', 'qc.curriculum_id')
+          .select('qc.question_id')
+          .whereRef('qc.question_id', '=', 'questions.id')
+          .where('qc.organization_id', '=', organizationId)
+          .where('c.organization_id', '=', organizationId)
+          .where('c.slug', '=', slug)
+      )
+    );
+  }
 
   // Full-text search
   if (filters.search) {
@@ -145,6 +160,18 @@ export async function listQuestions(
     totalPages: Math.ceil(total / limit),
     hasMore: page < Math.ceil(total / limit)
   };
+}
+
+export async function listCurricula(db: any, organizationId: string) {
+  const rows = await db
+    .selectFrom('curricula')
+    .select(['id', 'slug', 'name', 'description', 'is_active as isActive', 'updated_at as updatedAt'])
+    .where('organization_id', '=', organizationId)
+    .where('is_active', '=', true)
+    .orderBy('name', 'asc')
+    .execute();
+
+  return rows;
 }
 
 // ============================================================================

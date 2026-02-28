@@ -122,7 +122,7 @@ function normalizeTestCases(generated: any, framework: TestFramework, totalPoint
       : 'tests/solution.spec.js';
 
   const evenPoints = Math.max(1, Math.floor(totalPoints / source.length));
-  return source.map((tc: any, index: number) => ({
+  const normalized = source.map((tc: any, index: number) => ({
     id: String(tc.id || `test-${index + 1}`),
     name: String(tc.name || `Generated Test ${index + 1}`),
     description: tc.description ? String(tc.description) : undefined,
@@ -131,8 +131,22 @@ function normalizeTestCases(generated: any, framework: TestFramework, totalPoint
     testCode: String(tc.testCode || ''),
     points: Number(tc.points || evenPoints),
     visible: tc.visible ?? true,
-    category: tc.category ? String(tc.category) : undefined
+    category: tc.category ? String(tc.category).toLowerCase() : undefined
   }));
+
+  if (!normalized.some((tc: any) => tc.visible === false) && normalized.length > 0) {
+    normalized[normalized.length - 1].visible = false;
+  }
+
+  const hasEdge = normalized.some((tc: any) => tc.category === 'edge');
+  const hasNegative = normalized.some((tc: any) => tc.category === 'negative');
+  const hasPerformance = normalized.some((tc: any) => tc.category === 'performance');
+
+  if (!hasEdge && normalized.length > 1) normalized[1].category = 'edge';
+  if (!hasNegative && normalized.length > 2) normalized[2].category = 'negative';
+  if (!hasPerformance && normalized.length > 0) normalized[normalized.length - 1].category = 'performance';
+
+  return normalized;
 }
 
 function toCreateQuestionDto(generated: any, request: any): CreateQuestionDTO {
@@ -195,7 +209,22 @@ async function runGenerationPipeline(db: any, requestPayload: any, context: Pipe
  */
 export async function generateQuestionHandler(req: Request, res: Response) {
   try {
-    const { topic, language, difficulty, questionType, points, timeLimit, provider, model } = req.body;
+    const {
+      topic,
+      language,
+      difficulty,
+      questionType,
+      points,
+      timeLimit,
+      provider,
+      model,
+      curriculumText,
+      audienceType,
+      audienceExperience,
+      targetMaturity,
+      domain,
+      audienceNotes
+    } = req.body;
 
     if (!topic || !language || !difficulty || !questionType) {
       return res.status(400).json({
@@ -212,7 +241,13 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       points,
       timeLimit,
       provider,
-      model
+      model,
+      curriculumText,
+      audienceType,
+      audienceExperience,
+      targetMaturity,
+      domain,
+      audienceNotes
     };
     const pipelineContext: PipelineContext = {
       organizationId: (req as any).user?.organizationId || '00000000-0000-0000-0000-000000000000',
@@ -255,7 +290,22 @@ export async function generateQuestionHandler(req: Request, res: Response) {
  */
 export async function generateAndCreateHandler(req: Request, res: Response) {
   try {
-    const { topic, language, difficulty, questionType, points, timeLimit, provider, model } = req.body;
+    const {
+      topic,
+      language,
+      difficulty,
+      questionType,
+      points,
+      timeLimit,
+      provider,
+      model,
+      curriculumText,
+      audienceType,
+      audienceExperience,
+      targetMaturity,
+      domain,
+      audienceNotes
+    } = req.body;
     const userId = (req as any).user?.id;
     const organizationId = (req as any).user?.organizationId;
 
@@ -274,7 +324,13 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       points,
       timeLimit,
       provider,
-      model
+      model,
+      curriculumText,
+      audienceType,
+      audienceExperience,
+      targetMaturity,
+      domain,
+      audienceNotes
     };
     const pipelineContext: PipelineContext = {
       organizationId,

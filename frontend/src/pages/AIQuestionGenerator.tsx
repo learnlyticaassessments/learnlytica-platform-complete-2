@@ -11,12 +11,17 @@ export function AIQuestionGenerator() {
     difficulty: 'intermediate',
     questionType: 'algorithm',
     provider: 'claude',
-    model: 'claude-sonnet-4-20250514'
+    model: 'claude-sonnet-4-20250514',
+    audienceType: 'fresher',
+    targetMaturity: 'beginner',
+    domain: ''
   });
   const [loading, setLoading] = useState(false);
   const [generatedQuestion, setGeneratedQuestion] = useState<any>(null);
   const [generationPipeline, setGenerationPipeline] = useState<any>(null);
   const [error, setError] = useState('');
+  const [wizardEnabled, setWizardEnabled] = useState(true);
+  const [wizardStep, setWizardStep] = useState(0);
   const [utilityLoading, setUtilityLoading] = useState<'tests' | 'improve' | 'review' | null>(null);
   const [utilityError, setUtilityError] = useState('');
 
@@ -36,6 +41,12 @@ export function AIQuestionGenerator() {
     { label: 'Time Saved', value: '93%', icon: Cpu },
     { label: 'Quality', value: 'Perfect', icon: Star },
     { label: 'Cost', value: '$0.03', icon: TrendingUp }
+  ];
+  const wizardSteps = [
+    'Audience Profile',
+    'Domain & Curriculum',
+    'Question Intent',
+    'Execution Settings'
   ];
 
   useEffect(() => {
@@ -136,6 +147,16 @@ export function AIQuestionGenerator() {
     }
   };
 
+  const handleCurriculumUpload = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setFormData((prev) => ({ ...prev, curriculumText: text.slice(0, 12000) }));
+    } catch {
+      setError('Failed to read curriculum file');
+    }
+  };
+
   return (
     <div className="px-4 py-6 sm:px-6 lg:px-8 lg:py-10 max-w-6xl mx-auto">
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-6 sm:p-8 lg:p-10 text-white shadow-[0_30px_60px_rgba(99,102,241,0.28)]">
@@ -146,7 +167,7 @@ export function AIQuestionGenerator() {
         <div className="relative">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide">
             <Sparkles className="h-3.5 w-3.5" />
-            Powered by Claude Sonnet 4
+            Powered by Claude / GPT
           </div>
           <div className="mt-4 flex items-start gap-3">
             <div className="h-12 w-12 shrink-0 rounded-2xl bg-white/15 backdrop-blur-sm flex items-center justify-center ring-1 ring-white/20">
@@ -203,6 +224,313 @@ export function AIQuestionGenerator() {
               Be specific. The AI will generate comprehensive test coverage and starter code.
             </p>
           </div>
+
+          <div className="rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Guided AI Brief Wizard</div>
+                <div className="text-xs text-slate-500">Step-by-step setup for better audience/domain-specific question quality.</div>
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={wizardEnabled}
+                  onChange={(e) => setWizardEnabled(e.target.checked)}
+                />
+                Enable wizard
+              </label>
+            </div>
+
+            {wizardEnabled && (
+              <div className="mt-4 space-y-4">
+                <div>
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                    <span>Step {wizardStep + 1} of {wizardSteps.length}</span>
+                    <span>{wizardSteps[wizardStep]}</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                    <div className="h-full bg-indigo-500" style={{ width: `${((wizardStep + 1) / wizardSteps.length) * 100}%` }} />
+                  </div>
+                </div>
+
+                {wizardStep === 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Audience</label>
+                      <select
+                        value={formData.audienceType || 'fresher'}
+                        onChange={(e) => setFormData({ ...formData, audienceType: e.target.value as any })}
+                        className="input-field"
+                      >
+                        <option value="fresher">Fresher</option>
+                        <option value="experienced">Experienced</option>
+                        <option value="mixed">Mixed</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Experience Band</label>
+                      <input
+                        type="text"
+                        value={formData.audienceExperience || ''}
+                        onChange={(e) => setFormData({ ...formData, audienceExperience: e.target.value })}
+                        placeholder="0-1 years / 3-5 years"
+                        className="input-field"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Target Maturity</label>
+                      <select
+                        value={formData.targetMaturity || 'beginner'}
+                        onChange={(e) => setFormData({ ...formData, targetMaturity: e.target.value as any })}
+                        className="input-field"
+                      >
+                        <option value="beginner">Beginner</option>
+                        <option value="intermediate">Intermediate</option>
+                        <option value="advanced">Advanced</option>
+                        <option value="expert">Expert</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {wizardStep === 1 && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Domain</label>
+                      <input
+                        type="text"
+                        value={formData.domain || ''}
+                        onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
+                        placeholder="BFSI / Retail / Healthcare / Logistics"
+                        className="input-field"
+                      />
+                      <label className="block text-sm font-semibold text-slate-700 mt-3 mb-2">Audience Notes</label>
+                      <textarea
+                        value={formData.audienceNotes || ''}
+                        onChange={(e) => setFormData({ ...formData, audienceNotes: e.target.value })}
+                        className="w-full min-h-[110px] px-4 py-3 border border-slate-300 rounded-xl bg-white text-slate-900"
+                        placeholder="Expected rigor, project realism, role-specific expectations..."
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-semibold text-slate-700">Curriculum Context</label>
+                        <label className="text-xs px-2 py-1 rounded bg-slate-100 border border-slate-200 cursor-pointer">
+                          Upload
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept=".txt,.md,.json,.csv"
+                            onChange={(e) => handleCurriculumUpload(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                      </div>
+                      <textarea
+                        value={formData.curriculumText || ''}
+                        onChange={(e) => setFormData({ ...formData, curriculumText: e.target.value })}
+                        className="w-full min-h-[190px] px-4 py-3 border border-slate-300 rounded-xl bg-white text-slate-900"
+                        placeholder="Paste curriculum modules, outcomes, and level expectations..."
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {wizardStep === 2 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Question Type</label>
+                      <select
+                        value={formData.questionType}
+                        onChange={(e) => setFormData({ ...formData, questionType: e.target.value as any })}
+                        className="input-field"
+                      >
+                        {AI_QUESTION_TYPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Language</label>
+                      <select
+                        value={formData.language}
+                        onChange={(e) => setFormData({ ...formData, language: e.target.value as any })}
+                        className="input-field"
+                      >
+                        <option value="javascript">JavaScript</option>
+                        <option value="python">Python</option>
+                        <option value="java">Java</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Difficulty</label>
+                      <select
+                        value={formData.difficulty}
+                        onChange={(e) => setFormData({ ...formData, difficulty: e.target.value as any })}
+                        className="input-field"
+                      >
+                        <option value="beginner">Beginner</option>
+                        <option value="intermediate">Intermediate</option>
+                        <option value="advanced">Advanced</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {wizardStep === 3 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Provider</label>
+                      <select
+                        value={formData.provider}
+                        onChange={(e) => {
+                          const nextProvider = e.target.value as GenerateQuestionRequest['provider'];
+                          const opt = AI_PROVIDER_OPTIONS.find((o) => o.value === nextProvider);
+                          setFormData({ ...formData, provider: nextProvider, model: opt?.defaultModel || formData.model });
+                        }}
+                        className="input-field"
+                      >
+                        {AI_PROVIDER_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Model</label>
+                      <input
+                        type="text"
+                        value={formData.model || ''}
+                        onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                        className="input-field"
+                        placeholder="Model id"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Points</label>
+                      <input
+                        type="number"
+                        value={formData.points || ''}
+                        onChange={(e) => setFormData({ ...formData, points: parseInt(e.target.value) || undefined })}
+                        className="input-field"
+                        placeholder="Auto"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Time Limit (min)</label>
+                      <input
+                        type="number"
+                        value={formData.timeLimit || ''}
+                        onChange={(e) => setFormData({ ...formData, timeLimit: parseInt(e.target.value) || undefined })}
+                        className="input-field"
+                        placeholder="Auto"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setWizardStep((s) => Math.max(0, s - 1))}
+                    disabled={wizardStep === 0}
+                    className="btn-secondary disabled:opacity-50"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWizardStep((s) => Math.min(wizardSteps.length - 1, s + 1))}
+                    disabled={wizardStep === wizardSteps.length - 1}
+                    className="btn-secondary disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <details className="rounded-xl border border-slate-200 p-4" open={!wizardEnabled}>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-800">Audience + Domain + Curriculum Brief</summary>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Domain</label>
+                <input
+                  type="text"
+                  value={formData.domain || ''}
+                  onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
+                  placeholder="e.g., BFSI, Retail, Healthcare"
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Audience</label>
+                <select
+                  value={formData.audienceType || 'fresher'}
+                  onChange={(e) => setFormData({ ...formData, audienceType: e.target.value as any })}
+                  className="input-field"
+                >
+                  <option value="fresher">Fresher</option>
+                  <option value="experienced">Experienced</option>
+                  <option value="mixed">Mixed</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Experience Band</label>
+                <input
+                  type="text"
+                  value={formData.audienceExperience || ''}
+                  onChange={(e) => setFormData({ ...formData, audienceExperience: e.target.value })}
+                  placeholder="e.g., 0-1 years, 3-5 years"
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Target Maturity</label>
+                <select
+                  value={formData.targetMaturity || 'beginner'}
+                  onChange={(e) => setFormData({ ...formData, targetMaturity: e.target.value as any })}
+                  className="input-field"
+                >
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                  <option value="expert">Expert</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Audience/Delivery Notes</label>
+                <textarea
+                  value={formData.audienceNotes || ''}
+                  onChange={(e) => setFormData({ ...formData, audienceNotes: e.target.value })}
+                  placeholder="Any constraints, focus areas, preferred style, expected rigor..."
+                  className="w-full min-h-[110px] px-4 py-3 border border-slate-300 rounded-xl bg-white text-slate-900"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-semibold text-slate-700">Curriculum Context</label>
+                  <label className="text-xs px-2 py-1 rounded bg-slate-100 border border-slate-200 cursor-pointer">
+                    Upload Curriculum
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".txt,.md,.json,.csv"
+                      onChange={(e) => handleCurriculumUpload(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                </div>
+                <textarea
+                  value={formData.curriculumText || ''}
+                  onChange={(e) => setFormData({ ...formData, curriculumText: e.target.value })}
+                  placeholder="Paste curriculum outline/modules/outcomes here..."
+                  className="w-full min-h-[110px] px-4 py-3 border border-slate-300 rounded-xl bg-white text-slate-900"
+                />
+              </div>
+            </div>
+          </details>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             <div>

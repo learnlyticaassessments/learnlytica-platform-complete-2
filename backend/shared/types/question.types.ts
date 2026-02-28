@@ -235,6 +235,7 @@ export interface QuestionFilters {
   category?: QuestionCategory;
   difficulty?: QuestionDifficulty;
   status?: QuestionStatus;
+  curriculum?: string;
   testFramework?: TestFramework;
   skills?: string[];
   tags?: string[];

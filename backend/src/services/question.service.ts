@@ -8,10 +8,12 @@ import {
   createQuestion as dbCreateQuestion,
   getQuestionById as dbGetQuestionById,
   listQuestions as dbListQuestions,
+  listCurricula as dbListCurricula,
   updateQuestion as dbUpdateQuestion,
   deleteQuestion as dbDeleteQuestion,
   rowToQuestion
 } from '../models/question.model';
+import { sql } from 'kysely';
 import {
   validateCreateQuestion,
   validateUpdateQuestion,
@@ -176,6 +178,15 @@ export async function createQuestion(
     createdBy: context.userId,
     slug
   } as any);
+
+  await syncQuestionCurricula(
+    db,
+    question.id,
+    context.organizationId,
+    question.tags,
+    question.skills,
+    context.userId
+  );
 
   return question;
 }
@@ -541,14 +552,44 @@ export async function listQuestions(
 
   const validatedFilters = validation.data;
 
+  const curriculumTablesReady = await areCurriculumTablesReady(db);
+  const dbFilters = {
+    ...validatedFilters,
+    curriculum: curriculumTablesReady ? validatedFilters.curriculum : undefined
+  };
+
   // Get questions for this organization
   const result = await dbListQuestions(
     db,
     context.organizationId,
-    validatedFilters
+    dbFilters
   );
 
-  return result;
+  if (!validatedFilters.curriculum || curriculumTablesReady) {
+    return result;
+  }
+
+  // Fallback for environments where migration 014 is not yet applied.
+  const curriculumNeedle = String(validatedFilters.curriculum).trim().toLowerCase();
+  const curriculumTagNeedle = `curriculum:${curriculumNeedle}`;
+  const filteredQuestions = result.questions.filter((q: any) => {
+    const tags = Array.isArray(q.tags) ? q.tags.map((t: any) => String(t).toLowerCase()) : [];
+    const skills = Array.isArray(q.skills) ? q.skills.map((s: any) => String(s).toLowerCase()) : [];
+    return (
+      tags.includes(curriculumNeedle) ||
+      tags.includes(curriculumTagNeedle) ||
+      skills.includes(curriculumNeedle) ||
+      skills.includes(curriculumTagNeedle)
+    );
+  });
+
+  return {
+    ...result,
+    questions: filteredQuestions,
+    total: filteredQuestions.length,
+    totalPages: Math.ceil(filteredQuestions.length / (result.limit || 20)),
+    hasMore: false
+  };
 }
 
 // ============================================================================
@@ -616,6 +657,15 @@ export async function updateQuestion(
   if (!updatedQuestion) {
     throw new QuestionNotFoundError(id);
   }
+
+  await syncQuestionCurricula(
+    db,
+    updatedQuestion.id,
+    context.organizationId,
+    updatedQuestion.tags,
+    updatedQuestion.skills,
+    context.userId
+  );
 
   return updatedQuestion;
 }
@@ -733,7 +783,30 @@ export async function cloneQuestion(
     slug
   });
 
+  await syncQuestionCurricula(
+    db,
+    clonedQuestion.id,
+    context.organizationId,
+    clonedQuestion.tags,
+    clonedQuestion.skills,
+    context.userId
+  );
+
   return clonedQuestion;
+}
+
+export async function listCurricula(
+  db: any,
+  context: {
+    organizationId: string;
+    userId: string;
+    userRole: string;
+  }
+) {
+  if (!(await areCurriculumTablesReady(db))) {
+    return [];
+  }
+  return dbListCurricula(db, context.organizationId);
 }
 
 // ============================================================================
@@ -802,4 +875,99 @@ async function slugExists(db: any, slug: string, excludeId?: string): Promise<bo
 
   const result = await query.executeTakeFirst();
   return !!result;
+}
+
+function extractCurriculumSlugs(tags?: string[], skills?: string[]) {
+  const source = [...(Array.isArray(tags) ? tags : []), ...(Array.isArray(skills) ? skills : [])];
+  const slugs = new Set<string>();
+
+  for (const raw of source) {
+    const value = String(raw || '').trim().toLowerCase();
+    if (!value) continue;
+    if (value.startsWith('curriculum:')) {
+      const slug = value.slice('curriculum:'.length).trim();
+      if (slug) slugs.add(slug);
+    } else if (value.startsWith('curriculum-')) {
+      const slug = value.slice('curriculum-'.length).trim();
+      if (slug) slugs.add(slug);
+    }
+  }
+
+  return Array.from(slugs);
+}
+
+async function syncQuestionCurricula(
+  db: any,
+  questionId: string,
+  organizationId: string,
+  tags?: string[],
+  skills?: string[],
+  userId?: string
+) {
+  if (!(await areCurriculumTablesReady(db))) {
+    return;
+  }
+  const slugs = extractCurriculumSlugs(tags, skills);
+
+  await db
+    .deleteFrom('question_curricula')
+    .where('question_id', '=', questionId)
+    .where('organization_id', '=', organizationId)
+    .execute();
+
+  if (!slugs.length) return;
+
+  for (const slug of slugs) {
+    const curriculum =
+      (await db
+        .insertInto('curricula')
+        .values({
+          organization_id: organizationId,
+          slug,
+          name: slug
+            .split('-')
+            .filter(Boolean)
+            .map((p: string) => p.charAt(0).toUpperCase() + p.slice(1))
+            .join(' ')
+        })
+        .onConflict((oc: any) => oc.columns(['organization_id', 'slug']).doNothing())
+        .returning(['id'])
+        .executeTakeFirst()) ||
+      (await db
+        .selectFrom('curricula')
+        .select(['id'])
+        .where('organization_id', '=', organizationId)
+        .where('slug', '=', slug)
+        .executeTakeFirst());
+
+    if (!curriculum?.id) continue;
+
+    await db
+      .insertInto('question_curricula')
+      .values({
+        question_id: questionId,
+        curriculum_id: curriculum.id,
+        organization_id: organizationId,
+        assigned_by: userId || null
+      })
+      .onConflict((oc: any) => oc.columns(['question_id', 'curriculum_id']).doNothing())
+      .execute();
+  }
+}
+
+let curriculumTablesReadyCache: boolean | null = null;
+async function areCurriculumTablesReady(db: any): Promise<boolean> {
+  if (curriculumTablesReadyCache != null) return curriculumTablesReadyCache;
+  try {
+    const row = await db
+      .selectNoFrom((eb: any) => [
+        sql<boolean>`to_regclass('public.curricula') IS NOT NULL`.as('has_curricula'),
+        sql<boolean>`to_regclass('public.question_curricula') IS NOT NULL`.as('has_question_curricula')
+      ])
+      .executeTakeFirst();
+    curriculumTablesReadyCache = Boolean(row?.has_curricula && row?.has_question_curricula);
+  } catch {
+    curriculumTablesReadyCache = false;
+  }
+  return curriculumTablesReadyCache;
 }

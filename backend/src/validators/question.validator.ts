@@ -251,6 +251,7 @@ export const questionFiltersSchema = z.object({
   category: questionCategorySchema.optional(),
   difficulty: questionDifficultySchema.optional(),
   status: questionStatusSchema.optional(),
+  curriculum: z.string().min(2).max(100).optional(),
   testFramework: testFrameworkSchema.optional(),
   skills: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),

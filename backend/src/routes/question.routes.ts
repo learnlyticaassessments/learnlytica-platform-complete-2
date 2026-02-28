@@ -69,6 +69,11 @@ router.get(
   questionController.listQuestions
 );
 
+router.get(
+  '/curricula',
+  questionController.listCurricula
+);
+
 /**
  * @route   GET /api/v1/questions/:id
  * @desc    Get question by ID

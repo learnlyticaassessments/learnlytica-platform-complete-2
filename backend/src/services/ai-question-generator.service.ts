@@ -18,6 +18,12 @@ export interface GenerateQuestionRequest {
   timeLimit?: number;
   provider?: 'claude' | 'gpt';
   model?: string;
+  curriculumText?: string;
+  audienceType?: 'fresher' | 'experienced' | 'mixed';
+  audienceExperience?: string;
+  targetMaturity?: 'beginner' | 'intermediate' | 'advanced' | 'expert';
+  domain?: string;
+  audienceNotes?: string;
 }
 
 export interface AIProviderOptions {
@@ -150,7 +156,11 @@ CRITICAL: Return ONLY valid JSON matching this exact schema, with no markdown fo
       {
         "id": "string (test-1, test-2, etc)",
         "name": "string (descriptive test name)",
+        "file": "string (test file path)",
+        "testName": "string (stable test identifier)",
         "points": number (distribute total points across 6-10 tests),
+        "visible": "boolean (true for learner-visible test, false for hidden)",
+        "category": "string (basic | edge | negative | performance)",
         "testCode": "string (actual test code that will run)"
       }
     ]
@@ -169,25 +179,50 @@ CRITICAL: Return ONLY valid JSON matching this exact schema, with no markdown fo
 }
 
 REQUIREMENTS:
-1. Generate 6-10 comprehensive test cases covering:
-   - Happy path (2-3 tests)
-   - Edge cases (3-4 tests): empty input, single element, large input
-   - Error cases (1-2 tests): invalid input, null values
-   - Performance test (1 test): large dataset
+1. Generate 6-10 comprehensive test cases with this distribution:
+   - basic/happy-path: at least 2
+   - edge cases: at least 2
+   - negative/invalid-input: at least 1
+   - performance/scalability: at least 1
+2. Visibility mix:
+   - visible=true: 60-70% of tests
+   - visible=false: 30-40% of tests (must include at least 1 hidden edge or performance test)
 
-2. Test code must be actual executable code for the specified framework
-3. Description must include clear examples with input/output
-4. Starter code should have helpful comments
-5. Solution must be complete and working
-6. All points must sum to the total points value`;
+3. Test code must be actual executable code for the specified framework
+4. Description must include clear examples with input/output
+5. Starter code should have helpful comments
+6. Solution must be complete and working
+7. All points must sum to the total points value`;
+
+  const audienceBlock = [
+    `Audience Type: ${request.audienceType || 'mixed'}`,
+    `Audience Experience: ${request.audienceExperience || 'not specified'}`,
+    `Target Maturity: ${request.targetMaturity || request.difficulty}`,
+    `Domain: ${request.domain || 'general software'}`
+  ].join('\n');
+
+  const curriculumBlock = request.curriculumText
+    ? `Curriculum Context (must align to this):\n${request.curriculumText.slice(0, 8000)}`
+    : 'Curriculum Context: not provided';
+
+  const notesBlock = request.audienceNotes
+    ? `Additional Notes:\n${request.audienceNotes}`
+    : 'Additional Notes: none';
 
   const userPrompt = `Generate a ${request.difficulty} ${request.language} question about: ${request.topic}
 
 Question Type: ${request.questionType}
 Target Points: ${request.points || 'auto-determine based on difficulty'}
 Time Limit: ${request.timeLimit || 'auto-determine based on difficulty'} minutes
+${audienceBlock}
 
-Create a complete question with comprehensive test cases that students can solve.`;
+${curriculumBlock}
+
+${notesBlock}
+
+Create a complete question with comprehensive test cases that students can solve.
+Ensure tone, complexity, naming, and acceptance criteria fit the audience profile and domain.
+If curriculum context is provided, align problem statement and skills directly to it.`;
 
   try {
     const provider = resolveProvider(request);

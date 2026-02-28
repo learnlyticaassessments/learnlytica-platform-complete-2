@@ -20,6 +20,7 @@ export const questionKeys = {
   all: ['questions'] as const,
   lists: () => [...questionKeys.all, 'list'] as const,
   list: (filters?: QuestionFilters) => [...questionKeys.lists(), filters] as const,
+  curricula: () => [...questionKeys.all, 'curricula'] as const,
   details: () => [...questionKeys.all, 'detail'] as const,
   detail: (id: string) => [...questionKeys.details(), id] as const,
   preview: (id: string) => [...questionKeys.all, 'preview', id] as const
@@ -59,6 +60,14 @@ export function useQuestionPreview(id: string, enabled: boolean = true) {
     queryKey: questionKeys.preview(id),
     queryFn: () => questionService.getPreview(id),
     enabled: enabled && !!id
+  });
+}
+
+export function useQuestionCurricula(enabled: boolean = true) {
+  return useQuery({
+    queryKey: questionKeys.curricula(),
+    queryFn: () => questionService.listCurricula(),
+    enabled
   });
 }
 

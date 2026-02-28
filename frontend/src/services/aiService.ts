@@ -33,6 +33,12 @@ export interface GenerateQuestionRequest {
   timeLimit?: number;
   provider?: 'claude' | 'gpt';
   model?: string;
+  curriculumText?: string;
+  audienceType?: 'fresher' | 'experienced' | 'mixed';
+  audienceExperience?: string;
+  targetMaturity?: 'beginner' | 'intermediate' | 'advanced' | 'expert';
+  domain?: string;
+  audienceNotes?: string;
 }
 
 export const AI_PROVIDER_OPTIONS: Array<{

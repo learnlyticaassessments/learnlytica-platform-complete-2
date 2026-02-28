@@ -250,6 +250,7 @@ export async function listQuestions(
       category: req.query.category as any,
       difficulty: req.query.difficulty as any,
       status: req.query.status as any,
+      curriculum: req.query.curriculum as string,
       testFramework: req.query.testFramework as any,
       search: req.query.search as string,
       createdBy: req.query.createdBy as string,
@@ -292,6 +293,35 @@ export async function listQuestions(
         totalPages: result.totalPages,
         hasMore: result.hasMore
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listCurricula(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const curricula = await questionService.listCurricula(
+      req.app.locals.db,
+      {
+        organizationId: req.user.organizationId,
+        userId: req.user.id,
+        userRole: req.user.role
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: curricula
     });
   } catch (error) {
     next(error);
