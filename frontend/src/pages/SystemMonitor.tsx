@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Activity, Cpu, MemoryStick, Timer, Waves, Gauge, ClipboardList } from 'lucide-react';
+import { Activity, Cpu, MemoryStick, Timer, Waves, Gauge, ClipboardList, Boxes } from 'lucide-react';
 import { analyticsService } from '../services/analyticsService';
 
 type MonitorPoint = {
@@ -8,6 +8,16 @@ type MonitorPoint = {
   memoryPercent: number;
   activeRuns: number;
   queuedRuns: number;
+};
+
+type ExecutorHealth = {
+  healthy?: boolean;
+  dockerDaemonReachable?: boolean;
+  daemonError?: string | null;
+  availableCount?: number;
+  totalExpected?: number;
+  checks?: Array<{ image: string; available: boolean }>;
+  missingImages?: string[];
 };
 
 function AxisChart({
@@ -59,6 +69,7 @@ function AxisChart({
 
 export function SystemMonitor() {
   const [latest, setLatest] = useState<any | null>(null);
+  const [executorHealth, setExecutorHealth] = useState<ExecutorHealth | null>(null);
   const [history, setHistory] = useState<MonitorPoint[]>([]);
   const [error, setError] = useState('');
 
@@ -68,12 +79,18 @@ export function SystemMonitor() {
 
     const tick = async () => {
       try {
-        const res = await analyticsService.getSystemMonitor();
+        const [monitorRes, executorRes] = await Promise.allSettled([
+          analyticsService.getSystemMonitor(),
+          analyticsService.getExecutorHealth()
+        ]);
         if (!mounted) return;
-        const data = res?.data || {};
+        const data = monitorRes.status === 'fulfilled' ? (monitorRes.value?.data || {}) : {};
         const host = data?.host || {};
         const evaluators = data?.evaluators || {};
         setLatest(data);
+        if (executorRes.status === 'fulfilled') {
+          setExecutorHealth(executorRes.value?.data || null);
+        }
         setError('');
         setHistory((prev) => {
           const next = [...prev, {
@@ -110,6 +127,26 @@ export function SystemMonitor() {
   const capacity = latest?.capacity || {};
   const projectCap = capacity?.projectEvaluations || {};
   const assessmentCap = capacity?.assessmentSubmissions || {};
+  const executorChecks = executorHealth?.checks || [];
+  const executorMissing = executorHealth?.missingImages || [];
+  const executorTotal = Number(executorHealth?.totalExpected || 0);
+  const executorAvailable = Number(executorHealth?.availableCount || 0);
+  const executorTone: 'ok' | 'warn' | 'danger' =
+    executorHealth?.dockerDaemonReachable === false
+      ? 'danger'
+      : !executorTotal
+        ? 'warn'
+        : executorMissing.length > 0
+          ? 'warn'
+          : executorHealth?.healthy
+            ? 'ok'
+            : 'warn';
+  const executorBadge =
+    executorTone === 'danger'
+      ? 'Critical'
+      : executorTone === 'warn'
+        ? 'Degraded'
+        : 'Healthy';
   const firstTs = history[0]?.timestamp;
   const lastTs = history[history.length - 1]?.timestamp;
 
@@ -150,6 +187,49 @@ export function SystemMonitor() {
           tone={assessmentCap.overloaded ? 'danger' : Number(assessmentCap.utilizationPercent || 0) >= 85 ? 'warn' : 'ok'}
           badge={assessmentCap.overloaded ? 'Overloaded' : Number(assessmentCap.utilizationPercent || 0) >= 85 ? 'Near Limit' : 'Healthy'}
         />
+      </div>
+
+      <div className="card p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Boxes className="w-4 h-4" />
+            Executor Health
+          </div>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+            executorTone === 'danger'
+              ? 'text-red-700 bg-red-50 border-red-200'
+              : executorTone === 'warn'
+                ? 'text-amber-700 bg-amber-50 border-amber-200'
+                : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+          }`}>
+            {executorBadge}
+          </span>
+        </div>
+        <div className="text-sm">
+          Available images: <span className="font-semibold">{executorAvailable}</span> / {executorTotal || 0}
+        </div>
+        {executorHealth?.dockerDaemonReachable === false && (
+          <div className="text-xs text-red-700">
+            Docker daemon unreachable: {executorHealth?.daemonError || 'unknown error'}
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {executorChecks.map((check) => (
+            <div key={check.image} className="flex items-center justify-between rounded border border-[var(--border)] px-2 py-1.5 text-xs">
+              <span className="font-mono truncate pr-2">{check.image}</span>
+              <span className={`px-1.5 py-0.5 rounded-full border ${
+                check.available
+                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                  : 'text-red-700 bg-red-50 border-red-200'
+              }`}>
+                {check.available ? 'available' : 'missing'}
+              </span>
+            </div>
+          ))}
+          {!executorChecks.length && (
+            <div className="text-xs text-[var(--text-muted)]">No executor health data yet.</div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

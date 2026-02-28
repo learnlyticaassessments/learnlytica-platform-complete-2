@@ -55,6 +55,11 @@ export const analyticsService = {
     return response.data;
   },
 
+  getExecutorHealth: async () => {
+    const response = await client.get('/executors/health');
+    return response.data;
+  },
+
   getAssessmentAnalytics: async (id: string) => {
     const response = await client.get(`/assessments/${id}`);
     return response.data;
