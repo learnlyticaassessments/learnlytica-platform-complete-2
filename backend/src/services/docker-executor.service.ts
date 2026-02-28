@@ -43,6 +43,10 @@ export async function executeInDocker(
       await setupJestExecution(workDir, code, testCode);
     } else if (framework === 'pytest') {
       await setupPytestExecution(workDir, code, testCode);
+    } else if (framework === 'supertest') {
+      await setupSupertestExecution(workDir, code, testCode);
+    } else if (framework === 'pytest-requests') {
+      await setupPytestRequestsExecution(workDir, code, testCode);
     }
 
     // Containers run as non-root (coderunner). mkdtemp creates a private dir,
@@ -157,6 +161,22 @@ async function setupPytestExecution(workDir: string, code: string, testCode: str
   await fs.writeFile(path.join(workDir, 'test_solution.py'), testCode);
 }
 
+async function setupSupertestExecution(workDir: string, code: string, testCode: string) {
+  await fs.writeFile(path.join(workDir, 'app.js'), code);
+  await fs.writeFile(path.join(workDir, 'question.test.js'), testCode);
+  const packageJson = {
+    name: 'learnlytica-supertest-draft-runner',
+    version: '1.0.0',
+    private: true
+  };
+  await fs.writeFile(path.join(workDir, 'package.json'), JSON.stringify(packageJson));
+}
+
+async function setupPytestRequestsExecution(workDir: string, code: string, testCode: string) {
+  await fs.writeFile(path.join(workDir, 'app.py'), code);
+  await fs.writeFile(path.join(workDir, 'test_api.py'), testCode);
+}
+
 function buildDockerCommand(image: string, framework: string, workDir: string): string {
   const baseCmd = [
     'docker run',
@@ -179,6 +199,10 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
     execCmd = 'sh -c "jest --config \'{\\"rootDir\\":\\"/workspace\\",\\"testEnvironment\\":\\"node\\"}\' --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
   } else if (framework === 'pytest') {
     execCmd = 'sh -c "pytest --json-report --json-report-file=results.json; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
+  } else if (framework === 'supertest') {
+    execCmd = 'sh -c "jest --config \'{\\"rootDir\\":\\"/workspace\\",\\"testEnvironment\\":\\"node\\"}\' --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
+  } else if (framework === 'pytest-requests') {
+    execCmd = 'sh -c "pytest --json-report --json-report-file=results.json /workspace/test_api.py; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   }
 
   return [...baseCmd, execCmd].join(' ');

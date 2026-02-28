@@ -77,6 +77,17 @@ type QuestionPackageManifest = {
 };
 
 const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
+const RUNNABLE_TEST_FRAMEWORKS = new Set(['jest', 'pytest', 'playwright', 'junit', 'supertest', 'pytest-requests']);
+
+function assertFrameworkRunnable(framework: string) {
+  const normalized = String(framework || '').toLowerCase();
+  if (!RUNNABLE_TEST_FRAMEWORKS.has(normalized)) {
+    throw new QuestionValidationError(
+      `Unsupported framework for production execution: ${framework}`,
+      [{ field: 'testFramework', message: `Supported frameworks: ${Array.from(RUNNABLE_TEST_FRAMEWORKS).join(', ')}` }]
+    );
+  }
+}
 
 function inferCodeLanguageFromFramework(framework: string) {
   if (framework === 'pytest') return 'python';
@@ -139,6 +150,7 @@ export async function createQuestion(
   }
 
   const validatedData = validation.data;
+  assertFrameworkRunnable(validatedData.testFramework as any);
 
   // Validate test cases
   const testCaseValidation = validateTestCases(validatedData.testConfig.testCases);
@@ -212,6 +224,7 @@ export async function runDraftQuestionTests(
     throw new QuestionValidationError('Invalid draft question', validation.error.errors);
   }
   const validatedData = validation.data as CreateQuestionDTO;
+  assertFrameworkRunnable(validatedData.testFramework as any);
 
   const testCaseValidation = validateTestCases(validatedData.testConfig.testCases);
   if (!testCaseValidation.valid) {
@@ -268,6 +281,7 @@ export async function validateDraftQuestionPackage(
     throw new QuestionValidationError('Invalid draft question', validation.error.errors);
   }
   const validatedData = validation.data as CreateQuestionDTO;
+  assertFrameworkRunnable(validatedData.testFramework as any);
 
   const testCaseValidation = validateTestCases(validatedData.testConfig.testCases);
   if (!testCaseValidation.valid) {

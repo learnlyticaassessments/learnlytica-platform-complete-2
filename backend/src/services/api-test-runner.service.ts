@@ -30,6 +30,12 @@ export interface ApiTestExecutionResult {
     totalRequests: number;
     successfulRequests: number;
   };
+  diagnostics?: {
+    framework: string;
+    parser: string;
+    parseWarning?: string;
+    failureType?: 'timeout' | 'runtime_error' | 'parse_error' | 'assertion_failure';
+  };
 }
 
 export async function runApiTests(
@@ -63,7 +69,8 @@ export async function runApiTests(
     );
 
     // Parse results
-    const testResults = parseApiTestResults(result.stdout, framework, question.testConfig.testCases);
+    const combinedOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
+    const testResults = parseApiTestResults(combinedOutput, framework, question.testConfig.testCases);
 
     const testsRun = testResults.length;
     const testsPassed = testResults.filter(t => t.passed).length;
@@ -73,16 +80,23 @@ export async function runApiTests(
     // Calculate API metrics
     const apiMetrics = calculateApiMetrics(testResults);
 
+    const parseWarning = testResults.length === 0 ? 'No API test results parsed from runner output' : undefined;
     return {
-      success: result.exitCode === 0,
+      success: result.exitCode === 0 && testsRun > 0 && testsPassed === testsRun,
       testsRun,
       testsPassed,
       totalPoints,
       pointsEarned,
       results: testResults,
-      output: result.stdout,
+      output: combinedOutput,
       executionTime: result.executionTime,
-      apiMetrics
+      apiMetrics,
+      diagnostics: {
+        framework,
+        parser: framework === 'supertest' ? 'jest_json' : 'pytest_json',
+        parseWarning,
+        failureType: parseWarning ? 'parse_error' : (testsPassed < testsRun ? 'assertion_failure' : undefined)
+      }
     };
 
   } catch (error: any) {
@@ -94,12 +108,18 @@ export async function runApiTests(
       pointsEarned: 0,
       results: [],
       output: error.message,
-      executionTime: 0
+      executionTime: 0,
+      diagnostics: {
+        framework,
+        parser: 'none',
+        failureType: String(error?.message || '').toLowerCase().includes('timeout') ? 'timeout' : 'runtime_error'
+      }
     };
   }
 }
 
 function buildApiTestCode(framework: string, testCases: any[], code: string): string {
+  void code;
   if (framework === 'supertest') {
     return buildSupertestCode(testCases, code);
   } else if (framework === 'pytest-requests') {
@@ -109,6 +129,7 @@ function buildApiTestCode(framework: string, testCases: any[], code: string): st
 }
 
 function buildSupertestCode(testCases: any[], code: string): string {
+  void code;
   return `
 const request = require('supertest');
 const app = require('./app'); // Student's Express app
@@ -127,7 +148,7 @@ describe('${tc.name}', () => {
     ${tc.expectedBody ? `expect(response.body).toMatchObject(${JSON.stringify(tc.expectedBody)});` : ''}
     `}
     const duration = Date.now() - startTime;
-    console.log(JSON.stringify({ duration, statusCode: response?.status }));
+    expect(duration).toBeGreaterThanOrEqual(0);
   });
 });
 `).join('\n')}
@@ -135,10 +156,9 @@ describe('${tc.name}', () => {
 }
 
 function buildPytestRequestsCode(testCases: any[], code: string): string {
+  void code;
   return `
 import pytest
-import requests
-import json
 from app import app  # Student's Flask/FastAPI app
 from fastapi.testclient import TestClient
 
@@ -165,9 +185,11 @@ function parseApiTestResults(output: string, framework: string, testCases: any[]
   try {
     if (framework === 'supertest') {
       return parseSupertestResults(output, testCases);
-    } else {
+    }
+    if (framework === 'pytest-requests') {
       return parsePytestRequestsResults(output, testCases);
     }
+    return [];
   } catch (error) {
     console.error('Failed to parse API test results:', error);
     return [];
@@ -175,34 +197,53 @@ function parseApiTestResults(output: string, framework: string, testCases: any[]
 }
 
 function parseSupertestResults(output: string, testCases: any[]): ApiTestResult[] {
-  // Parse Jest JSON output
-  const lines = output.split('\n');
-  const metricsLines = lines.filter(line => line.includes('duration') && line.includes('statusCode'));
-  
-  return testCases.map((tc, index) => {
-    const metrics = metricsLines[index] ? JSON.parse(metricsLines[index]) : {};
-    
-    return {
-      name: tc.name,
-      passed: Math.random() > 0.2, // Real implementation would parse actual results
-      points: tc.points || 0,
-      duration: metrics.duration || 0,
-      statusCode: metrics.statusCode,
-      responseTime: metrics.duration
-    };
-  });
+  const payload = extractJsonObject(output);
+  const assertions = payload?.testResults?.[0]?.assertionResults || [];
+  if (!assertions.length && Array.isArray(testCases) && testCases.length) {
+    return testCases.map((tc: any, index: number) => ({
+      name: tc?.name || `API test ${index + 1}`,
+      passed: false,
+      points: Number(tc?.points || 0),
+      error: 'Result parsing failed: missing Jest assertion results'
+    }));
+  }
+
+  return assertions.map((assertion: any, index: number) => ({
+    name: assertion?.title || testCases[index]?.name || `API test ${index + 1}`,
+    passed: String(assertion?.status || '').toLowerCase() === 'passed',
+    points: Number(testCases[index]?.points || 0),
+    error: Array.isArray(assertion?.failureMessages) && assertion.failureMessages.length
+      ? String(assertion.failureMessages[0])
+      : undefined,
+    duration: Number(assertion?.duration || 0) || undefined,
+    responseTime: Number(assertion?.duration || 0) || undefined
+  }));
 }
 
 function parsePytestRequestsResults(output: string, testCases: any[]): ApiTestResult[] {
-  // Parse Pytest JSON output
-  return testCases.map(tc => ({
-    name: tc.name,
-    passed: Math.random() > 0.2,
-    points: tc.points || 0,
-    duration: Math.random() * 500,
-    statusCode: tc.expectedStatus || 200,
-    responseTime: Math.random() * 300
-  }));
+  const payload = extractJsonObject(output);
+  const tests = Array.isArray(payload?.tests) ? payload.tests : [];
+  if (!tests.length && Array.isArray(testCases) && testCases.length) {
+    return testCases.map((tc: any, index: number) => ({
+      name: tc?.name || `API test ${index + 1}`,
+      passed: false,
+      points: Number(tc?.points || 0),
+      error: 'Result parsing failed: missing pytest test records'
+    }));
+  }
+
+  return tests.map((test: any, index: number) => {
+    const outcome = String(test?.outcome || '').toLowerCase();
+    const duration = Number(test?.call?.duration || test?.duration || 0) || undefined;
+    return {
+      name: String(test?.nodeid || testCases[index]?.name || `API test ${index + 1}`),
+      passed: outcome === 'passed',
+      points: Number(testCases[index]?.points || 0),
+      error: outcome === 'passed' ? undefined : String(test?.call?.longrepr || test?.longrepr || 'Test failed'),
+      duration,
+      responseTime: duration
+    };
+  });
 }
 
 function calculateApiMetrics(results: ApiTestResult[]): any {
@@ -217,4 +258,18 @@ function calculateApiMetrics(results: ApiTestResult[]): any {
     totalRequests: results.length,
     successfulRequests: results.filter(r => r.passed).length
   };
+}
+
+function extractJsonObject(output: string): any | null {
+  const text = String(output || '');
+  const matches = text.match(/\{[\s\S]*\}/g);
+  if (!matches?.length) return null;
+  for (let i = matches.length - 1; i >= 0; i -= 1) {
+    try {
+      return JSON.parse(matches[i]);
+    } catch {
+      // try earlier segment
+    }
+  }
+  return null;
 }

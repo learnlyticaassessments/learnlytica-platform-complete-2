@@ -331,6 +331,14 @@ playwright test evaluator.phase1.spec.js --config playwright.config.cjs; CODE=\\
     const total = tests.length;
     const score = total ? Math.round((passed / total) * 100) : 0;
     const appLog = stdout.includes('---APP_LOG---') ? stdout.split('---APP_LOG---').pop()?.trim() : '';
+    const failureType =
+      exitCode === 0
+        ? undefined
+        : /timeout|timed out|Execution timeout/i.test(`${stdout}\n${stderr}`)
+          ? 'timeout'
+          : total === 0
+            ? 'parse_or_test_discovery'
+            : 'assertion_or_runtime';
 
     return {
       success: exitCode === 0 && total > 0 && passed === total,
@@ -342,7 +350,8 @@ playwright test evaluator.phase1.spec.js --config playwright.config.cjs; CODE=\\
       score,
       rawOutput: [stdout, stderr].filter(Boolean).join('\n'),
       appLog: appLog || null,
-      parsedJson: payload || null
+      parsedJson: payload || null,
+      failureType
     };
   } finally {
     await fs.rm(tmpRoot, { recursive: true, force: true }).catch(() => {});
@@ -1114,6 +1123,13 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
     detect?.detectedFramework === 'react_vite' &&
     zipLocalPath
   );
+  const preflightOnlyReason = !detect
+    ? 'No detection metadata found'
+    : !zipLocalPath
+      ? 'ZIP file path missing for evaluator run'
+      : detect?.detectedFramework !== 'react_vite'
+        ? `Framework "${detect?.detectedFramework || 'unknown'}" is not supported for full browser run yet`
+        : null;
 
   let actualRunResult: any = null;
   if (eligibleForActualEvaluation) {
@@ -1180,17 +1196,29 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
         phase: evaluationProfile.phase,
         state: actualExecutionCompleted
           ? (actualRunResult.success ? successState : failedState)
-          : completed ? 'preflight_complete' : 'queued',
+          : completed
+            ? (eligibleForActualEvaluation ? 'preflight_complete' : 'preflight_only_framework_not_supported')
+            : 'queued',
         message: actualExecutionCompleted
           ? (actualRunResult.success
               ? successMessage
               : failedMessage)
           : completed
-            ? 'ZIP ingestion + stack detection preflight completed (runner orchestration not yet wired for this submission)'
+            ? (eligibleForActualEvaluation
+                ? 'ZIP ingestion + stack detection preflight completed'
+                : `Preflight completed only. ${preflightOnlyReason || 'Framework not supported for full run.'}`)
             : 'Queued for Phase 1 Playwright UI-flow evaluation scaffold',
-        nextStep: actualExecutionCompleted ? 'Review failed steps/logs if any' : completed ? 'Submit React/Vite ZIP and run evaluation' : 'Upload ZIP and rerun',
+        nextStep: actualExecutionCompleted
+          ? 'Review failed steps/logs if any'
+          : completed
+            ? (eligibleForActualEvaluation
+                ? 'Submit React/Vite ZIP and run evaluation'
+                : 'Use React/Vite template or keep this as preflight-only validation')
+            : 'Upload ZIP and rerun',
         checksPassed: passCount,
         checksTotal: totalCount,
+        evaluationEligible: eligibleForActualEvaluation,
+        preflightOnlyReason: preflightOnlyReason || null,
         testsPassed: actualRunResult?.testsPassed ?? null,
         testsTotal: actualRunResult?.testsTotal ?? null
       },
@@ -1203,6 +1231,9 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
             testsPassed: actualRunResult.testsPassed,
             testsTotal: actualRunResult.testsTotal,
             rawPlaywright: actualRunResult.parsedJson,
+            exitCode: actualRunResult.exitCode,
+            durationMs: actualRunResult.durationMs,
+            failureType: actualRunResult.failureType || null,
             apiChecksConfigured: hasApiChecks
           }
         : completed
@@ -1210,16 +1241,20 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
             phase: 1,
             mode: 'preflight',
             detection: detect || null,
+            evaluationEligible: eligibleForActualEvaluation,
+            preflightOnlyReason: preflightOnlyReason || null,
             recommendation:
               (detect?.detectedFramework === 'react_vite' && score >= 70)
                 ? 'Ready for Phase 1 runner orchestration implementation'
-                : 'Submission structure incomplete for React/Vite Phase 1 expectations'
+                : (eligibleForActualEvaluation
+                    ? 'Submission structure incomplete for React/Vite Phase 1 expectations'
+                    : 'Framework currently supports preflight checks only')
           }
         : null,
       logs_text: actualExecutionCompleted
         ? actualRunResult.rawOutput
         : completed
-        ? `Project preflight completed. Detected framework: ${detect?.detectedFramework || 'unknown'} (${detect?.confidence || 'low'}).`
+        ? `Project preflight completed. Detected framework: ${detect?.detectedFramework || 'unknown'} (${detect?.confidence || 'low'}). Eligible for full run: ${eligibleForActualEvaluation ? 'yes' : 'no'}. ${preflightOnlyReason ? `Reason: ${preflightOnlyReason}.` : ''}`
         : null,
       created_by: ctx.userId || null
     })
@@ -1244,6 +1279,8 @@ export async function queueRun(db: Kysely<any>, ctx: Ctx, submissionId: string, 
         mode: actualExecutionCompleted
           ? evaluationProfile.mode
           : completed ? 'preflight' : 'queue_only',
+        evaluationEligible: eligibleForActualEvaluation,
+        preflightOnlyReason: preflightOnlyReason || null,
         score: actualExecutionCompleted ? actualRunResult.score : (completed ? score : null),
         testsPassed: actualRunResult?.testsPassed ?? null,
         testsTotal: actualRunResult?.testsTotal ?? null

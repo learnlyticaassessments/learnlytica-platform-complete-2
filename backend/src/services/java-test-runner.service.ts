@@ -26,6 +26,12 @@ export interface JavaTestExecutionResult {
   output: string;
   executionTime: number;
   compilationErrors?: string;
+  diagnostics?: {
+    framework: 'junit';
+    parser: string;
+    parseWarning?: string;
+    failureType?: 'timeout' | 'runtime_error' | 'parse_error' | 'assertion_failure' | 'compilation_error';
+  };
 }
 
 export async function runJavaTests(
@@ -63,7 +69,12 @@ export async function runJavaTests(
         results: [],
         output: result.stderr,
         executionTime: result.executionTime,
-        compilationErrors: result.stderr
+        compilationErrors: result.stderr,
+        diagnostics: {
+          framework: 'junit',
+          parser: 'maven_surefire_summary',
+          failureType: 'compilation_error'
+        }
       };
     }
 
@@ -75,15 +86,22 @@ export async function runJavaTests(
     const totalPoints = testResults.reduce((sum, t) => sum + t.points, 0);
     const pointsEarned = testResults.filter(t => t.passed).reduce((sum, t) => sum + t.points, 0);
 
+    const parseWarning = testResults.length === 0 ? 'No JUnit results parsed from Maven output' : undefined;
     return {
-      success: result.exitCode === 0,
+      success: result.exitCode === 0 && testsRun > 0 && testsPassed === testsRun,
       testsRun,
       testsPassed,
       totalPoints,
       pointsEarned,
       results: testResults,
       output: result.stdout,
-      executionTime: result.executionTime
+      executionTime: result.executionTime,
+      diagnostics: {
+        framework: 'junit',
+        parser: 'maven_surefire_summary',
+        parseWarning,
+        failureType: parseWarning ? 'parse_error' : (testsPassed < testsRun ? 'assertion_failure' : undefined)
+      }
     };
 
   } catch (error: any) {
@@ -96,7 +114,12 @@ export async function runJavaTests(
       results: [],
       output: error.message,
       executionTime: 0,
-      compilationErrors: error.message
+      compilationErrors: error.message,
+      diagnostics: {
+        framework: 'junit',
+        parser: 'none',
+        failureType: String(error?.message || '').toLowerCase().includes('timeout') ? 'timeout' : 'runtime_error'
+      }
     };
   }
 }
@@ -296,41 +319,33 @@ async function executeJavaInDocker(
 }
 
 function parseJUnitResults(output: string, testCases: any[]): JavaTestResult[] {
-  // Parse Maven Surefire output
   const results: JavaTestResult[] = [];
-  
-  // Look for test results in output
-  const testPattern = /\[INFO\] Tests run: (\d+), Failures: (\d+), Errors: (\d+), Skipped: (\d+)/;
-  const match = output.match(testPattern);
-  
-  if (match) {
-    const testsRun = parseInt(match[1]);
-    const failures = parseInt(match[2]);
-    const errors = parseInt(match[3]);
-    const passed = testsRun - failures - errors;
-    
-    // Map to test cases
-    testCases.forEach((tc, index) => {
-      results.push({
-        name: tc.name,
-        passed: index < passed,
-        points: tc.points || 0,
-        duration: Math.random() * 100,
-        className: 'SolutionTest',
-        methodName: `test${index + 1}`
-      });
-    });
-  } else {
-    // Fallback: assume all tests based on test cases
-    testCases.forEach(tc => {
-      results.push({
-        name: tc.name,
-        passed: !output.includes('FAILURE'),
-        points: tc.points || 0,
-        duration: Math.random() * 100
-      });
+  const text = String(output || '');
+  const summaryMatches = Array.from(text.matchAll(/Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)/g));
+  const summary = summaryMatches.length ? summaryMatches[summaryMatches.length - 1] : null;
+  const testsRun = summary ? Number(summary[1]) : (Array.isArray(testCases) ? testCases.length : 0);
+
+  const failedMethodIndexes = new Set<number>();
+  for (const m of text.matchAll(/SolutionTest\.test(\d+)/g)) {
+    const idx = Number(m[1]);
+    if (Number.isFinite(idx) && idx > 0) failedMethodIndexes.add(idx);
+  }
+
+  const cases = Array.isArray(testCases) ? testCases : [];
+  for (let i = 0; i < cases.length; i += 1) {
+    const methodIndex = i + 1;
+    const shouldCount = methodIndex <= Math.max(1, testsRun);
+    const passed = shouldCount ? !failedMethodIndexes.has(methodIndex) : false;
+    const tc = cases[i] || {};
+    results.push({
+      name: tc.name || `JUnit test ${methodIndex}`,
+      passed,
+      points: Number(tc.points || 0),
+      error: passed ? undefined : `SolutionTest.test${methodIndex} failed`,
+      className: 'SolutionTest',
+      methodName: `test${methodIndex}`
     });
   }
-  
+
   return results;
 }

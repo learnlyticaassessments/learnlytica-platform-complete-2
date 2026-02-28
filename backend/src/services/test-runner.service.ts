@@ -6,6 +6,7 @@
 import { executeInDocker } from './docker-executor.service';
 import { validateCode, sanitizeCode } from './code-validator.service';
 import { runApiTests } from './api-test-runner.service';
+import { runJavaTests } from './java-test-runner.service';
 
 export interface TestResult {
   name: string;
@@ -32,6 +33,12 @@ export interface TestExecutionResult {
     totalRequests: number;
     successfulRequests: number;
   };
+  diagnostics?: {
+    framework: string;
+    parser: string;
+    parseWarning?: string;
+    failureType?: 'timeout' | 'runtime_error' | 'parse_error' | 'assertion_failure' | 'unsupported_framework';
+  };
 }
 
 export async function runTests(
@@ -40,6 +47,15 @@ export async function runTests(
   question: any
 ): Promise<TestExecutionResult> {
   const framework = testConfig.framework;
+
+  // Route to API testing if framework is API-specific
+  if (framework === 'supertest' || framework === 'pytest-requests') {
+    return runApiTests(code, testConfig, question);
+  }
+  // Route to Java testing if framework is JUnit
+  if (framework === 'junit') {
+    return runJavaTests(code, testConfig, question);
+  }
   const supportedDraftFrameworks = new Set(['jest', 'pytest', 'playwright']);
   if (!supportedDraftFrameworks.has(framework)) {
     return {
@@ -49,14 +65,14 @@ export async function runTests(
       totalPoints: 0,
       pointsEarned: 0,
       results: [],
-      output: `Draft test execution is not supported for framework "${framework}" in the current runner. Supported: jest, pytest, playwright, junit.`,
-      executionTime: 0
+      output: `Test execution is not supported for framework "${framework}" in the current runner. Supported: jest, pytest, playwright, junit, supertest, pytest-requests.`,
+      executionTime: 0,
+      diagnostics: {
+        framework,
+        parser: 'none',
+        failureType: 'unsupported_framework'
+      }
     };
-  }
-
-  // Route to API testing if framework is API-specific
-  if (framework === 'supertest' || framework === 'pytest-requests') {
-    return runApiTests(code, testConfig, question);
   }
 
   const language = getLanguage(framework);
@@ -90,15 +106,22 @@ export async function runTests(
     const totalPoints = testResults.reduce((sum, t) => sum + t.points, 0);
     const pointsEarned = testResults.filter(t => t.passed).reduce((sum, t) => sum + t.points, 0);
 
+    const parseWarning = testResults.length === 0 ? 'No test results parsed from runner output' : undefined;
     return {
-      success: result.exitCode === 0,
+      success: result.exitCode === 0 && testsRun > 0 && testsPassed === testsRun,
       testsRun,
       testsPassed,
       totalPoints,
       pointsEarned,
       results: testResults,
       output: combinedOutput,
-      executionTime: result.executionTime
+      executionTime: result.executionTime,
+      diagnostics: {
+        framework,
+        parser: `${framework}_json`,
+        parseWarning,
+        failureType: parseWarning ? 'parse_error' : (testsPassed < testsRun ? 'assertion_failure' : undefined)
+      }
     };
 
   } catch (error: any) {
@@ -110,7 +133,12 @@ export async function runTests(
       pointsEarned: 0,
       results: [],
       output: error.message,
-      executionTime: 0
+      executionTime: 0,
+      diagnostics: {
+        framework,
+        parser: 'none',
+        failureType: String(error?.message || '').toLowerCase().includes('timeout') ? 'timeout' : 'runtime_error'
+      }
     };
   }
 }
@@ -254,19 +282,18 @@ function parsePytestResults(output: string, testCases: any[]): TestResult[] {
 }
 
 function extractJsonObject(output: string): any | null {
-  const start = output.indexOf('{');
-  const end = output.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  const candidate = output.slice(start, end + 1);
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    return null;
+  const text = String(output || '');
+  const matches = text.match(/\{[\s\S]*\}/g);
+  if (!matches?.length) return null;
+  for (let i = matches.length - 1; i >= 0; i -= 1) {
+    try {
+      return JSON.parse(matches[i]);
+    } catch {
+      // try earlier JSON block
+    }
   }
+  return null;
 }
-
-// Import Java test runner
-import { runJavaTests } from './java-test-runner.service';
 
 // Update runTests function to handle Java
 export async function runTestsWithJava(
