@@ -260,7 +260,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   } else if (framework === 'pytest-requests') {
     execCmd = 'sh -c "pytest --json-report --json-report-file=results.json /workspace/test_api.py; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'dotnet') {
-    execCmd = 'sh -c "CODE=0; mkdir -p /workspace/tests/TestResults; dotnet restore /workspace/tests/Solution.Tests.csproj --nologo --use-lock-file; CODE=$?; if [ \"$CODE\" = \"0\" ]; then dotnet test /workspace/tests/Solution.Tests.csproj --no-restore --nologo -v normal --results-directory /workspace/tests/TestResults --logger \\"trx;LogFileName=results.trx\\"; CODE=$?; fi; TRX_PATH=/workspace/tests/TestResults/results.trx; if [ -f \"$TRX_PATH\" ]; then echo \\"---TRX_START---\\"; cat \"$TRX_PATH\"; echo \\"---TRX_END---\\"; fi; exit \"$CODE\""';
+    execCmd = 'sh -c "export DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE=1 DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1; CODE=0; mkdir -p /workspace/tests/TestResults; dotnet restore /workspace/tests/Solution.Tests.csproj --nologo --use-lock-file; CODE=\\$?; if test \\$CODE -eq 0; then dotnet test /workspace/tests/Solution.Tests.csproj --no-restore --nologo -v normal --results-directory /workspace/tests/TestResults --logger \\"trx;LogFileName=results.trx\\"; CODE=\\$?; fi; TRX_PATH=/workspace/tests/TestResults/results.trx; echo \\"---TRX_START---\\"; if [ -f \\"\\$TRX_PATH\\" ]; then cat \\"\\$TRX_PATH\\"; fi; echo \\"---TRX_END---\\"; exit \\$CODE"';
   }
 
   return [...baseCmd, execCmd].join(' ');
