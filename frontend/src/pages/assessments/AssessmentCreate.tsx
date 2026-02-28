@@ -4,6 +4,17 @@ import { useCreateAssessment, useLabTemplates } from '../../hooks/useAssessments
 import { useQuestionCurricula, useQuestions } from '../../hooks/useQuestions';
 import { AlertTriangle, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
+const FRAMEWORK_FILTER_OPTIONS = [
+  { value: '', label: 'All Languages/Frameworks' },
+  { value: 'jest', label: 'JavaScript (Jest)' },
+  { value: 'playwright', label: 'JavaScript (Playwright)' },
+  { value: 'supertest', label: 'JavaScript API (Supertest)' },
+  { value: 'pytest', label: 'Python (Pytest)' },
+  { value: 'pytest-requests', label: 'Python API (Pytest-Requests)' },
+  { value: 'junit', label: 'Java (JUnit)' },
+  { value: 'dotnet', label: 'C#/.NET (xUnit)' }
+];
+
 function checkCompatibility(question: any, template: any): string[] {
   if (!template) return [];
   const issues: string[] = [];
@@ -46,16 +57,22 @@ export function AssessmentCreate() {
   const createMutation = useCreateAssessment();
   const { data: labTemplatesData } = useLabTemplates({ isActive: true });
   const [questionFilters, setQuestionFilters] = useState({
-    curriculum: '',
+    curriculum: 'all',
+    testFramework: '',
+    difficulty: '',
+    technicalFocus: '',
     search: ''
   });
   const { data: questionsData } = useQuestions({
     status: 'published',
-    limit: 200,
-    curriculum: questionFilters.curriculum || undefined,
+    limit: 1000,
+    curriculum: questionFilters.curriculum && questionFilters.curriculum !== 'all' ? questionFilters.curriculum : undefined,
+    testFramework: (questionFilters.testFramework as any) || undefined,
+    difficulty: (questionFilters.difficulty as any) || undefined,
+    technicalFocus: questionFilters.technicalFocus || undefined,
     search: questionFilters.search.trim().length >= 2 ? questionFilters.search.trim() : undefined
   });
-  const { data: allQuestionsData } = useQuestions({ status: 'published', limit: 200 });
+  const { data: allQuestionsData } = useQuestions({ status: 'published', limit: 1000 });
   const { data: curriculaData } = useQuestionCurricula();
 
   const [formData, setFormData] = useState({
@@ -98,10 +115,18 @@ export function AssessmentCreate() {
       .map((slug) => ({ slug, name: slug.replace(/-/g, ' ') }));
   }, [allQuestions]);
   const curriculumOptions = (curriculaData?.map((c: any) => ({ slug: c.slug, name: c.name || c.slug })) || fallbackCurriculumOptions).filter((c: any) => c?.slug);
+  const technicalFocusOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const q of allQuestions) {
+      const value = String(q?.technicalFocus || '').trim();
+      if (value) set.add(value);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allQuestions]);
 
   const selectedQuestionObjects = useMemo(
-    () => questions.filter((q: any) => formData.selectedQuestions.includes(q.id)),
-    [questions, formData.selectedQuestions]
+    () => allQuestions.filter((q: any) => formData.selectedQuestions.includes(q.id)),
+    [allQuestions, formData.selectedQuestions]
   );
 
   const compatibilityIssues = useMemo(
@@ -206,7 +231,7 @@ export function AssessmentCreate() {
 
           <div className="card">
             <h2 className="text-xl font-semibold mb-4">Questions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Filter by Curriculum</label>
                 <select
@@ -214,10 +239,53 @@ export function AssessmentCreate() {
                   value={questionFilters.curriculum}
                   onChange={(e) => setQuestionFilters((prev) => ({ ...prev, curriculum: e.target.value }))}
                 >
-                  <option value="">All Curricula</option>
+                  <option value="all">All Curricula (including uncategorized)</option>
+                  <option value="__uncategorized__">Unmapped / No Curriculum</option>
                   {curriculumOptions.map((c: any) => (
                     <option key={c.slug} value={c.slug}>
                       {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Language / Framework</label>
+                <select
+                  className="input-field"
+                  value={questionFilters.testFramework}
+                  onChange={(e) => setQuestionFilters((prev) => ({ ...prev, testFramework: e.target.value }))}
+                >
+                  {FRAMEWORK_FILTER_OPTIONS.map((option) => (
+                    <option key={option.value || 'all'} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Difficulty</label>
+                <select
+                  className="input-field"
+                  value={questionFilters.difficulty}
+                  onChange={(e) => setQuestionFilters((prev) => ({ ...prev, difficulty: e.target.value }))}
+                >
+                  <option value="">All Difficulties</option>
+                  <option value="easy">Easy</option>
+                  <option value="medium">Medium</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Technical Focus</label>
+                <select
+                  className="input-field"
+                  value={questionFilters.technicalFocus}
+                  onChange={(e) => setQuestionFilters((prev) => ({ ...prev, technicalFocus: e.target.value }))}
+                >
+                  <option value="">All Technical Focus Areas</option>
+                  {technicalFocusOptions.map((focus) => (
+                    <option key={focus} value={focus}>
+                      {focus}
                     </option>
                   ))}
                 </select>
@@ -257,6 +325,11 @@ export function AssessmentCreate() {
                   </div>
                 </label>
               ))}
+              {questions.length === 0 && (
+                <div className="rounded-xl border border-dashed border-[var(--border)] p-4 text-sm text-gray-600">
+                  No questions match these filters. Try selecting <span className="font-semibold">All Curricula</span> or clearing one of the filters.
+                </div>
+              )}
             </div>
 
             {!!selectedLabTemplate && !!selectedQuestionObjects.length && compatibilityIssues.length === 0 && (

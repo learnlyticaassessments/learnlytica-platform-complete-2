@@ -119,22 +119,39 @@ export async function listQuestions(
   if (filters.problemStyle) query = query.where('problem_style', '=', filters.problemStyle);
   if (filters.technicalFocus) query = query.where('technical_focus', 'ilike', `%${filters.technicalFocus}%`);
   if (filters.difficulty) query = query.where('difficulty', '=', filters.difficulty);
+  if (filters.testFramework) query = query.where('test_framework', '=', filters.testFramework);
   if (filters.status) query = query.where('status', '=', filters.status);
   if (filters.createdBy) query = query.where('created_by', '=', filters.createdBy);
   if (filters.curriculum) {
     const slug = String(filters.curriculum).trim().toLowerCase();
-    query = query.where((eb: any) =>
-      eb.exists(
-        db
-          .selectFrom('question_curricula as qc')
-          .innerJoin('curricula as c', 'c.id', 'qc.curriculum_id')
-          .select('qc.question_id')
-          .whereRef('qc.question_id', '=', 'questions.id')
-          .where('qc.organization_id', '=', organizationId)
-          .where('c.organization_id', '=', organizationId)
-          .where('c.slug', '=', slug)
-      )
-    );
+    if (slug !== 'all') {
+      if (slug === '__uncategorized__') {
+        query = query.where((eb: any) =>
+          eb.not(
+            eb.exists(
+              db
+                .selectFrom('question_curricula as qc')
+                .select('qc.question_id')
+                .whereRef('qc.question_id', '=', 'questions.id')
+                .where('qc.organization_id', '=', organizationId)
+            )
+          )
+        );
+      } else {
+        query = query.where((eb: any) =>
+          eb.exists(
+            db
+              .selectFrom('question_curricula as qc')
+              .innerJoin('curricula as c', 'c.id', 'qc.curriculum_id')
+              .select('qc.question_id')
+              .whereRef('qc.question_id', '=', 'questions.id')
+              .where('qc.organization_id', '=', organizationId)
+              .where('c.organization_id', '=', organizationId)
+              .where('c.slug', '=', slug)
+          )
+        );
+      }
+    }
   }
 
   // Full-text search
