@@ -42,6 +42,17 @@ function mapCategory(value: string, questionType?: string): QuestionCategory {
   return 'backend';
 }
 
+function mapProblemStyle(value: string): CreateQuestionDTO['problemStyle'] {
+  const normalized = String(value || '').toLowerCase().replace(/\s+/g, '_');
+  if (normalized === 'algorithmic') return 'algorithmic';
+  if (normalized === 'scenario_driven' || normalized === 'scenario-driven' || normalized === 'case_study') return 'scenario_driven';
+  if (normalized === 'debugging') return 'debugging';
+  if (normalized === 'implementation') return 'implementation';
+  if (normalized === 'optimization' || normalized === 'performance') return 'optimization';
+  if (normalized === 'design_tradeoff' || normalized === 'system_design') return 'design_tradeoff';
+  return 'implementation';
+}
+
 function mapFramework(language: string, rawFramework?: string): TestFramework {
   const fromResponse = String(rawFramework || '').toLowerCase();
   if (fromResponse === 'jest' || fromResponse === 'pytest' || fromResponse === 'junit' || fromResponse === 'playwright' || fromResponse === 'mocha' || fromResponse === 'cypress') {
@@ -203,6 +214,8 @@ function toCreateQuestionDto(generated: any, request: any): CreateQuestionDTO {
   const framework = mapFramework(language, generated?.testConfig?.framework);
   const difficulty = mapDifficulty(generated?.difficulty || request?.difficulty);
   const category = mapCategory(generated?.category, request?.questionType);
+  const problemStyle = mapProblemStyle(generated?.problemStyle || request?.problemStyle);
+  const technicalFocus = String(request?.questionType || generated?.technicalFocus || '').trim() || undefined;
   const rubricTotal = Number(request?.rubric?.totalPoints || 0);
   const points = Math.max(10, Number(rubricTotal || generated?.points || request?.points || 100));
   const starterCode = normalizeStarterCode(generated, language, String(request?.questionType || 'algorithm'));
@@ -216,6 +229,8 @@ function toCreateQuestionDto(generated: any, request: any): CreateQuestionDTO {
     title: String(generated?.title || 'AI Generated Question'),
     description: String(generated?.description || request?.topic || 'AI generated question'),
     category,
+    problemStyle,
+    technicalFocus,
     subcategory: [],
     difficulty,
     skills: [],
@@ -264,6 +279,7 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       language,
       difficulty,
       questionType,
+      problemStyle,
       points,
       timeLimit,
       provider,
@@ -289,6 +305,7 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       language,
       difficulty,
       questionType,
+      problemStyle,
       points,
       timeLimit,
       provider,
@@ -347,6 +364,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       language,
       difficulty,
       questionType,
+      problemStyle,
       points,
       timeLimit,
       provider,
@@ -374,6 +392,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       language,
       difficulty,
       questionType,
+      problemStyle,
       points,
       timeLimit,
       provider,

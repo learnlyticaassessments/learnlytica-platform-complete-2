@@ -19,6 +19,8 @@ export interface Question {
   
   // Classification
   category: QuestionCategory;
+  problemStyle?: QuestionProblemStyle;
+  technicalFocus?: string;
   subcategory: string[];
   difficulty: QuestionDifficulty;
   skills: string[];
@@ -66,6 +68,13 @@ export type QuestionCategory =
   | 'devops';
 
 export type QuestionDifficulty = 'easy' | 'medium' | 'hard';
+export type QuestionProblemStyle =
+  | 'algorithmic'
+  | 'scenario_driven'
+  | 'debugging'
+  | 'implementation'
+  | 'optimization'
+  | 'design_tradeoff';
 
 export type QuestionStatus = 'draft' | 'review' | 'published' | 'archived';
 
@@ -201,6 +210,8 @@ export interface CreateQuestionDTO {
   title: string;
   description: string;
   category: QuestionCategory;
+  problemStyle?: QuestionProblemStyle;
+  technicalFocus?: string;
   subcategory?: string[];
   difficulty: QuestionDifficulty;
   skills?: string[];
@@ -217,6 +228,8 @@ export interface UpdateQuestionDTO {
   title?: string;
   description?: string;
   category?: QuestionCategory;
+  problemStyle?: QuestionProblemStyle;
+  technicalFocus?: string;
   subcategory?: string[];
   difficulty?: QuestionDifficulty;
   skills?: string[];
@@ -233,6 +246,8 @@ export interface UpdateQuestionDTO {
 export interface QuestionFilters {
   // Filtering
   category?: QuestionCategory;
+  problemStyle?: QuestionProblemStyle;
+  technicalFocus?: string;
   difficulty?: QuestionDifficulty;
   status?: QuestionStatus;
   curriculum?: string;

@@ -28,7 +28,11 @@ export interface GenerateQuestionRequest {
   topic: string;
   language: 'javascript' | 'python' | 'java';
   difficulty: 'beginner' | 'intermediate' | 'advanced';
-  questionType: 'algorithm' | 'api' | 'component' | 'database' | 'fullstack';
+  problemStyle?: 'algorithmic' | 'scenario_driven' | 'debugging' | 'implementation' | 'optimization' | 'design_tradeoff';
+  questionType: string;
+  questionCount?: number;
+  questionTypeMode?: 'single' | 'mixed';
+  mixedQuestionTypes?: string[];
   points?: number;
   timeLimit?: number;
   provider?: 'claude' | 'gpt';
@@ -60,7 +64,7 @@ export const AI_PROVIDER_OPTIONS: Array<{
 ];
 
 export const AI_QUESTION_TYPE_OPTIONS: Array<{
-  value: GenerateQuestionRequest['questionType'];
+  value: string;
   label: string;
   description: string;
 }> = [
@@ -68,7 +72,13 @@ export const AI_QUESTION_TYPE_OPTIONS: Array<{
   { value: 'api', label: 'Backend API', description: 'Endpoints, validation, business logic, error handling.' },
   { value: 'component', label: 'Frontend UI Component', description: 'Reusable UI behavior, state, rendering, interactions.' },
   { value: 'database', label: 'Database & SQL', description: 'Schema design, queries, constraints, indexing.' },
-  { value: 'fullstack', label: 'Full-Stack Workflow', description: 'Frontend + backend integration and data flow.' }
+  { value: 'fullstack', label: 'Full-Stack Workflow', description: 'Frontend + backend integration and data flow.' },
+  { value: 'debugging', label: 'Debugging & Root Cause', description: 'Bug isolation, fixes, regressions, and diagnostics.' },
+  { value: 'testing', label: 'Testing Strategy', description: 'Unit/integration/e2e test design and reliability.' },
+  { value: 'performance', label: 'Performance Optimization', description: 'Scale behavior, latency, memory, and throughput.' },
+  { value: 'security', label: 'Security Hardening', description: 'Validation, auth, injection defense, and secure coding.' },
+  { value: 'data-processing', label: 'Data Processing', description: 'Transformations, aggregations, and data quality flows.' },
+  { value: 'system-design', label: 'System Design', description: 'Architecture decisions, tradeoffs, and scalability.' }
 ];
 
 export const aiService = {

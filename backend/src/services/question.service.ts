@@ -59,6 +59,8 @@ type QuestionPackageManifest = {
   title?: string;
   description?: string;
   category?: any;
+  problemStyle?: any;
+  technicalFocus?: string;
   difficulty?: any;
   testFramework?: any;
   points?: number;
@@ -443,6 +445,8 @@ export async function parseQuestionPackageZip(
     title: String(manifest.title || 'Imported Question'),
     description: String(manifest.description || ''),
     category,
+    problemStyle: manifest.problemStyle ? String(manifest.problemStyle) as any : 'implementation',
+    technicalFocus: manifest.technicalFocus ? String(manifest.technicalFocus) : undefined,
     subcategory: [],
     difficulty,
     skills: Array.isArray(manifest.skills) ? manifest.skills : [],

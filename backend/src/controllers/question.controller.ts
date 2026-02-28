@@ -248,6 +248,8 @@ export async function listQuestions(
 
     const filters: QuestionFilters = {
       category: req.query.category as any,
+      problemStyle: req.query.problemStyle as any,
+      technicalFocus: req.query.technicalFocus as string,
       difficulty: req.query.difficulty as any,
       status: req.query.status as any,
       curriculum: req.query.curriculum as string,

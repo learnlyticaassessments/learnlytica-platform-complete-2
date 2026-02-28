@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Loader2, Check, AlertCircle, Cpu, Star, TrendingUp, Wand2 } from 'lucide-react';
 import { aiService, AI_PROVIDER_OPTIONS, AI_QUESTION_TYPE_OPTIONS, GenerateQuestionRequest } from '../services/aiService';
@@ -10,7 +10,11 @@ export function AIQuestionGenerator() {
     topic: '',
     language: 'javascript',
     difficulty: 'intermediate',
+    problemStyle: 'scenario_driven',
     questionType: 'algorithm',
+    questionCount: 1,
+    questionTypeMode: 'single',
+    mixedQuestionTypes: [],
     provider: 'claude',
     model: 'claude-sonnet-4-20250514',
     audienceType: 'fresher',
@@ -34,7 +38,11 @@ export function AIQuestionGenerator() {
   const [wizardStep, setWizardStep] = useState(0);
   const [utilityLoading, setUtilityLoading] = useState<'tests' | 'improve' | 'review' | null>(null);
   const [utilityError, setUtilityError] = useState('');
+  const [showAdvancedUtilities, setShowAdvancedUtilities] = useState(false);
   const [downloadingZip, setDownloadingZip] = useState(false);
+  const [customQuestionTypeInput, setCustomQuestionTypeInput] = useState('');
+  const [customQuestionTypes, setCustomQuestionTypes] = useState<string[]>([]);
+  const [batchGenerationSummary, setBatchGenerationSummary] = useState('');
 
   const [testGenCode, setTestGenCode] = useState('function solve(input) {\n  return input;\n}');
   const [testGenDescription, setTestGenDescription] = useState('');
@@ -59,6 +67,131 @@ export function AIQuestionGenerator() {
     'Question Intent',
     'Execution Settings'
   ];
+  const problemStyleOptions: Array<{ value: NonNullable<GenerateQuestionRequest['problemStyle']>; label: string; description: string }> = [
+    { value: 'algorithmic', label: 'Algorithmic', description: 'Logic-first coding with clear input/output constraints.' },
+    { value: 'scenario_driven', label: 'Scenario Driven', description: 'Business/context-led case study flow.' },
+    { value: 'debugging', label: 'Debugging', description: 'Identify root cause and fix defects safely.' },
+    { value: 'implementation', label: 'Implementation', description: 'Build feature from requirements/spec.' },
+    { value: 'optimization', label: 'Optimization', description: 'Improve performance/resource efficiency.' },
+    { value: 'design_tradeoff', label: 'Design Tradeoff', description: 'Choose architecture with explicit tradeoffs.' }
+  ];
+
+  const curriculumHaystack = `${formData.curriculumText || ''} ${formData.domain || ''} ${formData.topic || ''}`.toLowerCase();
+
+  const languageOptions = useMemo(() => {
+    const supported = [
+      { value: 'javascript' as const, label: 'JavaScript', supported: true },
+      { value: 'python' as const, label: 'Python', supported: true },
+      { value: 'java' as const, label: 'Java', supported: true }
+    ];
+    const detected: Array<{ value: string; label: string; supported: boolean }> = [];
+    const pushDetected = (value: string, label: string) => {
+      if (!detected.some((d) => d.value === value)) {
+        detected.push({ value, label, supported: false });
+      }
+    };
+
+    if (/\bc\+\+|cpp|g\+\+/.test(curriculumHaystack)) pushDetected('cpp', 'C++');
+    if (/\bc#|dotnet|asp\.net/.test(curriculumHaystack)) pushDetected('csharp', 'C#');
+    if (/\bgo\b|golang/.test(curriculumHaystack)) pushDetected('go', 'Go');
+    if (/\bphp\b|laravel/.test(curriculumHaystack)) pushDetected('php', 'PHP');
+    if (/\bruby\b|rails/.test(curriculumHaystack)) pushDetected('ruby', 'Ruby');
+    if (/\bkotlin\b/.test(curriculumHaystack)) pushDetected('kotlin', 'Kotlin');
+    if (/\bswift\b/.test(curriculumHaystack)) pushDetected('swift', 'Swift');
+
+    return [...supported, ...detected];
+  }, [curriculumHaystack]);
+
+  const unsupportedLanguagesDetected = useMemo(
+    () => languageOptions.filter((l) => !l.supported).map((l) => l.label),
+    [languageOptions]
+  );
+
+  const detectedQuestionTypeCandidates = useMemo(() => {
+    const candidates: Array<{ value: string; label: string; description: string }> = [];
+    const push = (value: string, label: string, description: string) => {
+      if (!candidates.some((c) => c.value === value)) candidates.push({ value, label, description });
+    };
+
+    if (/devops|ci\/cd|deployment|container|docker|kubernetes/.test(curriculumHaystack)) {
+      push('devops', 'DevOps Workflow', 'Build pipelines, deployment automation, and release workflows.');
+    }
+    if (/observability|logging|monitoring|metrics|tracing/.test(curriculumHaystack)) {
+      push('observability', 'Observability', 'Instrumentation, dashboards, logs, and operational diagnostics.');
+    }
+    if (/messaging|kafka|rabbitmq|queue|event/.test(curriculumHaystack)) {
+      push('event-driven', 'Event-Driven Systems', 'Asynchronous messaging, queues, and event contracts.');
+    }
+    if (/ml|machine learning|model|inference|feature/.test(curriculumHaystack)) {
+      push('ml-engineering', 'ML Engineering', 'Model-serving, data preparation, and inference reliability.');
+    }
+
+    return candidates;
+  }, [curriculumHaystack]);
+
+  const questionTypeOptions = useMemo(() => {
+    const fromCustom = customQuestionTypes.map((value) => ({
+      value,
+      label: value.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      description: 'Custom type inferred from curriculum or author input.'
+    }));
+    const merged = [...AI_QUESTION_TYPE_OPTIONS, ...detectedQuestionTypeCandidates, ...fromCustom];
+    if (formData.questionType && !merged.some((o) => o.value === formData.questionType)) {
+      merged.push({
+        value: formData.questionType,
+        label: formData.questionType.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        description: 'Custom type inferred from curriculum or author input.'
+      });
+    }
+    return merged.filter((opt, idx) => merged.findIndex((m) => m.value === opt.value) === idx);
+  }, [customQuestionTypes, detectedQuestionTypeCandidates, formData.questionType]);
+
+  const curriculumSuggestions = useMemo(() => {
+    const haystack = curriculumHaystack;
+    let language: GenerateQuestionRequest['language'] = formData.language;
+    let questionType: GenerateQuestionRequest['questionType'] = formData.questionType;
+    let problemStyle: NonNullable<GenerateQuestionRequest['problemStyle']> = formData.problemStyle || 'implementation';
+
+    if (/\bjava\b|spring|junit|maven|gradle/.test(haystack)) language = 'java';
+    else if (/\bpython\b|pytest|pandas|numpy|fastapi|django/.test(haystack)) language = 'python';
+    else if (/javascript|react|angular|node|jest|playwright|frontend/.test(haystack)) language = 'javascript';
+
+    if (/security|owasp|xss|csrf|injection|auth/.test(haystack)) questionType = 'security';
+    else if (/performance|latency|throughput|optimi[sz]e|scale/.test(haystack)) questionType = 'performance';
+    else if (/debug|bug|defect|incident|root cause/.test(haystack)) questionType = 'debugging';
+    else if (/test|qa|coverage|assert/.test(haystack)) questionType = 'testing';
+    else if (/system design|architecture|distributed|microservice/.test(haystack)) questionType = 'system-design';
+    else if (/sql|database|schema|query/.test(haystack)) questionType = 'database';
+    else if (/component|ui|ux|react|angular/.test(haystack)) questionType = 'component';
+    else if (/api|endpoint|rest|http/.test(haystack)) questionType = 'api';
+
+    if (/scenario|case study|business flow|portal|workflow/.test(haystack)) problemStyle = 'scenario_driven';
+    else if (/algorithm|dsa|array|string|tree|graph|complexity/.test(haystack)) problemStyle = 'algorithmic';
+    else if (/debug|bug|incident|root cause|defect/.test(haystack)) problemStyle = 'debugging';
+    else if (/performance|latency|throughput|optimi[sz]e|scale/.test(haystack)) problemStyle = 'optimization';
+    else if (/design|architecture|tradeoff|microservice|distributed/.test(haystack)) problemStyle = 'design_tradeoff';
+    else if (/build|implement|feature|develop/.test(haystack)) problemStyle = 'implementation';
+
+    return { language, questionType, problemStyle };
+  }, [curriculumHaystack, formData.language, formData.questionType, formData.problemStyle]);
+
+  const addCustomQuestionType = () => {
+    const normalized = customQuestionTypeInput.trim().toLowerCase().replace(/\s+/g, '-');
+    if (!normalized) return;
+    setCustomQuestionTypes((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]));
+    setFormData((prev) => ({ ...prev, questionType: normalized }));
+    setCustomQuestionTypeInput('');
+  };
+
+  const getRequestedQuestionCount = () => Math.max(1, Math.min(25, Number(formData.questionCount || 1)));
+
+  const getPlannedQuestionTypes = () => {
+    const mode = formData.questionTypeMode || 'single';
+    if (mode === 'mixed' && Array.isArray(formData.mixedQuestionTypes) && formData.mixedQuestionTypes.length > 0) {
+      return formData.mixedQuestionTypes;
+    }
+    return [formData.questionType];
+  };
 
   useEffect(() => {
     if (!generatedQuestion) return;
@@ -74,11 +207,40 @@ export function AIQuestionGenerator() {
 
     setLoading(true);
     setError('');
+    setBatchGenerationSummary('');
 
     try {
-      const response = await aiService.generateQuestion(formData);
-      setGeneratedQuestion(response.data);
-      setGenerationPipeline(response.pipeline || null);
+      const requestedCount = getRequestedQuestionCount();
+      const plannedTypes = getPlannedQuestionTypes();
+
+      if (requestedCount === 1) {
+        const response = await aiService.generateQuestion(formData);
+        setGeneratedQuestion(response.data);
+        setGenerationPipeline(response.pipeline || null);
+      } else {
+        const generatedItems: any[] = [];
+        for (let i = 0; i < requestedCount; i += 1) {
+          const selectedType = plannedTypes[i % plannedTypes.length] || formData.questionType;
+          const requestForItem: GenerateQuestionRequest = {
+            ...formData,
+            questionType: selectedType,
+            questionCount: 1,
+            questionTypeMode: 'single'
+          };
+          const response = await aiService.generateQuestion(requestForItem);
+          generatedItems.push(response.data);
+        }
+
+        if (!generatedItems.length) {
+          throw new Error('No questions generated in batch mode');
+        }
+
+        setGeneratedQuestion(generatedItems[0]);
+        setGenerationPipeline(null);
+        setBatchGenerationSummary(
+          `Generated ${generatedItems.length} question drafts using types: ${plannedTypes.join(', ')}. Showing the first draft below.`
+        );
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to generate question');
     } finally {
@@ -87,6 +249,10 @@ export function AIQuestionGenerator() {
   };
 
   const handleCreateQuestion = async () => {
+    if (getRequestedQuestionCount() > 1) {
+      setError('Create is supported for a single question at a time. Set Question Count to 1, then create.');
+      return;
+    }
     setLoading(true);
     setError('');
 
@@ -206,6 +372,8 @@ export function AIQuestionGenerator() {
         title: payloadQuestion?.title || 'AI Generated Question',
         description: payloadQuestion?.description || '',
         category: payloadQuestion?.category || 'backend',
+        problemStyle: payloadQuestion?.problemStyle || formData.problemStyle || 'implementation',
+        technicalFocus: payloadQuestion?.technicalFocus || formData.questionType || 'algorithm',
         difficulty: payloadQuestion?.difficulty || 'medium',
         testFramework: payloadQuestion?.testFramework || 'jest',
         points: Number(payloadQuestion?.points || 100),
@@ -263,6 +431,10 @@ export function AIQuestionGenerator() {
   const handleGenerateCreateAndDownload = async () => {
     if (!formData.topic.trim()) {
       setError('Please enter a topic');
+      return;
+    }
+    if (getRequestedQuestionCount() > 1) {
+      setError('Generate + Verify + Create + Download currently supports single question only. Set Question Count to 1.');
       return;
     }
 
@@ -362,6 +534,31 @@ export function AIQuestionGenerator() {
               <Sparkles className="w-3.5 h-3.5 text-purple-500" />
               Be specific. The AI will generate comprehensive test coverage and starter code.
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="px-2 py-1 rounded bg-slate-100 border border-slate-200 text-slate-700">
+                Suggested language: <span className="font-semibold">{curriculumSuggestions.language}</span>
+              </span>
+              <span className="px-2 py-1 rounded bg-slate-100 border border-slate-200 text-slate-700">
+                Suggested type: <span className="font-semibold">{curriculumSuggestions.questionType}</span>
+              </span>
+              <span className="px-2 py-1 rounded bg-slate-100 border border-slate-200 text-slate-700">
+                Suggested style: <span className="font-semibold">{curriculumSuggestions.problemStyle}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    language: curriculumSuggestions.language,
+                    questionType: curriculumSuggestions.questionType,
+                    problemStyle: curriculumSuggestions.problemStyle
+                  }))
+                }
+                className="px-2 py-1 rounded bg-indigo-50 border border-indigo-200 text-indigo-700"
+              >
+                Apply Curriculum Suggestions
+              </button>
+            </div>
           </div>
 
           <div className="rounded-xl border border-slate-200 p-4">
@@ -480,13 +677,42 @@ export function AIQuestionGenerator() {
                       <label className="block text-sm font-semibold text-slate-700 mb-2">Question Type</label>
                       <select
                         value={formData.questionType}
-                        onChange={(e) => setFormData({ ...formData, questionType: e.target.value as any })}
+                        onChange={(e) => setFormData({ ...formData, questionType: e.target.value })}
                         className="input-field"
                       >
-                        {AI_QUESTION_TYPE_OPTIONS.map((option) => (
+                        {questionTypeOptions.map((option) => (
                           <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
                       </select>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="text"
+                          value={customQuestionTypeInput}
+                          onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
+                          placeholder="Add custom type from curriculum"
+                          className="input-field"
+                        />
+                        <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap">
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Problem Style</label>
+                      <select
+                        value={formData.problemStyle || 'implementation'}
+                        onChange={(e) => setFormData({ ...formData, problemStyle: e.target.value as any })}
+                        className="input-field"
+                      >
+                        {problemStyleOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-2 text-xs" style={{ color: 'var(--text-dim)' }}>
+                        {problemStyleOptions.find((option) => option.value === (formData.problemStyle || 'implementation'))?.description}
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">Language</label>
@@ -495,10 +721,17 @@ export function AIQuestionGenerator() {
                         onChange={(e) => setFormData({ ...formData, language: e.target.value as any })}
                         className="input-field"
                       >
-                        <option value="javascript">JavaScript</option>
-                        <option value="python">Python</option>
-                        <option value="java">Java</option>
+                        {languageOptions.map((option) => (
+                          <option key={option.value} value={option.value} disabled={!option.supported}>
+                            {option.label}{option.supported ? '' : ' (planned)'}
+                          </option>
+                        ))}
                       </select>
+                      {unsupportedLanguagesDetected.length > 0 && (
+                        <p className="mt-2 text-xs text-amber-700">
+                          Curriculum also mentions {unsupportedLanguagesDetected.join(', ')}. These are detected but not yet runnable in current evaluator.
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">Difficulty</label>
@@ -511,6 +744,52 @@ export function AIQuestionGenerator() {
                         <option value="intermediate">Intermediate</option>
                         <option value="advanced">Advanced</option>
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Type Mode</label>
+                      <select
+                        value={formData.questionTypeMode || 'single'}
+                        onChange={(e) => setFormData({ ...formData, questionTypeMode: e.target.value as 'single' | 'mixed' })}
+                        className="input-field"
+                      >
+                        <option value="single">Single Type</option>
+                        <option value="mixed">Mixed Types</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Question Count</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={25}
+                        value={getRequestedQuestionCount()}
+                        onChange={(e) => setFormData({ ...formData, questionCount: Math.max(1, Math.min(25, Number(e.target.value || 1))) })}
+                        className="input-field"
+                      />
+                    </div>
+                  </div>
+                )}
+                {wizardStep === 2 && (formData.questionTypeMode || 'single') === 'mixed' && (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="text-sm font-semibold text-slate-800 mb-2">Select mixed types</div>
+                    <div className="flex flex-wrap gap-2">
+                      {questionTypeOptions.map((option) => {
+                        const selected = (formData.mixedQuestionTypes || []).includes(option.value);
+                        return (
+                          <button
+                            key={`mixed-${option.value}`}
+                            type="button"
+                            onClick={() => {
+                              const current = formData.mixedQuestionTypes || [];
+                              const next = selected ? current.filter((t) => t !== option.value) : [...current, option.value];
+                              setFormData({ ...formData, mixedQuestionTypes: next });
+                            }}
+                            className={`px-2 py-1 rounded border text-xs ${selected ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-700'}`}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -800,10 +1079,17 @@ export function AIQuestionGenerator() {
                 onChange={(e) => setFormData({ ...formData, language: e.target.value as any })}
                 className="input-field"
               >
-                <option value="javascript">JavaScript</option>
-                <option value="python">Python</option>
-                <option value="java">Java</option>
+                {languageOptions.map((option) => (
+                  <option key={option.value} value={option.value} disabled={!option.supported}>
+                    {option.label}{option.supported ? '' : ' (planned)'}
+                  </option>
+                ))}
               </select>
+              {unsupportedLanguagesDetected.length > 0 && (
+                <p className="mt-2 text-xs text-amber-700">
+                  Curriculum also mentions {unsupportedLanguagesDetected.join(', ')}. These are detected but not yet runnable in current evaluator.
+                </p>
+              )}
             </div>
 
             <div>
@@ -823,21 +1109,75 @@ export function AIQuestionGenerator() {
               <label className="block text-sm font-semibold text-slate-700 mb-2">Type</label>
               <select
                 value={formData.questionType}
-                onChange={(e) => setFormData({ ...formData, questionType: e.target.value as any })}
+                onChange={(e) => setFormData({ ...formData, questionType: e.target.value })}
                 className="input-field"
               >
-                {AI_QUESTION_TYPE_OPTIONS.map((option) => (
+                {questionTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  value={customQuestionTypeInput}
+                  onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
+                  placeholder="Add custom type from curriculum"
+                  className="input-field"
+                />
+                <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap">
+                  Add
+                </button>
+              </div>
+              <p className="mt-2 text-xs" style={{ color: 'var(--text-dim)' }}>
+                {
+                  questionTypeOptions.find((option) => option.value === formData.questionType)
+                    ?.description
+                }
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Problem Style</label>
+              <select
+                value={formData.problemStyle || 'implementation'}
+                onChange={(e) => setFormData({ ...formData, problemStyle: e.target.value as any })}
+                className="input-field"
+              >
+                {problemStyleOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
               <p className="mt-2 text-xs" style={{ color: 'var(--text-dim)' }}>
-                {
-                  AI_QUESTION_TYPE_OPTIONS.find((option) => option.value === formData.questionType)
-                    ?.description
-                }
+                {problemStyleOptions.find((option) => option.value === (formData.problemStyle || 'implementation'))?.description}
               </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Type Mode</label>
+              <select
+                value={formData.questionTypeMode || 'single'}
+                onChange={(e) => setFormData({ ...formData, questionTypeMode: e.target.value as 'single' | 'mixed' })}
+                className="input-field"
+              >
+                <option value="single">Single Type</option>
+                <option value="mixed">Mixed Types</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Question Count</label>
+              <input
+                type="number"
+                min={1}
+                max={25}
+                value={getRequestedQuestionCount()}
+                onChange={(e) => setFormData({ ...formData, questionCount: Math.max(1, Math.min(25, Number(e.target.value || 1))) })}
+                className="input-field"
+              />
             </div>
 
             <div>
@@ -852,10 +1192,35 @@ export function AIQuestionGenerator() {
             </div>
           </div>
 
+          {(formData.questionTypeMode || 'single') === 'mixed' && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800 mb-2">Select mixed types</div>
+              <div className="flex flex-wrap gap-2">
+                {questionTypeOptions.map((option) => {
+                  const selected = (formData.mixedQuestionTypes || []).includes(option.value);
+                  return (
+                    <button
+                      key={`mixed-bottom-${option.value}`}
+                      type="button"
+                      onClick={() => {
+                        const current = formData.mixedQuestionTypes || [];
+                        const next = selected ? current.filter((t) => t !== option.value) : [...current, option.value];
+                        setFormData({ ...formData, mixedQuestionTypes: next });
+                      }}
+                      className={`px-2 py-1 rounded border text-xs ${selected ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-700'}`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <button
               onClick={handleGenerateCreateAndDownload}
-              disabled={atomicLoading || loading || !formData.topic}
+              disabled={atomicLoading || loading || !formData.topic || getRequestedQuestionCount() > 1}
               className="btn-ai flex items-center justify-center gap-2 min-h-[46px]"
             >
               {atomicLoading ? (
@@ -892,6 +1257,7 @@ export function AIQuestionGenerator() {
             {generatedQuestion && (
               <button
                 onClick={handleCreateQuestion}
+                disabled={loading || getRequestedQuestionCount() > 1}
                 className="btn-secondary flex items-center justify-center gap-2 min-h-[46px]"
               >
                 <Check className="w-5 h-5" />
@@ -909,6 +1275,11 @@ export function AIQuestionGenerator() {
               </button>
             )}
           </div>
+          {getRequestedQuestionCount() > 1 && (
+            <p className="text-xs text-amber-700">
+              Batch mode generates preview drafts only. To create/verify a question in DB, set Question Count to 1.
+            </p>
+          )}
 
           {error && (
             <div className="flex items-start gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
@@ -926,12 +1297,37 @@ export function AIQuestionGenerator() {
               Tests: <span className="font-semibold">{generationPipeline.testsPassed ?? 0}/{generationPipeline.testsRun ?? 0}</span>
             </div>
           )}
+          {batchGenerationSummary && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+              {batchGenerationSummary}
+            </div>
+          )}
         </div>
       </section>
 
       <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-[0_12px_40px_rgba(15,23,42,0.08)]">
-        <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 mb-2">AI Utilities</h2>
-        <p className="text-sm text-slate-500 mb-6">Use the same provider/model for test generation, question improvements, and code reviews.</p>
+        <div className="flex items-center justify-between gap-4 mb-2">
+          <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900">AI Utilities (Optional Advanced)</h2>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => setShowAdvancedUtilities((v) => !v)}
+          >
+            {showAdvancedUtilities ? 'Hide Advanced Tools' : 'Show Advanced Tools'}
+          </button>
+        </div>
+        <p className="text-sm text-slate-500 mb-6">
+          Optional advanced tools for power users. Core production flow remains wizard → generate/verify → create → ZIP.
+        </p>
+
+        {!showAdvancedUtilities && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+            Advanced tools are collapsed by default to keep authoring focused and production-safe.
+          </div>
+        )}
+
+        {showAdvancedUtilities && (
+          <>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="rounded-xl border border-slate-200 p-4 space-y-3">
@@ -1018,6 +1414,8 @@ export function AIQuestionGenerator() {
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>{utilityError}</span>
           </div>
+        )}
+          </>
         )}
       </section>
 
@@ -1119,7 +1517,7 @@ export function AIQuestionGenerator() {
           <div className="mt-8 flex flex-col sm:flex-row gap-3">
             <button
               onClick={handleCreateQuestion}
-              disabled={loading}
+              disabled={loading || getRequestedQuestionCount() > 1}
               className="btn-ai flex items-center justify-center gap-2"
             >
               {loading ? (

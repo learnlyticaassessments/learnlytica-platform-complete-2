@@ -13,7 +13,11 @@ export interface GenerateQuestionRequest {
   topic: string;
   language: 'javascript' | 'python' | 'java';
   difficulty: 'beginner' | 'intermediate' | 'advanced';
-  questionType: 'algorithm' | 'api' | 'component' | 'database' | 'fullstack';
+  questionType: string;
+  problemStyle?: 'algorithmic' | 'scenario_driven' | 'debugging' | 'implementation' | 'optimization' | 'design_tradeoff';
+  questionCount?: number;
+  questionTypeMode?: 'single' | 'mixed';
+  mixedQuestionTypes?: string[];
   points?: number;
   timeLimit?: number;
   provider?: 'claude' | 'gpt';
@@ -230,6 +234,10 @@ REQUIREMENTS:
   const userPrompt = `Generate a ${request.difficulty} ${request.language} question about: ${request.topic}
 
 Question Type: ${request.questionType}
+Problem Style: ${request.problemStyle || 'implementation'}
+Question Type Mode: ${request.questionTypeMode || 'single'}
+Mixed Question Types: ${(request.mixedQuestionTypes || []).join(', ') || 'none'}
+Requested Question Count: ${Math.max(1, Math.min(25, Number(request.questionCount || 1)))}
 Target Points: ${request.points || 'auto-determine based on difficulty'}
 Time Limit: ${request.timeLimit || 'auto-determine based on difficulty'} minutes
 ${audienceBlock}

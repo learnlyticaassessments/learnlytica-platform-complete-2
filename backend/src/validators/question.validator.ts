@@ -19,6 +19,14 @@ const questionCategorySchema = z.enum([
 ]);
 
 const questionDifficultySchema = z.enum(['easy', 'medium', 'hard']);
+const questionProblemStyleSchema = z.enum([
+  'algorithmic',
+  'scenario_driven',
+  'debugging',
+  'implementation',
+  'optimization',
+  'design_tradeoff'
+]);
 
 const testFrameworkSchema = z.enum([
   'playwright',
@@ -150,6 +158,8 @@ export const createQuestionSchema = z.object({
     .min(20, 'Description must be at least 20 characters'),
   
   category: questionCategorySchema,
+  problemStyle: questionProblemStyleSchema.optional().default('implementation'),
+  technicalFocus: z.string().min(2).max(100).optional(),
   
   subcategory: z.array(z.string()).optional().default([]),
   
@@ -201,6 +211,8 @@ export const updateQuestionSchema = z.object({
     .optional(),
   
   category: questionCategorySchema.optional(),
+  problemStyle: questionProblemStyleSchema.optional(),
+  technicalFocus: z.string().min(2).max(100).optional(),
   
   subcategory: z.array(z.string()).optional(),
   
@@ -249,6 +261,8 @@ export const updateQuestionSchema = z.object({
 export const questionFiltersSchema = z.object({
   // Filtering
   category: questionCategorySchema.optional(),
+  problemStyle: questionProblemStyleSchema.optional(),
+  technicalFocus: z.string().min(2).max(100).optional(),
   difficulty: questionDifficultySchema.optional(),
   status: questionStatusSchema.optional(),
   curriculum: z.string().min(2).max(100).optional(),

@@ -30,6 +30,8 @@ export function rowToQuestion(row: any): Question {
     slug: row.slug,
     description: row.description,
     category: row.category,
+    problemStyle: row.problem_style || undefined,
+    technicalFocus: row.technical_focus || undefined,
     subcategory: row.subcategory || [],
     difficulty: row.difficulty,
     skills: row.skills || [],
@@ -68,6 +70,8 @@ export async function createQuestion(
       slug: data.slug,
       description: data.description,
       category: data.category,
+      problem_style: data.problemStyle || 'implementation',
+      technical_focus: data.technicalFocus || null,
       subcategory: data.subcategory || [],
       difficulty: data.difficulty,
       skills: data.skills || [],
@@ -112,6 +116,8 @@ export async function listQuestions(
 
   // Apply filters
   if (filters.category) query = query.where('category', '=', filters.category);
+  if (filters.problemStyle) query = query.where('problem_style', '=', filters.problemStyle);
+  if (filters.technicalFocus) query = query.where('technical_focus', 'ilike', `%${filters.technicalFocus}%`);
   if (filters.difficulty) query = query.where('difficulty', '=', filters.difficulty);
   if (filters.status) query = query.where('status', '=', filters.status);
   if (filters.createdBy) query = query.where('created_by', '=', filters.createdBy);
@@ -188,6 +194,10 @@ export async function updateQuestion(
   if (data.title) updateData.title = data.title;
   if (data.description) updateData.description = data.description;
   if (data.category) updateData.category = data.category;
+  if (data.problemStyle) updateData.problem_style = data.problemStyle;
+  if (typeof data.technicalFocus === 'string' && data.technicalFocus.trim()) {
+    updateData.technical_focus = data.technicalFocus.trim();
+  }
   if (data.difficulty) updateData.difficulty = data.difficulty;
   if (data.starterCode) updateData.starter_code = JSON.stringify(data.starterCode);
   if (data.testConfig) updateData.test_config = JSON.stringify(data.testConfig);
