@@ -51,9 +51,9 @@ export async function executeInDocker(
       await setupDotnetExecution(workDir, code, testCode);
     }
 
-    // Containers run as non-root (coderunner). mkdtemp creates a private dir,
-    // so make the mounted workspace writable/readable by the container user.
-    await fs.chmod(workDir, 0o777);
+    // Containers run as non-root (coderunner). Ensure mounted workspace is
+    // writable recursively (dotnet restore writes obj/ and lock files).
+    await makeWorkspaceWritable(workDir);
 
     // Build Docker command
     const dockerCmd = buildDockerCommand(image, framework, workDir);
@@ -88,6 +88,19 @@ export async function executeInDocker(
   } finally {
     // Cleanup
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function makeWorkspaceWritable(rootDir: string): Promise<void> {
+  await fs.chmod(rootDir, 0o777).catch(() => {});
+  const entries = await fs.readdir(rootDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const fullPath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      await makeWorkspaceWritable(fullPath);
+    } else {
+      await fs.chmod(fullPath, 0o666).catch(() => {});
+    }
   }
 }
 
@@ -224,7 +237,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   const baseCmd = [
     'docker run',
     '--rm',
-    '--network none',
+    ...(framework === 'dotnet' ? [] : ['--network none']),
     '--cpus="1"',
     '--memory="512m"',
     `--volume "${workDir}:/workspace"`,
@@ -247,7 +260,7 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
   } else if (framework === 'pytest-requests') {
     execCmd = 'sh -c "pytest --json-report --json-report-file=results.json /workspace/test_api.py; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
   } else if (framework === 'dotnet') {
-    execCmd = 'sh -c "dotnet restore /workspace/tests/Solution.Tests.csproj --nologo --ignore-failed-sources --use-lock-file; CODE=$?; [ $CODE -ne 0 ] && exit $CODE; dotnet test /workspace/tests/Solution.Tests.csproj --no-restore --nologo -v normal; CODE=$?; exit $CODE"';
+    execCmd = 'sh -c "dotnet restore /workspace/tests/Solution.Tests.csproj --nologo --use-lock-file; CODE=$?; if [ \"$CODE\" != \"0\" ]; then exit \"$CODE\"; fi; dotnet test /workspace/tests/Solution.Tests.csproj --no-restore --nologo -v normal; CODE=$?; exit \"$CODE\""';
   }
 
   return [...baseCmd, execCmd].join(' ');
