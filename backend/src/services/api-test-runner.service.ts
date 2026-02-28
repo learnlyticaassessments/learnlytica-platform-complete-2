@@ -41,7 +41,10 @@ export interface ApiTestExecutionResult {
 export async function runApiTests(
   code: string,
   testConfig: any,
-  question: any
+  question: any,
+  options?: {
+    runtimeImage?: string;
+  }
 ): Promise<ApiTestExecutionResult> {
   const framework = testConfig.framework;
   const language = framework === 'supertest' ? 'javascript' : 'python';
@@ -51,9 +54,9 @@ export async function runApiTests(
   const sanitized = sanitizeCode(code);
 
   // Get Docker image
-  const image = framework === 'supertest' 
-    ? 'learnlytica/executor-node:latest' 
-    : 'learnlytica/executor-python:latest';
+  const image = options?.runtimeImage || (framework === 'supertest'
+    ? 'learnlytica/executor-node:latest'
+    : 'learnlytica/executor-python:latest');
 
   // Build test code
   const testCode = buildApiTestCode(framework, question.testConfig.testCases, sanitized);

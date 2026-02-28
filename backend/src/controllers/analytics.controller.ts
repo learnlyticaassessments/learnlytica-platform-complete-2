@@ -32,6 +32,17 @@ export async function getProjectEvaluationAnalytics(req: Request, res: Response,
   }
 }
 
+export async function getRuntimeTemplateAnalytics(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const organizationId = (req.user as any).organizationId as string;
+    const data = await analyticsService.getRuntimeTemplateAnalytics(db, organizationId);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getProjectTrends(req: Request, res: Response, next: NextFunction) {
   try {
     const db = (req as any).db;

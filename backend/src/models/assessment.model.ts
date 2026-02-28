@@ -6,6 +6,18 @@
 
 import { sql } from 'kysely';
 
+function parseJsonMaybe(value: any, fallback: any) {
+  if (value == null) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return value;
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -220,13 +232,15 @@ export async function deleteAssessment(db: any, id: string): Promise<boolean> {
 export async function addQuestions(
   db: any,
   assessmentId: string,
-  questions: Array<{ questionId: string; orderIndex: number; pointsOverride?: number }>
+  questions: Array<{ questionId: string; orderIndex: number; runtimeTemplateId?: string; pointsOverride?: number; timeEstimateOverride?: number }>
 ): Promise<void> {
   const values = questions.map(q => ({
     assessment_id: assessmentId,
     question_id: q.questionId,
     order_index: q.orderIndex,
-    points_override: q.pointsOverride
+    runtime_template_id: q.runtimeTemplateId,
+    points_override: q.pointsOverride,
+    time_estimate_override: q.timeEstimateOverride
   }));
 
   await db.insertInto('assessment_questions').values(values).execute();
@@ -235,7 +249,49 @@ export async function addQuestions(
 export async function getAssessmentQuestions(db: any, assessmentId: string): Promise<any[]> {
   const results = await db
     .selectFrom('assessment_questions')
-    .selectAll()
+    .leftJoin('lab_templates as lt', 'lt.id', 'assessment_questions.runtime_template_id')
+    .leftJoin('questions as q', 'q.id', 'assessment_questions.question_id')
+    .select([
+      'assessment_questions.id as id',
+      'assessment_questions.assessment_id as assessment_id',
+      'assessment_questions.question_id as question_id',
+      'assessment_questions.order_index as order_index',
+      'assessment_questions.points_override as points_override',
+      'assessment_questions.time_estimate_override as time_estimate_override',
+      'assessment_questions.runtime_template_id as runtime_template_id',
+      'lt.id as runtime_template_ref_id',
+      'lt.name as runtime_template_name',
+      'lt.category as runtime_template_category',
+      'lt.docker_image as runtime_template_docker_image',
+      'lt.docker_tag as runtime_template_docker_tag',
+      'q.id as q_id',
+      'q.organization_id as q_organization_id',
+      'q.title as q_title',
+      'q.slug as q_slug',
+      'q.description as q_description',
+      'q.category as q_category',
+      'q.problem_style as q_problem_style',
+      'q.technical_focus as q_technical_focus',
+      'q.subcategory as q_subcategory',
+      'q.difficulty as q_difficulty',
+      'q.skills as q_skills',
+      'q.tags as q_tags',
+      'q.starter_code as q_starter_code',
+      'q.test_framework as q_test_framework',
+      'q.test_config as q_test_config',
+      'q.solution as q_solution',
+      'q.time_estimate as q_time_estimate',
+      'q.points as q_points',
+      'q.created_by as q_created_by',
+      'q.reviewed_by as q_reviewed_by',
+      'q.status as q_status',
+      'q.version as q_version',
+      'q.parent_question_id as q_parent_question_id',
+      'q.created_at as q_created_at',
+      'q.updated_at as q_updated_at',
+      'q.published_at as q_published_at',
+      'q.archived_at as q_archived_at'
+    ])
     .where('assessment_id', '=', assessmentId)
     .orderBy('order_index', 'asc')
     .execute();
@@ -245,7 +301,49 @@ export async function getAssessmentQuestions(db: any, assessmentId: string): Pro
     assessmentId: row.assessment_id,
     questionId: row.question_id,
     orderIndex: row.order_index,
-    pointsOverride: row.points_override
+    runtimeTemplateId: row.runtime_template_id,
+    runtimeTemplate: row.runtime_template_ref_id
+      ? {
+          id: row.runtime_template_ref_id,
+          name: row.runtime_template_name,
+          category: row.runtime_template_category,
+          dockerImage: row.runtime_template_docker_image,
+          dockerTag: row.runtime_template_docker_tag
+        }
+      : null,
+    pointsOverride: row.points_override,
+    timeEstimateOverride: row.time_estimate_override,
+    question: row.q_id
+      ? {
+          id: row.q_id,
+          organizationId: row.q_organization_id,
+          title: row.q_title,
+          slug: row.q_slug,
+          description: row.q_description,
+          category: row.q_category,
+          problemStyle: row.q_problem_style || undefined,
+          technicalFocus: row.q_technical_focus || undefined,
+          subcategory: parseJsonMaybe(row.q_subcategory, []),
+          difficulty: row.q_difficulty,
+          skills: parseJsonMaybe(row.q_skills, []),
+          tags: parseJsonMaybe(row.q_tags, []),
+          starterCode: parseJsonMaybe(row.q_starter_code, null),
+          testFramework: row.q_test_framework,
+          testConfig: parseJsonMaybe(row.q_test_config, null),
+          solution: parseJsonMaybe(row.q_solution, null),
+          timeEstimate: row.q_time_estimate,
+          points: row.q_points,
+          createdBy: row.q_created_by,
+          reviewedBy: row.q_reviewed_by || undefined,
+          status: row.q_status,
+          version: row.q_version,
+          parentQuestionId: row.q_parent_question_id || undefined,
+          createdAt: row.q_created_at,
+          updatedAt: row.q_updated_at,
+          publishedAt: row.q_published_at || undefined,
+          archivedAt: row.q_archived_at || undefined
+        }
+      : null
   }));
 }
 

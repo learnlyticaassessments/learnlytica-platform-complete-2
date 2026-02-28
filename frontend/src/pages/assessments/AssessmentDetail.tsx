@@ -114,6 +114,11 @@ export function AssessmentDetail() {
                 </div>
                 <div className="flex-1">
                   <div className="font-medium">{q.question?.title || 'Question'}</div>
+                  {q.runtimeTemplate?.name && (
+                    <div className="text-xs text-gray-600 mt-1">
+                      Runtime override: {q.runtimeTemplate.name}
+                    </div>
+                  )}
                 </div>
                 <div className="text-gray-600">{q.pointsOverride || q.question?.points || 0} pts</div>
               </div>

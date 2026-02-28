@@ -31,6 +31,83 @@ export class LabTemplateInUseError extends Error {
   }
 }
 
+function getDefaultRuntimeTemplates() {
+  return [
+    {
+      name: 'Node Runtime (Jest/Supertest)',
+      description: 'Node.js runtime for JavaScript and API tests',
+      category: 'backend',
+      dockerImage: 'learnlytica/executor-node:latest',
+      resourceLimits: { cpu: '1', memory: '1Gi', storage: '5Gi' }
+    },
+    {
+      name: 'Python Runtime (Pytest)',
+      description: 'Python runtime for pytest and API request tests',
+      category: 'backend',
+      dockerImage: 'learnlytica/executor-python:latest',
+      resourceLimits: { cpu: '1', memory: '1Gi', storage: '5Gi' }
+    },
+    {
+      name: 'Java Runtime (JUnit)',
+      description: 'Java runtime for JUnit-based assessments',
+      category: 'backend',
+      dockerImage: 'learnlytica/executor-java:latest',
+      resourceLimits: { cpu: '1', memory: '2Gi', storage: '5Gi' }
+    },
+    {
+      name: 'Playwright Runtime (Browser)',
+      description: 'Browser-capable runtime for Playwright UI evaluation',
+      category: 'frontend',
+      dockerImage: 'learnlytica/executor-playwright:latest',
+      resourceLimits: { cpu: '1', memory: '2Gi', storage: '6Gi' }
+    },
+    {
+      name: '.NET Runtime (xUnit)',
+      description: '.NET runtime for C# xUnit assessments',
+      category: 'backend',
+      dockerImage: 'learnlytica/executor-dotnet:latest',
+      resourceLimits: { cpu: '1', memory: '2Gi', storage: '6Gi' }
+    }
+  ];
+}
+
+async function ensureDefaultRuntimeTemplates(db: any, context: any) {
+  if (!['admin', 'client'].includes(context.userRole)) {
+    return { createdCount: 0, created: [], totalDefaults: getDefaultRuntimeTemplates().length };
+  }
+
+  const defaults = getDefaultRuntimeTemplates();
+  const existing = await labTemplateModel.listLabTemplates(db, context.organizationId, {});
+  const existingKeys = new Set(
+    existing.map((t: any) => `${String(t.name || '').toLowerCase()}|${String(t.dockerImage || '').toLowerCase()}`)
+  );
+
+  const created: any[] = [];
+  for (const tpl of defaults) {
+    const key = `${tpl.name.toLowerCase()}|${tpl.dockerImage.toLowerCase()}`;
+    if (existingKeys.has(key)) continue;
+    const item = await labTemplateModel.createLabTemplate(db, {
+      ...tpl,
+      organizationId: context.organizationId,
+      createdBy: context.userId,
+      dockerTag: 'latest',
+      vscodeExtensions: [],
+      vscodeSettings: {},
+      environmentVariables: {},
+      npmPackages: [],
+      pipPackages: [],
+      exposedPorts: []
+    });
+    created.push(item);
+  }
+
+  return {
+    createdCount: created.length,
+    created,
+    totalDefaults: defaults.length
+  };
+}
+
 // ============================================================================
 // CREATE
 // ============================================================================
@@ -70,11 +147,22 @@ export async function getLabTemplate(db: any, id: string, context: any) {
 }
 
 export async function listLabTemplates(db: any, filters: any, context: any) {
-  const labTemplates = await labTemplateModel.listLabTemplates(
+  let labTemplates = await labTemplateModel.listLabTemplates(
     db,
     context.organizationId,
     filters
   );
+
+  // Production-safe fallback: ensure executor-backed default runtime templates
+  // are available per org so assessment runtime dropdown is never empty.
+  if (!labTemplates.length) {
+    await ensureDefaultRuntimeTemplates(db, context);
+    labTemplates = await labTemplateModel.listLabTemplates(
+      db,
+      context.organizationId,
+      filters
+    );
+  }
 
   return labTemplates;
 }
@@ -132,4 +220,11 @@ export async function deleteLabTemplate(db: any, id: string, context: any) {
 
   const deleted = await labTemplateModel.deleteLabTemplate(db, id);
   return deleted;
+}
+
+export async function seedDefaultRuntimeTemplates(db: any, context: any) {
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Only administrators or client admins can seed runtime templates');
+  }
+  return ensureDefaultRuntimeTemplates(db, context);
 }

@@ -156,4 +156,9 @@ export const labTemplateService = {
     const response = await client.delete(`/lab-templates/${id}`);
     return response.data;
   },
+
+  seedDefaults: async () => {
+    const response = await client.post('/lab-templates/seed-defaults');
+    return response.data;
+  }
 };

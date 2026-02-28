@@ -18,6 +18,9 @@ router.use(authenticate);
 // List lab templates
 router.get('/', labTemplateController.listLabTemplates);
 
+// Seed default runtime templates for the current organization
+router.post('/seed-defaults', labTemplateController.seedDefaultRuntimeTemplates);
+
 // Get single lab template
 router.get('/:id', labTemplateController.getLabTemplate);
 

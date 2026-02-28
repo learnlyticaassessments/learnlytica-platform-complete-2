@@ -6,6 +6,7 @@ export function Dashboard() {
   const [stats, setStats] = useState<any>(null);
   const [projectTrends, setProjectTrends] = useState<any[]>([]);
   const [projectBatchRows, setProjectBatchRows] = useState<any[]>([]);
+  const [runtimeRows, setRuntimeRows] = useState<any[]>([]);
   const [projectDebug, setProjectDebug] = useState<any | null>(null);
   const [projectTrendsView, setProjectTrendsView] = useState<'chart' | 'table'>('chart');
   const [projectBatchView, setProjectBatchView] = useState<'chart' | 'table'>('chart');
@@ -47,6 +48,7 @@ export function Dashboard() {
   }, {});
   const debugRunRows = Object.entries(debugRecentRunStatus).map(([status, count]) => ({ status, count }));
   const debugRunMax = Math.max(1, ...debugRunRows.map((r) => toNum(r.count)));
+  const runtimeMax = Math.max(1, ...runtimeRows.map((r: any) => toNum(r.attempts)));
   const masterySkillRows = (masteryData?.skillGraph || []) as Array<any>;
   const masteryProgressRows = (masteryData?.progression || []) as Array<any>;
   const masterySkillMax = Math.max(1, ...masterySkillRows.map((r: any) => toNum(r.masteryScore)));
@@ -63,11 +65,12 @@ export function Dashboard() {
   const loadStats = async () => {
     const nextWarnings: string[] = [];
     try {
-      const [dashboard, trends, byBatch, debug] = await Promise.allSettled([
+      const [dashboard, trends, byBatch, debug, runtimes] = await Promise.allSettled([
         analyticsService.getDashboard(),
         analyticsService.getProjectTrends(14),
         analyticsService.getProjectBatchAnalytics(),
-        analyticsService.getProjectAnalyticsDebug()
+        analyticsService.getProjectAnalyticsDebug(),
+        analyticsService.getRuntimeTemplateAnalytics()
       ]);
 
       if (dashboard.status === 'fulfilled') {
@@ -102,6 +105,16 @@ export function Dashboard() {
         nextWarnings.push('Project debug analytics could not be loaded.');
         setProjectDebug(null);
         console.error('Failed to load project debug analytics', debug.reason);
+      }
+
+      if (runtimes && runtimes.status === 'fulfilled') {
+        setRuntimeRows(runtimes.value?.data?.rows || []);
+      } else {
+        nextWarnings.push('Runtime template analytics could not be loaded.');
+        setRuntimeRows([]);
+        if (runtimes && runtimes.status !== 'fulfilled') {
+          console.error('Failed to load runtime template analytics', runtimes.reason);
+        }
       }
     } catch (error) {
       console.error('Failed to load stats', error);
@@ -362,6 +375,37 @@ export function Dashboard() {
               <TrendingUp className="w-6 h-6 text-orange-600" />
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="text-xl font-semibold mb-4">Runtime Template Utilization</h2>
+        <div className="space-y-3">
+          {runtimeRows.map((row: any, idx: number) => (
+            <div key={`runtime-row-${idx}`} className="rounded border border-[var(--border)] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-medium">{row.runtimeTemplateName}</div>
+                  <div className="text-xs text-[var(--text-muted)]">{row.runtimeCategory} • {row.dockerImage}</div>
+                </div>
+                <div className="text-xs text-[var(--text-muted)]">
+                  Attempts: <span className="font-semibold text-[var(--text)]">{row.attempts}</span>
+                  {' • '}
+                  Submitted: <span className="font-semibold text-[var(--text)]">{row.submitted}</span>
+                  {' • '}
+                  Pass rate: <span className="font-semibold text-[var(--text)]">{Number(row.passRate || 0).toFixed(1)}%</span>
+                  {' • '}
+                  Avg score: <span className="font-semibold text-[var(--text)]">{Number(row.avgScore || 0).toFixed(1)}</span>
+                </div>
+              </div>
+              <div className="mt-2 h-2 rounded bg-slate-100 overflow-hidden">
+                <div className="h-full bg-indigo-500" style={{ width: `${(toNum(row.attempts) / runtimeMax) * 100}%` }} />
+              </div>
+            </div>
+          ))}
+          {!runtimeRows.length && (
+            <div className="text-sm text-[var(--text-muted)]">No runtime utilization data yet.</div>
+          )}
         </div>
       </div>
 

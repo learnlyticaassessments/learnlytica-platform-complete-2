@@ -5,6 +5,7 @@ import {
   useCreateLabTemplate,
   useDeleteLabTemplate,
   useLabTemplates,
+  useSeedDefaultLabTemplates,
   useUpdateLabTemplate
 } from '../hooks/useAssessments';
 
@@ -34,6 +35,7 @@ export function LabTemplates() {
   const createMutation = useCreateLabTemplate();
   const updateMutation = useUpdateLabTemplate();
   const deleteMutation = useDeleteLabTemplate();
+  const seedDefaultsMutation = useSeedDefaultLabTemplates();
 
   const [form, setForm] = useState<any>(DEFAULT_TEMPLATE);
   const templates = data?.data || [];
@@ -78,6 +80,19 @@ export function LabTemplates() {
     }
   };
 
+  const seedDefaults = async () => {
+    if (!canManage) return;
+    try {
+      const result = await seedDefaultsMutation.mutateAsync();
+      await refetch();
+      const createdCount = Number(result?.data?.createdCount || 0);
+      alert(createdCount > 0 ? `Seeded ${createdCount} runtime template(s).` : 'Default runtime templates already exist.');
+    } catch (error) {
+      console.error('Failed to seed default runtime templates', error);
+      alert('Failed to seed default runtime templates');
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -85,6 +100,18 @@ export function LabTemplates() {
         <p className="text-sm text-[var(--text-muted)] mt-1">
           Execution runtimes used by assessments. Learners still code in Monaco editor.
         </p>
+        {canManage && (
+          <div className="mt-3">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={seedDefaults}
+              disabled={seedDefaultsMutation.isPending}
+            >
+              {seedDefaultsMutation.isPending ? 'Seeding...' : 'Seed Default Runtime Templates'}
+            </button>
+          </div>
+        )}
       </div>
 
       {canManage && (

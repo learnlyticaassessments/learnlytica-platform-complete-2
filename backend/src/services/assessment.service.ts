@@ -79,15 +79,40 @@ function isFrameworkCompatibleWithLabTemplate(question: any, labTemplate: any): 
 }
 
 async function validateQuestionsAgainstLabTemplate(db: any, labTemplate: any, questions: any[], context: any) {
+  const templateCache = new Map<string, any>();
+  templateCache.set(labTemplate.id, labTemplate);
+
   for (const q of questions) {
     const question = await getQuestionById(db, q.questionId ?? q.id ?? q, context);
     if (!question) {
       throw new ValidationError(`Question ${q.questionId ?? q.id ?? q} not found`);
     }
-    const compatibility = isFrameworkCompatibleWithLabTemplate(question, labTemplate);
+    const runtimeTemplateId = q.runtimeTemplateId || q.runtime_template_id;
+    let targetLabTemplate = labTemplate;
+    if (runtimeTemplateId) {
+      const cached = templateCache.get(runtimeTemplateId);
+      if (cached) {
+        targetLabTemplate = cached;
+      } else {
+        const runtimeTemplate = await labTemplateModel.getLabTemplateById(db, runtimeTemplateId);
+        if (!runtimeTemplate) {
+          throw new ValidationError(`Runtime template ${runtimeTemplateId} not found`);
+        }
+        if (!runtimeTemplate.isActive) {
+          throw new ValidationError(`Runtime template "${runtimeTemplate.name}" is inactive`);
+        }
+        if (runtimeTemplate.organizationId !== context.organizationId) {
+          throw new ValidationError(`Runtime template ${runtimeTemplateId} is not in your organization`);
+        }
+        templateCache.set(runtimeTemplateId, runtimeTemplate);
+        targetLabTemplate = runtimeTemplate;
+      }
+    }
+
+    const compatibility = isFrameworkCompatibleWithLabTemplate(question, targetLabTemplate);
     if (!compatibility.ok) {
       throw new ValidationError(
-        `Question "${question.title}" is incompatible with lab template "${labTemplate.name}": ${compatibility.reason}`
+        `Question "${question.title}" is incompatible with runtime template "${targetLabTemplate.name}": ${compatibility.reason}`
       );
     }
   }
@@ -139,7 +164,12 @@ export async function createAssessment(db: any, data: any, context: any) {
   }
 
   // Increment lab template usage count
-  await labTemplateModel.incrementUsageCount(db, data.labTemplateId);
+  const runtimeTemplateIds = new Set<string>([data.labTemplateId]);
+  for (const q of data.questions || []) {
+    const runtimeTemplateId = q.runtimeTemplateId || q.runtime_template_id;
+    if (runtimeTemplateId) runtimeTemplateIds.add(runtimeTemplateId);
+  }
+  await Promise.all(Array.from(runtimeTemplateIds).map((templateId) => labTemplateModel.incrementUsageCount(db, templateId)));
 
   return assessment;
 }
@@ -260,6 +290,13 @@ export async function addQuestionsToAssessment(
   await validateQuestionsAgainstLabTemplate(db, labTemplate, questions, context);
 
   await assessmentModel.addQuestions(db, assessmentId, questions);
+
+  const runtimeTemplateIds = new Set<string>();
+  for (const q of questions || []) {
+    const runtimeTemplateId = q.runtimeTemplateId || q.runtime_template_id;
+    if (runtimeTemplateId) runtimeTemplateIds.add(runtimeTemplateId);
+  }
+  await Promise.all(Array.from(runtimeTemplateIds).map((templateId) => labTemplateModel.incrementUsageCount(db, templateId)));
 }
 
 export async function removeQuestionFromAssessment(

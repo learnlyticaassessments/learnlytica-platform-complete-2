@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useCreateAssessment, useLabTemplates } from '../../hooks/useAssessments';
+import { useCreateAssessment, useLabTemplates, useSeedDefaultLabTemplates } from '../../hooks/useAssessments';
 import { useQuestionCurricula, useQuestions } from '../../hooks/useQuestions';
 import { AlertTriangle, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
@@ -80,6 +80,7 @@ function frameworkWeight(dockerImage: string, framework: string): number {
 export function AssessmentCreate() {
   const navigate = useNavigate();
   const createMutation = useCreateAssessment();
+  const seedDefaultsMutation = useSeedDefaultLabTemplates();
   const { data: labTemplatesData } = useLabTemplates();
   const [questionFilters, setQuestionFilters] = useState({
     curriculum: 'all',
@@ -108,7 +109,8 @@ export function AssessmentCreate() {
     timeLimitMinutes: 120,
     passingScore: 70,
     maxAttempts: 3,
-    selectedQuestions: [] as string[]
+    selectedQuestions: [] as string[],
+    questionRuntimeTemplates: {} as Record<string, string>
   });
 
   const labTemplatesRaw = labTemplatesData?.data || [];
@@ -224,12 +226,18 @@ export function AssessmentCreate() {
 
   const compatibilityIssues = useMemo(
     () =>
-      selectedLabTemplate
-        ? selectedQuestionObjects
-            .map((q: any) => ({ question: q, issues: checkCompatibility(q, selectedLabTemplate) }))
-            .filter((row: any) => row.issues.length > 0)
-        : [],
-    [selectedQuestionObjects, selectedLabTemplate]
+      selectedQuestionObjects
+        .map((q: any) => {
+          const overrideTemplateId = formData.questionRuntimeTemplates[q.id];
+          const effectiveTemplateId = overrideTemplateId || formData.labTemplateId;
+          const effectiveTemplate = labTemplates.find((t: any) => t.id === effectiveTemplateId);
+          const issues = !effectiveTemplate
+            ? ['No runtime template selected for this question']
+            : checkCompatibility(q, effectiveTemplate);
+          return { question: q, issues, template: effectiveTemplate };
+        })
+        .filter((row: any) => row.issues.length > 0),
+    [selectedQuestionObjects, formData.questionRuntimeTemplates, formData.labTemplateId, labTemplates]
   );
 
   const totalSelectedPoints = selectedQuestionObjects.reduce((sum: number, q: any) => sum + (Number(q.points) || 0), 0);
@@ -239,16 +247,38 @@ export function AssessmentCreate() {
     try {
       const questionPayload = formData.selectedQuestions.map((qId, index) => ({
         questionId: qId,
-        orderIndex: index + 1
+        orderIndex: index + 1,
+        runtimeTemplateId: formData.questionRuntimeTemplates[qId] || undefined
       }));
 
       await createMutation.mutateAsync({
-        ...formData,
-        questions: questionPayload
+        title: formData.title,
+        description: formData.description,
+        questions: questionPayload,
+        labTemplateId: formData.labTemplateId,
+        timeLimitMinutes: formData.timeLimitMinutes,
+        passingScore: formData.passingScore,
+        maxAttempts: formData.maxAttempts
       });
       navigate('/assessments');
     } catch (error) {
       alert('Failed to create assessment');
+    }
+  };
+
+  const handleSeedDefaults = async () => {
+    try {
+      const result = await seedDefaultsMutation.mutateAsync();
+      const createdCount = Number(result?.data?.createdCount || 0);
+      if (createdCount > 0) {
+        alert(`Seeded ${createdCount} runtime template(s). Reloading page data...`);
+      } else {
+        alert('Default runtime templates already exist.');
+      }
+      window.location.reload();
+    } catch (error) {
+      console.error('Failed to seed runtime templates', error);
+      alert('Failed to seed runtime templates');
     }
   };
 
@@ -352,6 +382,16 @@ export function AssessmentCreate() {
                 <p className="mt-1 text-xs text-amber-700">
                   Create at least one runtime template in <span className="font-semibold">Lab Templates</span> to continue.
                 </p>
+              )}
+              {!labTemplates.length && (
+                <button
+                  type="button"
+                  className="btn-secondary mt-2"
+                  onClick={handleSeedDefaults}
+                  disabled={seedDefaultsMutation.isPending}
+                >
+                  {seedDefaultsMutation.isPending ? 'Seeding runtime templates...' : 'Seed Default Runtime Templates'}
+                </button>
               )}
             </div>
             {selectedLabTemplate && (
@@ -458,13 +498,43 @@ export function AssessmentCreate() {
                       if (e.target.checked) {
                         setFormData({ ...formData, selectedQuestions: [...formData.selectedQuestions, question.id] });
                       } else {
-                        setFormData({ ...formData, selectedQuestions: formData.selectedQuestions.filter(id => id !== question.id) });
+                        const nextSelected = formData.selectedQuestions.filter(id => id !== question.id);
+                        const nextRuntimeMap = { ...formData.questionRuntimeTemplates };
+                        delete nextRuntimeMap[question.id];
+                        setFormData({ ...formData, selectedQuestions: nextSelected, questionRuntimeTemplates: nextRuntimeMap });
                       }
                     }}
                   />
                   <div className="flex-1">
                     <div className="font-medium">{question.title}</div>
                     <div className="text-sm text-gray-600">{question.points} pts · {question.category} · {question.testFramework || 'n/a'}</div>
+                    {formData.selectedQuestions.includes(question.id) && (
+                      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                        <label className="block text-xs font-medium mb-1 text-gray-700">
+                          Runtime override for this question (optional)
+                        </label>
+                        <select
+                          className="input-field text-sm"
+                          value={formData.questionRuntimeTemplates[question.id] || ''}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              questionRuntimeTemplates: {
+                                ...prev.questionRuntimeTemplates,
+                                [question.id]: e.target.value
+                              }
+                            }))
+                          }
+                        >
+                          <option value="">Use assessment default runtime</option>
+                          {labTemplates.map((template: any) => (
+                            <option key={template.id} value={template.id}>
+                              {template.name} ({template.category})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </label>
               ))}
@@ -495,7 +565,10 @@ export function AssessmentCreate() {
                   {compatibilityIssues.map((row: any) => (
                     <div key={row.question.id} className="rounded-lg border border-amber-200 bg-white/70 p-3">
                       <div className="font-medium">{row.question.title}</div>
-                      <div className="text-xs text-gray-600 mb-1">{row.question.category} • {row.question.testFramework}</div>
+                      <div className="text-xs text-gray-600 mb-1">
+                        {row.question.category} • {row.question.testFramework}
+                        {row.template ? ` • runtime: ${row.template.name}` : ''}
+                      </div>
                       <ul className="list-disc pl-4 text-sm text-amber-800">
                         {row.issues.map((issue: string) => (
                           <li key={issue}>{issue}</li>

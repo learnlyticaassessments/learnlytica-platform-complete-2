@@ -81,3 +81,16 @@ export async function deleteLabTemplate(req: Request, res: Response, next: NextF
     next(error);
   }
 }
+
+export async function seedDefaultRuntimeTemplates(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const user = req.user as any;
+    const context = { userId: user.id, organizationId: user.organizationId, userRole: user.role };
+
+    const result = await labTemplateService.seedDefaultRuntimeTemplates(db, context);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}

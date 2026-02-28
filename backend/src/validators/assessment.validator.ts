@@ -12,6 +12,7 @@ import { z } from 'zod';
 const assessmentQuestionSchema = z.object({
   questionId: z.string().uuid('Invalid question ID'),
   orderIndex: z.number().int().min(1, 'Order index must start at 1'),
+  runtimeTemplateId: z.string().uuid('Invalid runtime template ID').optional(),
   pointsOverride: z.number().int().min(0).optional(),
   timeEstimateOverride: z.number().int().min(1).optional()
 });

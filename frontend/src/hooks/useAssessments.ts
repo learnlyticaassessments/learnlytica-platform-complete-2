@@ -137,3 +137,13 @@ export function useDeleteLabTemplate() {
     },
   });
 }
+
+export function useSeedDefaultLabTemplates() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => labTemplateService.seedDefaults(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: labTemplateKeys.lists() });
+    },
+  });
+}

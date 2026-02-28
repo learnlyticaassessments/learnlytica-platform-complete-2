@@ -14,6 +14,7 @@ router.use(requireRole('admin', 'client'));
 // Dashboard stats
 router.get('/dashboard', controller.getDashboard);
 router.get('/projects', controller.getProjectEvaluationAnalytics);
+router.get('/runtimes', controller.getRuntimeTemplateAnalytics);
 router.get('/projects/trends', controller.getProjectTrends);
 router.get('/projects/by-batch', controller.getProjectBatchAnalytics);
 router.get('/projects/debug', controller.getProjectAnalyticsDebug);

@@ -31,6 +31,14 @@ function parseJsonMaybe<T>(value: any, fallback: T): T {
   return value as T;
 }
 
+function getRuntimeImageForQuestion(aq: any): string | undefined {
+  const image = String(aq?.runtimeTemplate?.dockerImage || '').trim();
+  if (!image) return undefined;
+  if (image.includes(':')) return image;
+  const tag = String(aq?.runtimeTemplate?.dockerTag || '').trim();
+  return tag ? `${image}:${tag}` : `${image}:latest`;
+}
+
 async function getStudentAssessmentRow(db: any, studentAssessmentId: string, studentId: string) {
   const sa = await db
     .selectFrom('student_assessments')
@@ -225,7 +233,8 @@ export async function submitAssessment(
     if (!question) continue;
 
     const submittedCode = code?.[question.id] || '';
-    const testResult = await runRealTests(submittedCode, question.testConfig, question);
+    const runtimeImage = getRuntimeImageForQuestion(aq);
+    const testResult = await runRealTests(submittedCode, question.testConfig, question, { runtimeImage });
 
     totalPoints += testResult.totalPoints;
     earnedPoints += testResult.pointsEarned;
@@ -295,9 +304,11 @@ export async function runTests(
   const { assessment } = await getAssessmentToTake(db, studentAssessmentId, studentId, sessionKey);
 
   const question = assessment.questions?.find((q: any) => q.questionId === questionId)?.question;
+  const assessmentQuestion = assessment.questions?.find((q: any) => q.questionId === questionId);
   if (!question) throw new StudentAssessmentError('Question not found');
 
-  const result = await runRealTests(code, question.testConfig, question);
+  const runtimeImage = getRuntimeImageForQuestion(assessmentQuestion);
+  const result = await runRealTests(code, question.testConfig, question, { runtimeImage });
   return result;
 }
 

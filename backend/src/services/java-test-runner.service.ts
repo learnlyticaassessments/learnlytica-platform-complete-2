@@ -37,14 +37,17 @@ export interface JavaTestExecutionResult {
 export async function runJavaTests(
   code: string,
   testConfig: any,
-  question: any
+  question: any,
+  options?: {
+    runtimeImage?: string;
+  }
 ): Promise<JavaTestExecutionResult> {
   // Validate Java code
   validateJavaCode(code);
   const sanitized = sanitizeCode(normalizeJavaSolutionClassName(code));
 
   // Get Docker image
-  const image = 'learnlytica/executor-java:latest';
+  const image = options?.runtimeImage || 'learnlytica/executor-java:latest';
 
   // Build test code
   const testCode = buildJUnitTests(question.testConfig.testCases);

@@ -256,6 +256,60 @@ export async function getProjectEvaluationAnalytics(db: any, organizationId: str
   return stats.projects;
 }
 
+export async function getRuntimeTemplateAnalytics(db: any, organizationId: string) {
+  const runtimeRows = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .innerJoin('lab_templates as lt', 'lt.id', 'a.lab_template_id')
+    .select([
+      'lt.id as runtimeTemplateId',
+      'lt.name as runtimeTemplateName',
+      'lt.category as runtimeCategory',
+      'lt.docker_image as dockerImage',
+      sql`count(*)`.as('attempts'),
+      sql`count(*) filter (where sa.status in ('submitted','graded'))`.as('submitted'),
+      sql`count(*) filter (where sa.passed = true)`.as('passed'),
+      sql`count(*) filter (where sa.status = 'in_progress')`.as('inProgress'),
+      sql`avg(sa.score) filter (where sa.score is not null)`.as('avgScore')
+    ])
+    .where('a.organization_id', '=', organizationId)
+    .groupBy(['lt.id', 'lt.name', 'lt.category', 'lt.docker_image'])
+    .orderBy(sql`count(*)`, 'desc')
+    .execute();
+
+  const rows = runtimeRows.map((r: any) => {
+    const attempts = Number(r.attempts || 0);
+    const submitted = Number(r.submitted || 0);
+    const passed = Number(r.passed || 0);
+    const inProgress = Number(r.inProgress || 0);
+    const avgScore = Number(r.avgScore || 0);
+    const passRate = submitted > 0 ? (passed / submitted) * 100 : 0;
+    const completionRate = attempts > 0 ? (submitted / attempts) * 100 : 0;
+    return {
+      runtimeTemplateId: r.runtimeTemplateId,
+      runtimeTemplateName: r.runtimeTemplateName,
+      runtimeCategory: r.runtimeCategory,
+      dockerImage: r.dockerImage,
+      attempts,
+      submitted,
+      passed,
+      inProgress,
+      avgScore: Number(avgScore.toFixed(1)),
+      passRate: Number(passRate.toFixed(1)),
+      completionRate: Number(completionRate.toFixed(1))
+    };
+  });
+
+  const summary = {
+    totalTemplatesUsed: rows.length,
+    totalAttempts: rows.reduce((sum: number, r: any) => sum + r.attempts, 0),
+    totalSubmitted: rows.reduce((sum: number, r: any) => sum + r.submitted, 0),
+    totalPassed: rows.reduce((sum: number, r: any) => sum + r.passed, 0)
+  };
+
+  return { summary, rows };
+}
+
 export async function getProjectAnalyticsDebug(db: any, organizationId: string) {
   const hasSubmissionKind = await hasProjectSubmissionKindColumn(db);
 

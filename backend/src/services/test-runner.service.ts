@@ -50,17 +50,20 @@ export interface TestExecutionResult {
 export async function runTests(
   code: string,
   testConfig: any,
-  question: any
+  question: any,
+  options?: {
+    runtimeImage?: string;
+  }
 ): Promise<TestExecutionResult> {
   const framework = testConfig.framework;
 
   // Route to API testing if framework is API-specific
   if (framework === 'supertest' || framework === 'pytest-requests') {
-    return runApiTests(code, testConfig, question);
+    return runApiTests(code, testConfig, question, options);
   }
   // Route to Java testing if framework is JUnit
   if (framework === 'junit') {
-    return runJavaTests(code, testConfig, question);
+    return runJavaTests(code, testConfig, question, options);
   }
   const supportedDraftFrameworks = new Set(['jest', 'pytest', 'playwright', 'dotnet']);
   if (!supportedDraftFrameworks.has(framework)) {
@@ -88,7 +91,7 @@ export async function runTests(
   const sanitized = sanitizeCode(code);
 
   // Get Docker image
-  const image = getDockerImage(framework);
+  const image = options?.runtimeImage || getDockerImage(framework);
 
   // Build test code
   const testCode = buildTestCode(framework, question.testConfig.testCases, sanitized);
@@ -461,15 +464,18 @@ function extractJsonObject(output: string): any | null {
 export async function runTestsWithJava(
   code: string,
   testConfig: any,
-  question: any
+  question: any,
+  options?: {
+    runtimeImage?: string;
+  }
 ): Promise<TestExecutionResult> {
   const framework = testConfig.framework;
 
   // Route to Java testing if framework is JUnit
   if (framework === 'junit') {
-    return runJavaTests(code, testConfig, question);
+    return runJavaTests(code, testConfig, question, options);
   }
 
   // ... existing code for other frameworks
-  return runTests(code, testConfig, question);
+  return runTests(code, testConfig, question, options);
 }

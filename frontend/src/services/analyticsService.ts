@@ -35,6 +35,11 @@ export const analyticsService = {
     return response.data;
   },
 
+  getRuntimeTemplateAnalytics: async () => {
+    const response = await client.get('/runtimes');
+    return response.data;
+  },
+
   getProjectTrends: async (days = 14) => {
     const response = await client.get('/projects/trends', { params: { days } });
     return response.data;
