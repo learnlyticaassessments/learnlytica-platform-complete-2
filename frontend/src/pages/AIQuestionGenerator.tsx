@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Loader2, Check, AlertCircle, Cpu, Star, TrendingUp, Wand2 } from 'lucide-react';
-import { aiService, AI_PROVIDER_OPTIONS, AI_QUESTION_TYPE_OPTIONS, GenerateQuestionRequest } from '../services/aiService';
+import { aiService, AI_PROVIDER_OPTIONS, AI_QUESTION_TYPE_OPTIONS, AICapabilityMatrix, GenerateQuestionRequest } from '../services/aiService';
 import JSZip from 'jszip';
+import { questionService } from '../services/questionService';
 
 export function AIQuestionGenerator() {
   const navigate = useNavigate();
@@ -12,6 +13,7 @@ export function AIQuestionGenerator() {
     difficulty: 'intermediate',
     problemStyle: 'scenario_driven',
     questionType: 'algorithm',
+    generationMode: 'production',
     questionCount: 1,
     questionTypeMode: 'single',
     mixedQuestionTypes: [],
@@ -43,6 +45,10 @@ export function AIQuestionGenerator() {
   const [customQuestionTypeInput, setCustomQuestionTypeInput] = useState('');
   const [customQuestionTypes, setCustomQuestionTypes] = useState<string[]>([]);
   const [batchGenerationSummary, setBatchGenerationSummary] = useState('');
+  const [generatedBatchQuestions, setGeneratedBatchQuestions] = useState<any[]>([]);
+  const [creatingBatchIndex, setCreatingBatchIndex] = useState<number | null>(null);
+  const [downloadingBatch, setDownloadingBatch] = useState(false);
+  const [capabilities, setCapabilities] = useState<AICapabilityMatrix | null>(null);
 
   const [testGenCode, setTestGenCode] = useState('function solve(input) {\n  return input;\n}');
   const [testGenDescription, setTestGenDescription] = useState('');
@@ -67,27 +73,33 @@ export function AIQuestionGenerator() {
     'Question Intent',
     'Execution Settings'
   ];
-  const problemStyleOptions: Array<{ value: NonNullable<GenerateQuestionRequest['problemStyle']>; label: string; description: string }> = [
-    { value: 'algorithmic', label: 'Algorithmic', description: 'Logic-first coding with clear input/output constraints.' },
-    { value: 'scenario_driven', label: 'Scenario Driven', description: 'Business/context-led case study flow.' },
-    { value: 'debugging', label: 'Debugging', description: 'Identify root cause and fix defects safely.' },
-    { value: 'implementation', label: 'Implementation', description: 'Build feature from requirements/spec.' },
-    { value: 'optimization', label: 'Optimization', description: 'Improve performance/resource efficiency.' },
-    { value: 'design_tradeoff', label: 'Design Tradeoff', description: 'Choose architecture with explicit tradeoffs.' }
-  ];
+  const problemStyleDescriptions: Record<string, string> = {
+    algorithmic: 'Logic-first coding with clear input/output constraints.',
+    scenario_driven: 'Business/context-led case study flow.',
+    debugging: 'Identify root cause and fix defects safely.',
+    implementation: 'Build feature from requirements/spec.',
+    optimization: 'Improve performance/resource efficiency.',
+    design_tradeoff: 'Choose architecture with explicit tradeoffs.'
+  };
 
   const curriculumHaystack = `${formData.curriculumText || ''} ${formData.domain || ''} ${formData.topic || ''}`.toLowerCase();
 
   const languageOptions = useMemo(() => {
-    const supported = [
-      { value: 'javascript' as const, label: 'JavaScript', supported: true },
-      { value: 'python' as const, label: 'Python', supported: true },
-      { value: 'java' as const, label: 'Java', supported: true }
-    ];
-    const detected: Array<{ value: string; label: string; supported: boolean }> = [];
+    const base = capabilities?.languages?.length
+      ? capabilities.languages.map((l) => ({ value: l.value, label: l.label, state: l.state }))
+      : [
+          { value: 'javascript', label: 'JavaScript', state: 'ready' as const },
+          { value: 'python', label: 'Python', state: 'ready' as const },
+          { value: 'java', label: 'Java', state: 'ready' as const },
+          { value: 'cpp', label: 'C++', state: 'planned' as const },
+          { value: 'csharp', label: 'C#', state: 'planned' as const },
+          { value: 'dotnet', label: '.NET', state: 'planned' as const },
+          { value: 'rust', label: 'Rust', state: 'planned' as const }
+        ];
+    const detected: Array<{ value: string; label: string; state: 'planned' }> = [];
     const pushDetected = (value: string, label: string) => {
-      if (!detected.some((d) => d.value === value)) {
-        detected.push({ value, label, supported: false });
+      if (![...base, ...detected].some((d) => d.value === value)) {
+        detected.push({ value, label, state: 'planned' });
       }
     };
 
@@ -99,13 +111,25 @@ export function AIQuestionGenerator() {
     if (/\bkotlin\b/.test(curriculumHaystack)) pushDetected('kotlin', 'Kotlin');
     if (/\bswift\b/.test(curriculumHaystack)) pushDetected('swift', 'Swift');
 
-    return [...supported, ...detected];
-  }, [curriculumHaystack]);
+    return [...base, ...detected];
+  }, [capabilities, curriculumHaystack]);
 
-  const unsupportedLanguagesDetected = useMemo(
-    () => languageOptions.filter((l) => !l.supported).map((l) => l.label),
-    [languageOptions]
-  );
+  const unsupportedLanguagesDetected = useMemo(() => {
+    const detected: string[] = [];
+    const push = (label: string) => {
+      if (!detected.includes(label)) detected.push(label);
+    };
+    if (/\bc\+\+|cpp|g\+\+/.test(curriculumHaystack)) push('C++');
+    if (/\bc#|dotnet|asp\.net/.test(curriculumHaystack)) push('C#/.NET');
+    if (/\brust\b/.test(curriculumHaystack)) push('Rust');
+    if (/\bgo\b|golang/.test(curriculumHaystack)) push('Go');
+    if (/\bphp\b|laravel/.test(curriculumHaystack)) push('PHP');
+    if (/\bruby\b|rails/.test(curriculumHaystack)) push('Ruby');
+    if (/\bkotlin\b/.test(curriculumHaystack)) push('Kotlin');
+    if (/\bswift\b/.test(curriculumHaystack)) push('Swift');
+    if (/\btypescript\b/.test(curriculumHaystack)) push('TypeScript');
+    return detected;
+  }, [curriculumHaystack]);
 
   const detectedQuestionTypeCandidates = useMemo(() => {
     const candidates: Array<{ value: string; label: string; description: string }> = [];
@@ -129,13 +153,36 @@ export function AIQuestionGenerator() {
     return candidates;
   }, [curriculumHaystack]);
 
+  const problemStyleOptions = useMemo(
+    () =>
+      (capabilities?.problemStyles?.length
+        ? capabilities.problemStyles.map((s) => ({
+            value: s.value as NonNullable<GenerateQuestionRequest['problemStyle']>,
+            label: s.label,
+            description: s.notes || problemStyleDescriptions[s.value] || 'Problem framing style'
+          }))
+        : (Object.keys(problemStyleDescriptions) as Array<NonNullable<GenerateQuestionRequest['problemStyle']>>).map((key) => ({
+            value: key,
+            label: key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+            description: problemStyleDescriptions[key]
+          }))) || [],
+    [capabilities, problemStyleDescriptions]
+  );
+
   const questionTypeOptions = useMemo(() => {
     const fromCustom = customQuestionTypes.map((value) => ({
       value,
       label: value.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
       description: 'Custom type inferred from curriculum or author input.'
     }));
-    const merged = [...AI_QUESTION_TYPE_OPTIONS, ...detectedQuestionTypeCandidates, ...fromCustom];
+    const capabilityTypes = capabilities?.technicalFocuses?.length
+      ? capabilities.technicalFocuses.map((t) => ({
+          value: t.value,
+          label: t.label,
+          description: t.notes || AI_QUESTION_TYPE_OPTIONS.find((o) => o.value === t.value)?.description || 'Technical focus'
+        }))
+      : AI_QUESTION_TYPE_OPTIONS;
+    const merged = [...capabilityTypes, ...detectedQuestionTypeCandidates, ...fromCustom];
     if (formData.questionType && !merged.some((o) => o.value === formData.questionType)) {
       merged.push({
         value: formData.questionType,
@@ -144,7 +191,28 @@ export function AIQuestionGenerator() {
       });
     }
     return merged.filter((opt, idx) => merged.findIndex((m) => m.value === opt.value) === idx);
-  }, [customQuestionTypes, detectedQuestionTypeCandidates, formData.questionType]);
+  }, [capabilities, customQuestionTypes, detectedQuestionTypeCandidates, formData.questionType]);
+
+  const typeStateByValue = useMemo(() => {
+    const map = new Map<string, 'ready' | 'partial' | 'planned'>();
+    if (capabilities?.technicalFocuses?.length) {
+      capabilities.technicalFocuses.forEach((t) => map.set(t.value, t.state));
+    } else {
+      ['algorithm', 'api', 'component', 'fullstack', 'debugging', 'testing', 'performance', 'security', 'data-processing'].forEach((v) => map.set(v, 'ready'));
+      ['database', 'system-design'].forEach((v) => map.set(v, 'partial'));
+    }
+    return map;
+  }, [capabilities]);
+
+  const normalizedTypeOptions = useMemo(
+    () =>
+      questionTypeOptions.map((option) => ({
+        ...option,
+        state: typeStateByValue.get(option.value) || 'planned',
+        supported: (typeStateByValue.get(option.value) || 'planned') === 'ready'
+      })),
+    [questionTypeOptions, typeStateByValue]
+  );
 
   const curriculumSuggestions = useMemo(() => {
     const haystack = curriculumHaystack;
@@ -179,7 +247,13 @@ export function AIQuestionGenerator() {
     const normalized = customQuestionTypeInput.trim().toLowerCase().replace(/\s+/g, '-');
     if (!normalized) return;
     setCustomQuestionTypes((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]));
-    setFormData((prev) => ({ ...prev, questionType: normalized }));
+    if ((typeStateByValue.get(normalized) || 'planned') === 'ready') {
+      setFormData((prev) => ({ ...prev, questionType: normalized }));
+    } else {
+      setBatchGenerationSummary(
+        `Custom type '${normalized}' added as planned (disabled) until evaluator support is implemented.`
+      );
+    }
     setCustomQuestionTypeInput('');
   };
 
@@ -192,6 +266,34 @@ export function AIQuestionGenerator() {
     }
     return [formData.questionType];
   };
+
+  const selectedCapability = useMemo(() => {
+    const languageState = languageOptions.find((l) => l.value === formData.language)?.state || 'planned';
+    const typeState = normalizedTypeOptions.find((t) => t.value === formData.questionType)?.state || 'planned';
+    const styleState =
+      (capabilities?.problemStyles || []).find((s) => s.value === (formData.problemStyle || 'implementation'))?.state ||
+      (formData.problemStyle === 'design_tradeoff' ? 'partial' : 'ready');
+    const overall: 'ready' | 'partial' | 'planned' =
+      [languageState, typeState, styleState].includes('planned')
+        ? 'planned'
+        : [languageState, typeState, styleState].includes('partial')
+          ? 'partial'
+          : 'ready';
+    const confidencePercent = overall === 'ready' ? 95 : overall === 'partial' ? 70 : 40;
+    return { overall, confidencePercent, languageState, typeState, styleState };
+  }, [capabilities, formData.language, formData.problemStyle, formData.questionType, languageOptions, normalizedTypeOptions]);
+
+  useEffect(() => {
+    const loadCapabilities = async () => {
+      try {
+        const matrix = await aiService.getCapabilities();
+        setCapabilities(matrix);
+      } catch {
+        // fallback to local defaults if endpoint unavailable
+      }
+    };
+    loadCapabilities();
+  }, []);
 
   useEffect(() => {
     if (!generatedQuestion) return;
@@ -208,6 +310,7 @@ export function AIQuestionGenerator() {
     setLoading(true);
     setError('');
     setBatchGenerationSummary('');
+    setGeneratedBatchQuestions([]);
 
     try {
       const requestedCount = getRequestedQuestionCount();
@@ -217,6 +320,7 @@ export function AIQuestionGenerator() {
         const response = await aiService.generateQuestion(formData);
         setGeneratedQuestion(response.data);
         setGenerationPipeline(response.pipeline || null);
+        setGeneratedBatchQuestions([]);
       } else {
         const generatedItems: any[] = [];
         for (let i = 0; i < requestedCount; i += 1) {
@@ -237,6 +341,7 @@ export function AIQuestionGenerator() {
 
         setGeneratedQuestion(generatedItems[0]);
         setGenerationPipeline(null);
+        setGeneratedBatchQuestions(generatedItems);
         setBatchGenerationSummary(
           `Generated ${generatedItems.length} question drafts using types: ${plannedTypes.join(', ')}. Showing the first draft below.`
         );
@@ -267,6 +372,18 @@ export function AIQuestionGenerator() {
       setError(err.response?.data?.error || 'Failed to create question');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateBatchQuestion = async (question: any, index: number) => {
+    try {
+      setCreatingBatchIndex(index);
+      const created = await questionService.create(question);
+      navigate(`/questions/${created.id}`);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to create selected batch question');
+    } finally {
+      setCreatingBatchIndex(null);
     }
   };
 
@@ -428,6 +545,51 @@ export function AIQuestionGenerator() {
     }
   };
 
+  const handleDownloadBatchDraftPack = async () => {
+    if (!generatedBatchQuestions.length) return;
+    setDownloadingBatch(true);
+    try {
+      const zip = new JSZip();
+      const generatedAt = new Date().toISOString();
+      zip.file(
+        'batch-manifest.json',
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            generatedAt,
+            count: generatedBatchQuestions.length,
+            generationMode: formData.generationMode || 'design',
+            language: formData.language,
+            difficulty: formData.difficulty,
+            problemStyle: formData.problemStyle,
+            technicalFocuses: getPlannedQuestionTypes()
+          },
+          null,
+          2
+        )
+      );
+
+      generatedBatchQuestions.forEach((question, idx) => {
+        const prefix = `questions/q${String(idx + 1).padStart(3, '0')}`;
+        zip.file(`${prefix}/draft.json`, JSON.stringify(question, null, 2));
+      });
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `ai-question-batch-${generatedBatchQuestions.length}.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to prepare batch draft pack');
+    } finally {
+      setDownloadingBatch(false);
+    }
+  };
+
   const handleGenerateCreateAndDownload = async () => {
     if (!formData.topic.trim()) {
       setError('Please enter a topic');
@@ -506,6 +668,54 @@ export function AIQuestionGenerator() {
           </div>
         </div>
       </section>
+
+      {generatedBatchQuestions.length > 0 && (
+        <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-[0_12px_40px_rgba(15,23,42,0.08)]">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900">Batch Drafts</h2>
+              <p className="text-sm text-slate-500">Review drafts and selectively create a question in DB.</p>
+            </div>
+            <button
+              onClick={handleDownloadBatchDraftPack}
+              disabled={downloadingBatch}
+              className="btn-secondary"
+            >
+              {downloadingBatch ? 'Preparing Batch ZIP...' : 'Download Batch Draft Pack'}
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {generatedBatchQuestions.map((q, index) => (
+              <div key={`batch-q-${index}`} className="rounded-lg border border-slate-200 p-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div>
+                    <div className="text-xs text-slate-500">Draft {index + 1}</div>
+                    <div className="font-semibold text-slate-900">{q?.title || `Generated Draft ${index + 1}`}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setGeneratedQuestion(q)}
+                    >
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={creatingBatchIndex === index}
+                      onClick={() => handleCreateBatchQuestion(q, index)}
+                    >
+                      {creatingBatchIndex === index ? 'Creating...' : 'Create in DB'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-[0_12px_40px_rgba(15,23,42,0.08)]">
         <div className="flex items-center justify-between gap-4 mb-6">
@@ -680,21 +890,28 @@ export function AIQuestionGenerator() {
                         onChange={(e) => setFormData({ ...formData, questionType: e.target.value })}
                         className="input-field"
                       >
-                        {questionTypeOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
+                        {normalizedTypeOptions.map((option) => (
+                          <option key={option.value} value={option.value} disabled={!option.supported}>
+                            {option.label}{option.supported ? '' : ` (${option.state})`}
+                          </option>
                         ))}
                       </select>
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          type="text"
-                          value={customQuestionTypeInput}
-                          onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
-                          placeholder="Add custom type from curriculum"
-                          className="input-field"
-                        />
-                        <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap">
-                          Add
-                        </button>
+                      <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
+                        <label className="block text-xs font-semibold tracking-wide text-indigo-800 mb-2">
+                          Add Custom Type
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={customQuestionTypeInput}
+                            onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
+                            placeholder="Example: distributed-systems, fraud-detection, reconciliation-engine"
+                            className="input-field flex-1 min-w-0"
+                          />
+                          <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap">
+                            Add Type
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <div>
@@ -722,8 +939,8 @@ export function AIQuestionGenerator() {
                         className="input-field"
                       >
                         {languageOptions.map((option) => (
-                          <option key={option.value} value={option.value} disabled={!option.supported}>
-                            {option.label}{option.supported ? '' : ' (planned)'}
+                          <option key={option.value} value={option.value} disabled={option.state !== 'ready'}>
+                            {option.label}{option.state === 'ready' ? '' : ` (${option.state})`}
                           </option>
                         ))}
                       </select>
@@ -767,24 +984,53 @@ export function AIQuestionGenerator() {
                         className="input-field"
                       />
                     </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Generation Mode</label>
+                      <select
+                        value={formData.generationMode || 'production'}
+                        onChange={(e) => setFormData({ ...formData, generationMode: e.target.value as 'production' | 'design' })}
+                        className="input-field"
+                      >
+                        {(capabilities?.generationModes || [
+                          { value: 'production', label: 'Production Mode', description: '' },
+                          { value: 'design', label: 'Design Mode', description: '' }
+                        ]).map((mode) => (
+                          <option key={mode.value} value={mode.value}>
+                            {mode.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
                 {wizardStep === 2 && (formData.questionTypeMode || 'single') === 'mixed' && (
                   <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <div className="text-sm font-semibold text-slate-800 mb-2">Select mixed types</div>
+                    <p className="text-xs text-amber-700 mb-2">
+                      Grayed types are partial/planned and not fully auto-evaluator ready.
+                    </p>
                     <div className="flex flex-wrap gap-2">
-                      {questionTypeOptions.map((option) => {
+                      {normalizedTypeOptions.map((option) => {
                         const selected = (formData.mixedQuestionTypes || []).includes(option.value);
+                        const selectable = option.supported;
                         return (
                           <button
                             key={`mixed-${option.value}`}
                             type="button"
+                            disabled={!selectable}
                             onClick={() => {
                               const current = formData.mixedQuestionTypes || [];
                               const next = selected ? current.filter((t) => t !== option.value) : [...current, option.value];
                               setFormData({ ...formData, mixedQuestionTypes: next });
                             }}
-                            className={`px-2 py-1 rounded border text-xs ${selected ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-700'}`}
+                            className={`px-2 py-1 rounded border text-xs ${
+                              !selectable
+                                ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                                : selected
+                                  ? 'bg-indigo-100 border-indigo-300 text-indigo-700'
+                                  : 'bg-white border-slate-300 text-slate-700'
+                            }`}
+                            title={selectable ? option.description : 'Limited auto-evaluator support for this type in mixed mode'}
                           >
                             {option.label}
                           </button>
@@ -1080,8 +1326,8 @@ export function AIQuestionGenerator() {
                 className="input-field"
               >
                 {languageOptions.map((option) => (
-                  <option key={option.value} value={option.value} disabled={!option.supported}>
-                    {option.label}{option.supported ? '' : ' (planned)'}
+                  <option key={option.value} value={option.value} disabled={option.state !== 'ready'}>
+                    {option.label}{option.state === 'ready' ? '' : ` (${option.state})`}
                   </option>
                 ))}
               </select>
@@ -1112,23 +1358,28 @@ export function AIQuestionGenerator() {
                 onChange={(e) => setFormData({ ...formData, questionType: e.target.value })}
                 className="input-field"
               >
-                {questionTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                {normalizedTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value} disabled={!option.supported}>
+                    {option.label}{option.supported ? '' : ` (${option.state})`}
                   </option>
                 ))}
               </select>
-              <div className="mt-2 flex gap-2">
-                <input
-                  type="text"
-                  value={customQuestionTypeInput}
-                  onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
-                  placeholder="Add custom type from curriculum"
-                  className="input-field"
-                />
-                <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap">
-                  Add
-                </button>
+              <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3">
+                <label className="block text-xs font-semibold tracking-wide text-indigo-800 mb-2">
+                  Add Custom Type
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customQuestionTypeInput}
+                    onChange={(e) => setCustomQuestionTypeInput(e.target.value)}
+                    placeholder="Example: distributed-systems, fraud-detection, reconciliation-engine"
+                    className="input-field flex-1 min-w-0"
+                  />
+                  <button type="button" onClick={addCustomQuestionType} className="btn-secondary whitespace-nowrap">
+                    Add Type
+                  </button>
+                </div>
               </div>
               <p className="mt-2 text-xs" style={{ color: 'var(--text-dim)' }}>
                 {
@@ -1181,6 +1432,24 @@ export function AIQuestionGenerator() {
             </div>
 
             <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Generation Mode</label>
+              <select
+                value={formData.generationMode || 'production'}
+                onChange={(e) => setFormData({ ...formData, generationMode: e.target.value as 'production' | 'design' })}
+                className="input-field"
+              >
+                {(capabilities?.generationModes || [
+                  { value: 'production', label: 'Production Mode', description: '' },
+                  { value: 'design', label: 'Design Mode', description: '' }
+                ]).map((mode) => (
+                  <option key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">Points</label>
               <input
                 type="number"
@@ -1195,19 +1464,31 @@ export function AIQuestionGenerator() {
           {(formData.questionTypeMode || 'single') === 'mixed' && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div className="text-sm font-semibold text-slate-800 mb-2">Select mixed types</div>
+              <p className="text-xs text-amber-700 mb-2">
+                Grayed types are partial/planned and not fully auto-evaluator ready.
+              </p>
               <div className="flex flex-wrap gap-2">
-                {questionTypeOptions.map((option) => {
+                {normalizedTypeOptions.map((option) => {
                   const selected = (formData.mixedQuestionTypes || []).includes(option.value);
+                  const selectable = option.supported;
                   return (
                     <button
                       key={`mixed-bottom-${option.value}`}
                       type="button"
+                      disabled={!selectable}
                       onClick={() => {
                         const current = formData.mixedQuestionTypes || [];
                         const next = selected ? current.filter((t) => t !== option.value) : [...current, option.value];
                         setFormData({ ...formData, mixedQuestionTypes: next });
                       }}
-                      className={`px-2 py-1 rounded border text-xs ${selected ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-slate-300 text-slate-700'}`}
+                      className={`px-2 py-1 rounded border text-xs ${
+                        !selectable
+                          ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                          : selected
+                            ? 'bg-indigo-100 border-indigo-300 text-indigo-700'
+                            : 'bg-white border-slate-300 text-slate-700'
+                      }`}
+                      title={selectable ? option.description : 'Limited auto-evaluator support for this type in mixed mode'}
                     >
                       {option.label}
                     </button>
@@ -1217,13 +1498,48 @@ export function AIQuestionGenerator() {
             </div>
           )}
 
+          <div className={`rounded-lg border p-3 text-sm ${
+            selectedCapability.overall === 'ready'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : selectedCapability.overall === 'partial'
+                ? 'border-amber-200 bg-amber-50 text-amber-800'
+                : 'border-slate-200 bg-slate-50 text-slate-700'
+          }`}>
+            <div className="font-semibold">Evaluator Confidence: {selectedCapability.confidencePercent}%</div>
+            <div className="mt-1">
+              Language: {selectedCapability.languageState} • Focus: {selectedCapability.typeState} • Style: {selectedCapability.styleState}
+            </div>
+            {formData.generationMode === 'production' && selectedCapability.overall !== 'ready' && (
+              <div className="mt-1">
+                Production mode requires all three checks to be <span className="font-semibold">ready</span>.
+              </div>
+            )}
+          </div>
+
           <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <button
-              onClick={handleGenerateCreateAndDownload}
-              disabled={atomicLoading || loading || !formData.topic || getRequestedQuestionCount() > 1}
+              onClick={(formData.generationMode === 'design' || getRequestedQuestionCount() > 1) ? handleGenerate : handleGenerateCreateAndDownload}
+              disabled={
+                atomicLoading ||
+                loading ||
+                !formData.topic ||
+                ((formData.generationMode || 'production') === 'production' && selectedCapability.overall !== 'ready')
+              }
               className="btn-ai flex items-center justify-center gap-2 min-h-[46px]"
             >
-              {atomicLoading ? (
+              {(formData.generationMode === 'design' || getRequestedQuestionCount() > 1) ? (
+                loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    {getRequestedQuestionCount() > 1 ? 'Generating Batch Drafts...' : 'Generating Draft...'}
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-5 h-5" />
+                    {getRequestedQuestionCount() > 1 ? 'Generate Batch Drafts' : 'Generate Draft'}
+                  </>
+                )
+              ) : atomicLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Running Full Flow...
@@ -1232,24 +1548,6 @@ export function AIQuestionGenerator() {
                 <>
                   <Check className="w-5 h-5" />
                   Generate + Verify + Create + Download ZIP
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={handleGenerate}
-              disabled={loading || !formData.topic}
-              className="btn-ai flex items-center justify-center gap-2 min-h-[46px]"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-5 h-5" />
-                  Generate Question with AI
                 </>
               )}
             </button>
@@ -1278,6 +1576,11 @@ export function AIQuestionGenerator() {
           {getRequestedQuestionCount() > 1 && (
             <p className="text-xs text-amber-700">
               Batch mode generates preview drafts only. To create/verify a question in DB, set Question Count to 1.
+            </p>
+          )}
+          {formData.generationMode === 'design' && (
+            <p className="text-xs text-slate-600">
+              Design mode generates drafts for review. Use Create action explicitly when you decide a draft is production-ready.
             </p>
           )}
 

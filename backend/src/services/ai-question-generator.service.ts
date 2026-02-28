@@ -15,6 +15,7 @@ export interface GenerateQuestionRequest {
   difficulty: 'beginner' | 'intermediate' | 'advanced';
   questionType: string;
   problemStyle?: 'algorithmic' | 'scenario_driven' | 'debugging' | 'implementation' | 'optimization' | 'design_tradeoff';
+  generationMode?: 'production' | 'design';
   questionCount?: number;
   questionTypeMode?: 'single' | 'mixed';
   mixedQuestionTypes?: string[];
@@ -235,6 +236,7 @@ REQUIREMENTS:
 
 Question Type: ${request.questionType}
 Problem Style: ${request.problemStyle || 'implementation'}
+Generation Mode: ${request.generationMode || 'production'}
 Question Type Mode: ${request.questionTypeMode || 'single'}
 Mixed Question Types: ${(request.mixedQuestionTypes || []).join(', ') || 'none'}
 Requested Question Count: ${Math.max(1, Math.min(25, Number(request.questionCount || 1)))}

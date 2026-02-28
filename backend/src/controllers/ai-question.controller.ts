@@ -10,6 +10,7 @@ import {
   improveQuestion,
   reviewStudentCode
 } from '../services/ai-question-generator.service';
+import { evaluateAICapability, getAICapabilityMatrix } from '../services/ai-capabilities.service';
 import { createQuestion, runDraftQuestionTests, validateDraftQuestionPackage } from '../services/question.service';
 import type { CreateQuestionDTO, QuestionCategory, QuestionDifficulty, TestFramework } from '../../shared/types/question.types';
 
@@ -268,6 +269,24 @@ async function runGenerationPipeline(db: any, requestPayload: any, context: Pipe
   return { generated, dto, validation, verification };
 }
 
+function enforceCapabilityOrThrow(requestPayload: any) {
+  const generationMode = String(requestPayload?.generationMode || 'production') as 'production' | 'design';
+  const capability = evaluateAICapability(
+    String(requestPayload?.language || 'javascript'),
+    String(requestPayload?.questionType || 'algorithm'),
+    String(requestPayload?.problemStyle || 'implementation')
+  );
+  if (generationMode === 'production' && capability.state !== 'ready') {
+    const err: any = new Error(
+      `Selected combination is not production-ready (${capability.state}). Switch to Design mode or choose evaluator-ready options.`
+    );
+    err.statusCode = 422;
+    err.capability = capability;
+    throw err;
+  }
+  return capability;
+}
+
 /**
  * POST /api/v1/ai/generate-question
  * Generate a complete question using AI
@@ -280,6 +299,7 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       difficulty,
       questionType,
       problemStyle,
+      generationMode,
       points,
       timeLimit,
       provider,
@@ -306,6 +326,7 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       difficulty,
       questionType,
       problemStyle,
+      generationMode,
       points,
       timeLimit,
       provider,
@@ -324,6 +345,7 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       userRole: (req as any).user?.role || 'admin'
     };
 
+    const capability = enforceCapabilityOrThrow(requestPayload);
     const { dto, validation, verification } = await runGenerationPipeline(
       req.app.locals.db,
       requestPayload,
@@ -341,14 +363,16 @@ export async function generateQuestionHandler(req: Request, res: Response) {
         pointsEarned: verification?.pointsEarned || 0,
         totalPoints: verification?.totalPoints || 0
       },
+      capability,
       message: 'Question generated, validated, and verified successfully'
     });
 
   } catch (error: any) {
     console.error('Generate Question Error:', error);
-    res.status(500).json({
+    res.status(error?.statusCode || 500).json({
       success: false,
-      error: error.message || 'Failed to generate question'
+      error: error.message || 'Failed to generate question',
+      capability: error?.capability
     });
   }
 }
@@ -365,6 +389,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       difficulty,
       questionType,
       problemStyle,
+      generationMode,
       points,
       timeLimit,
       provider,
@@ -393,6 +418,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       difficulty,
       questionType,
       problemStyle,
+      generationMode,
       points,
       timeLimit,
       provider,
@@ -410,6 +436,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       userId,
       userRole: (req as any).user?.role || 'admin'
     };
+    const capability = enforceCapabilityOrThrow(requestPayload);
     const { generated, dto, validation, verification } = await runGenerationPipeline(
       req.app.locals.db,
       requestPayload,
@@ -459,18 +486,28 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
           testsPassed: verification?.testsPassed || 0,
           pointsEarned: verification?.pointsEarned || 0,
           totalPoints: verification?.totalPoints || 0
-        }
+        },
+        capability
       },
       message: 'Question generated, validated, verified, and created successfully'
     });
 
   } catch (error: any) {
     console.error('Generate and Create Error:', error);
-    res.status(500).json({
+    res.status(error?.statusCode || 500).json({
       success: false,
-      error: error.message || 'Failed to generate and create question'
+      error: error.message || 'Failed to generate and create question',
+      capability: error?.capability
     });
   }
+}
+
+export async function getAICapabilitiesHandler(_req: Request, res: Response) {
+  const matrix = getAICapabilityMatrix();
+  res.json({
+    success: true,
+    data: matrix
+  });
 }
 
 /**

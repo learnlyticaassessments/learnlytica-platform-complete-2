@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.middleware';
 import {
+  getAICapabilitiesHandler,
   generateQuestionHandler,
   generateAndCreateHandler,
   generateTestsHandler,
@@ -13,6 +14,9 @@ import {
 } from '../controllers/ai-question.controller';
 
 const router = Router();
+
+// GET /api/v1/ai/capabilities
+router.get('/capabilities', authenticate, getAICapabilitiesHandler);
 
 // POST /api/v1/ai/generate-question
 router.post('/generate-question', authenticate, generateQuestionHandler);

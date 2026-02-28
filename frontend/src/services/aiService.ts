@@ -30,6 +30,7 @@ export interface GenerateQuestionRequest {
   difficulty: 'beginner' | 'intermediate' | 'advanced';
   problemStyle?: 'algorithmic' | 'scenario_driven' | 'debugging' | 'implementation' | 'optimization' | 'design_tradeoff';
   questionType: string;
+  generationMode?: 'production' | 'design';
   questionCount?: number;
   questionTypeMode?: 'single' | 'mixed';
   mixedQuestionTypes?: string[];
@@ -51,6 +52,24 @@ export interface GenerateQuestionRequest {
     hiddenTestPercent?: number;
     passingPercent?: number;
     totalPoints?: number;
+  };
+}
+
+export interface AICapabilityItem {
+  value: string;
+  label: string;
+  state: 'ready' | 'partial' | 'planned';
+  notes?: string;
+}
+
+export interface AICapabilityMatrix {
+  generationModes: Array<{ value: 'production' | 'design'; label: string; description: string }>;
+  languages: AICapabilityItem[];
+  technicalFocuses: AICapabilityItem[];
+  problemStyles: AICapabilityItem[];
+  evaluator: {
+    supportsBatchCreate: boolean;
+    supportsAtomicCreate: boolean;
   };
 }
 
@@ -82,6 +101,11 @@ export const AI_QUESTION_TYPE_OPTIONS: Array<{
 ];
 
 export const aiService = {
+  getCapabilities: async (): Promise<AICapabilityMatrix> => {
+    const response = await client.get('/capabilities');
+    return response.data?.data;
+  },
+
   // Generate question (preview only)
   generateQuestion: async (request: GenerateQuestionRequest) => {
     const response = await client.post('/generate-question', request);
