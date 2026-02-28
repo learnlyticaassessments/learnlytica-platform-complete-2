@@ -61,6 +61,21 @@ function parseJsonMaybe<T>(value: any, fallback: T): T {
   return value as T;
 }
 
+function clampNumber(value: any, min: number, max: number, fallback: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+function isoWeekStart(input: string | Date | null | undefined) {
+  const d = input ? new Date(input) : new Date();
+  const day = d.getUTCDay(); // 0 Sun ... 6 Sat
+  const diff = day === 0 ? -6 : 1 - day; // move to Monday
+  d.setUTCDate(d.getUTCDate() + diff);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
+
 function inferSkillsFromQuestion(title: string = '', difficulty: string = ''): string[] {
   const text = `${title} ${difficulty}`.toLowerCase();
   const skills = new Set<string>();
@@ -828,6 +843,231 @@ export async function getStudentSkillMatrix(
     summary,
     matrix,
     swot: ai || heuristic
+  };
+}
+
+export async function getCurriculumMasteryAnalytics(
+  db: any,
+  organizationId: string,
+  options?: { batchId?: string; studentId?: string; days?: number }
+) {
+  const days = clampNumber(options?.days, 14, 365, 90);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const batchId = options?.batchId ? String(options.batchId) : '';
+  const studentId = options?.studentId ? String(options.studentId) : '';
+
+  const [batches, learners] = await Promise.all([
+    db
+      .selectFrom('batches')
+      .select(['id', 'name', 'code', 'status'])
+      .where('organization_id', '=', organizationId)
+      .orderBy('name', 'asc')
+      .execute(),
+    db
+      .selectFrom('users')
+      .select(['id', 'full_name as fullName', 'email'])
+      .where('organization_id', '=', organizationId)
+      .where('role', '=', 'student')
+      .orderBy('full_name', 'asc')
+      .execute()
+  ]);
+
+  let scopedStudentIds: string[] = [];
+  if (studentId) {
+    const learnerMatch = learners.find((l: any) => l.id === studentId);
+    if (!learnerMatch) throw new Error('Learner not found');
+    scopedStudentIds = [studentId];
+  } else if (batchId) {
+    const rows = await db
+      .selectFrom('batch_memberships')
+      .select(['student_id as studentId'])
+      .where('batch_id', '=', batchId)
+      .where('status', '=', 'active')
+      .execute();
+    scopedStudentIds = rows.map((r: any) => r.studentId).filter(Boolean);
+  } else {
+    scopedStudentIds = learners.map((l: any) => l.id);
+  }
+
+  if (!scopedStudentIds.length) {
+    return {
+      scope: { days, batchId: batchId || null, studentId: studentId || null },
+      entities: { batches, learners },
+      summary: {
+        readinessScore: 0,
+        readinessLevel: 'at_risk',
+        attemptsReviewed: 0,
+        passRate: 0,
+        overallAverageScore: 0,
+        progressionDelta: 0,
+        learnersInScope: 0,
+        skillsTracked: 0
+      },
+      skillGraph: [],
+      progression: [],
+      gapRecommendations: [],
+      topStrengths: [],
+      topGaps: []
+    };
+  }
+
+  const attempts = await db
+    .selectFrom('student_assessments as sa')
+    .innerJoin('assessments as a', 'a.id', 'sa.assessment_id')
+    .leftJoin('users as u', 'u.id', 'sa.student_id')
+    .select([
+      'sa.id',
+      'sa.student_id as studentId',
+      'sa.score',
+      'sa.passed',
+      'sa.review_payload as reviewPayload',
+      'sa.submitted_at as submittedAt',
+      'sa.assigned_batch_id as assignedBatchId',
+      'a.title as assessmentTitle',
+      'u.full_name as fullName',
+      'u.email as email'
+    ])
+    .where('a.organization_id', '=', organizationId)
+    .where('sa.student_id', 'in', scopedStudentIds as any)
+    .where('sa.status', 'in', ['submitted', 'graded'] as any)
+    .where('sa.submitted_at', '>=', since as any)
+    .orderBy('sa.submitted_at', 'asc')
+    .execute();
+
+  const skillStats = new Map<string, {
+    skill: string;
+    questionCount: number;
+    testsRun: number;
+    testsPassed: number;
+    pointsEarned: number;
+    totalPoints: number;
+    scores: number[];
+    recentScores: number[];
+    previousScores: number[];
+    lastSeenAt?: string | null;
+  }>();
+
+  const progressionBuckets = new Map<string, { attempts: number; scores: number[]; passCount: number }>();
+  const midpointMs = Date.now() - (days * 24 * 60 * 60 * 1000) / 2;
+
+  for (const attempt of attempts) {
+    const attemptScore = Number(attempt.score || 0);
+    const week = isoWeekStart(attempt.submittedAt);
+    const bucket = progressionBuckets.get(week) || { attempts: 0, scores: [], passCount: 0 };
+    bucket.attempts += 1;
+    bucket.scores.push(attemptScore);
+    if (attempt.passed) bucket.passCount += 1;
+    progressionBuckets.set(week, bucket);
+
+    const review = parseJsonMaybe<any>(attempt.reviewPayload, null);
+    const questions = Array.isArray(review?.questions) ? review.questions : [];
+    for (const q of questions) {
+      const skills = inferSkillsFromQuestion(q.title, q.difficulty);
+      const qScore = Number(q.totalPoints || 0) > 0 ? (Number(q.pointsEarned || 0) / Number(q.totalPoints || 0)) * 100 : 0;
+      for (const skill of skills) {
+        const curr = skillStats.get(skill) || {
+          skill,
+          questionCount: 0,
+          testsRun: 0,
+          testsPassed: 0,
+          pointsEarned: 0,
+          totalPoints: 0,
+          scores: [],
+          recentScores: [],
+          previousScores: [],
+          lastSeenAt: null
+        };
+        curr.questionCount += 1;
+        curr.testsRun += Number(q.testsRun || 0);
+        curr.testsPassed += Number(q.testsPassed || 0);
+        curr.pointsEarned += Number(q.pointsEarned || 0);
+        curr.totalPoints += Number(q.totalPoints || 0);
+        curr.scores.push(qScore);
+        if (new Date(attempt.submittedAt || 0).getTime() >= midpointMs) curr.recentScores.push(qScore);
+        else curr.previousScores.push(qScore);
+        curr.lastSeenAt = attempt.submittedAt || curr.lastSeenAt;
+        skillStats.set(skill, curr);
+      }
+    }
+  }
+
+  const skillGraph = [...skillStats.values()].map((s) => {
+    const averageScore = s.scores.length ? s.scores.reduce((a, b) => a + b, 0) / s.scores.length : 0;
+    const testPassRate = s.testsRun > 0 ? (s.testsPassed / s.testsRun) * 100 : 0;
+    const masteryScore = Number((averageScore * 0.7 + testPassRate * 0.3).toFixed(1));
+    const recentAvg = s.recentScores.length ? s.recentScores.reduce((a, b) => a + b, 0) / s.recentScores.length : averageScore;
+    const previousAvg = s.previousScores.length ? s.previousScores.reduce((a, b) => a + b, 0) / s.previousScores.length : averageScore;
+    const trendDelta = Number((recentAvg - previousAvg).toFixed(1));
+    const proficiency = masteryScore >= 85 ? 'advanced' : masteryScore >= 70 ? 'intermediate' : 'needs_improvement';
+    return {
+      skill: s.skill,
+      questionCount: s.questionCount,
+      testPassRate: Number(testPassRate.toFixed(1)),
+      averageScore: Number(averageScore.toFixed(1)),
+      masteryScore,
+      trendDelta,
+      proficiency,
+      lastSeenAt: s.lastSeenAt
+    };
+  }).sort((a, b) => b.masteryScore - a.masteryScore);
+
+  const progression = [...progressionBuckets.entries()]
+    .map(([weekStart, bucket]) => {
+      const averageScore = bucket.scores.length ? bucket.scores.reduce((a, b) => a + b, 0) / bucket.scores.length : 0;
+      const passRate = bucket.attempts > 0 ? (bucket.passCount / bucket.attempts) * 100 : 0;
+      const readinessScore = Number((averageScore * 0.7 + passRate * 0.3).toFixed(1));
+      return {
+        weekStart,
+        attempts: bucket.attempts,
+        averageScore: Number(averageScore.toFixed(1)),
+        passRate: Number(passRate.toFixed(1)),
+        readinessScore
+      };
+    })
+    .sort((a, b) => String(a.weekStart).localeCompare(String(b.weekStart)));
+
+  const attemptsReviewed = attempts.length;
+  const overallAverageScore = attemptsReviewed
+    ? attempts.reduce((sum: number, a: any) => sum + Number(a.score || 0), 0) / attemptsReviewed
+    : 0;
+  const passRate = attemptsReviewed
+    ? (attempts.filter((a: any) => !!a.passed).length / attemptsReviewed) * 100
+    : 0;
+  const skillCoverage = Math.min(100, (skillGraph.length / 6) * 100);
+  const readinessScore = Number((overallAverageScore * 0.6 + passRate * 0.25 + skillCoverage * 0.15).toFixed(1));
+  const readinessLevel = readinessScore >= 80 ? 'ready' : readinessScore >= 65 ? 'developing' : 'at_risk';
+  const progressionDelta = progression.length >= 2
+    ? Number((progression[progression.length - 1].readinessScore - progression[0].readinessScore).toFixed(1))
+    : 0;
+
+  const topStrengths = skillGraph.filter((s) => s.masteryScore >= 75).slice(0, 3);
+  const topGaps = [...skillGraph].reverse().slice(0, 3);
+  const gapRecommendations = topGaps.map((g) => {
+    if (g.skill === 'Algorithms') return 'Assign 2 timed algorithm drills (easy -> medium) and require solution walkthrough notes.';
+    if (g.skill === 'Backend API') return 'Run API contract-focused tasks with strict status/body assertions before full submissions.';
+    if (g.skill === 'Frontend UI') return 'Use UI behavior checks with accessibility labels and interaction coverage for the next sprint.';
+    if (g.skill === 'Database & SQL') return 'Add SQL query validation tasks with edge cases and explain plans.';
+    return `Create targeted practice for ${g.skill} with immediate test feedback and one retest cycle.`;
+  });
+
+  return {
+    scope: { days, batchId: batchId || null, studentId: studentId || null },
+    entities: { batches, learners },
+    summary: {
+      readinessScore,
+      readinessLevel,
+      attemptsReviewed,
+      passRate: Number(passRate.toFixed(1)),
+      overallAverageScore: Number(overallAverageScore.toFixed(1)),
+      progressionDelta,
+      learnersInScope: new Set(attempts.map((a: any) => a.studentId)).size,
+      skillsTracked: skillGraph.length
+    },
+    skillGraph,
+    progression,
+    gapRecommendations,
+    topStrengths,
+    topGaps
   };
 }
 

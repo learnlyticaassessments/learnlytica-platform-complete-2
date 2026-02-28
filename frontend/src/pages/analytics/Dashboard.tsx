@@ -11,6 +11,15 @@ export function Dashboard() {
   const [projectBatchView, setProjectBatchView] = useState<'chart' | 'table'>('chart');
   const [projectDebugView, setProjectDebugView] = useState<'chart' | 'table'>('chart');
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [masteryData, setMasteryData] = useState<any | null>(null);
+  const [masteryLoading, setMasteryLoading] = useState(false);
+  const [masteryFilters, setMasteryFilters] = useState<{ batchId: string; studentId: string; days: number }>({
+    batchId: '',
+    studentId: '',
+    days: 90
+  });
+  const [masterySkillView, setMasterySkillView] = useState<'chart' | 'table'>('chart');
+  const [masteryProgressView, setMasteryProgressView] = useState<'chart' | 'table'>('chart');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -38,10 +47,18 @@ export function Dashboard() {
   }, {});
   const debugRunRows = Object.entries(debugRecentRunStatus).map(([status, count]) => ({ status, count }));
   const debugRunMax = Math.max(1, ...debugRunRows.map((r) => toNum(r.count)));
+  const masterySkillRows = (masteryData?.skillGraph || []) as Array<any>;
+  const masteryProgressRows = (masteryData?.progression || []) as Array<any>;
+  const masterySkillMax = Math.max(1, ...masterySkillRows.map((r: any) => toNum(r.masteryScore)));
+  const masteryProgressMax = Math.max(1, ...masteryProgressRows.map((r: any) => toNum(r.readinessScore)));
 
   useEffect(() => {
     loadStats();
   }, []);
+
+  useEffect(() => {
+    void loadMastery();
+  }, [masteryFilters.batchId, masteryFilters.studentId, masteryFilters.days]);
 
   const loadStats = async () => {
     const nextWarnings: string[] = [];
@@ -92,6 +109,23 @@ export function Dashboard() {
     } finally {
       setWarnings(nextWarnings);
       setLoading(false);
+    }
+  };
+
+  const loadMastery = async () => {
+    setMasteryLoading(true);
+    try {
+      const payload = await analyticsService.getCurriculumMastery({
+        batchId: masteryFilters.batchId || undefined,
+        studentId: masteryFilters.studentId || undefined,
+        days: masteryFilters.days || undefined
+      });
+      setMasteryData(payload?.data || null);
+    } catch (error) {
+      console.error('Failed to load curriculum mastery analytics', error);
+      setMasteryData(null);
+    } finally {
+      setMasteryLoading(false);
     }
   };
 
@@ -372,6 +406,207 @@ export function Dashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="card space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold">Curriculum Mastery Analytics</h2>
+            <p className="text-sm text-[var(--text-muted)]">Skill graph, progression trend, readiness score, and targeted gap recommendations.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <select
+              className="input-field text-sm"
+              value={masteryFilters.days}
+              onChange={(e) => setMasteryFilters((prev) => ({ ...prev, days: Number(e.target.value) || 90 }))}
+            >
+              <option value={30}>Last 30 days</option>
+              <option value={60}>Last 60 days</option>
+              <option value={90}>Last 90 days</option>
+              <option value={180}>Last 180 days</option>
+            </select>
+            <select
+              className="input-field text-sm"
+              value={masteryFilters.batchId}
+              onChange={(e) => setMasteryFilters((prev) => ({ ...prev, batchId: e.target.value, studentId: '' }))}
+            >
+              <option value="">All batches</option>
+              {(masteryData?.entities?.batches || []).map((b: any) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+            <select
+              className="input-field text-sm md:col-span-2"
+              value={masteryFilters.studentId}
+              onChange={(e) => setMasteryFilters((prev) => ({ ...prev, studentId: e.target.value }))}
+            >
+              <option value="">All learners</option>
+              {(masteryData?.entities?.learners || []).map((l: any) => (
+                <option key={l.id} value={l.id}>{l.fullName || l.email || l.id}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {masteryLoading ? (
+          <div className="text-sm text-[var(--text-muted)]">Loading mastery analytics...</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">Readiness Score</div>
+                <div className="text-2xl font-bold mt-1">{Number(masteryData?.summary?.readinessScore || 0).toFixed(1)}</div>
+                <div className="text-xs mt-1 capitalize">{masteryData?.summary?.readinessLevel || 'at_risk'}</div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">Attempts Reviewed</div>
+                <div className="text-2xl font-bold mt-1">{masteryData?.summary?.attemptsReviewed || 0}</div>
+                <div className="text-xs mt-1">Learners: {masteryData?.summary?.learnersInScope || 0}</div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">Overall Average</div>
+                <div className="text-2xl font-bold mt-1">{Number(masteryData?.summary?.overallAverageScore || 0).toFixed(1)}%</div>
+                <div className="text-xs mt-1">Pass rate: {Number(masteryData?.summary?.passRate || 0).toFixed(1)}%</div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <div className="text-xs text-[var(--text-muted)]">Progression Delta</div>
+                <div className={`text-2xl font-bold mt-1 ${Number(masteryData?.summary?.progressionDelta || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {Number(masteryData?.summary?.progressionDelta || 0) >= 0 ? '+' : ''}{Number(masteryData?.summary?.progressionDelta || 0).toFixed(1)}
+                </div>
+                <div className="text-xs mt-1">Skills tracked: {masteryData?.summary?.skillsTracked || 0}</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="font-semibold">Skill Graph</div>
+                  <div className="inline-flex rounded-lg border border-[var(--border)] p-1 text-xs">
+                    <button type="button" className={`px-2 py-1 rounded ${masterySkillView === 'chart' ? 'bg-[var(--accent)] text-white' : ''}`} onClick={() => setMasterySkillView('chart')}>Chart</button>
+                    <button type="button" className={`px-2 py-1 rounded ${masterySkillView === 'table' ? 'bg-[var(--accent)] text-white' : ''}`} onClick={() => setMasterySkillView('table')}>Table</button>
+                  </div>
+                </div>
+                {masterySkillView === 'chart' ? (
+                  <div className="space-y-2">
+                    {masterySkillRows.map((row: any, idx: number) => (
+                      <div key={`mastery-skill-${idx}`}>
+                        <div className="text-xs mb-1 flex items-center justify-between">
+                          <span>{row.skill}</span>
+                          <span>{Number(row.masteryScore || 0).toFixed(1)}</span>
+                        </div>
+                        <div className="h-2 rounded bg-slate-100 overflow-hidden">
+                          <div className="h-full bg-indigo-500" style={{ width: `${(toNum(row.masteryScore) / masterySkillMax) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                    {!masterySkillRows.length && <div className="text-sm text-[var(--text-muted)]">No skill graph data in selected scope.</div>}
+                  </div>
+                ) : (
+                  <div className="table-shell overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left">
+                          <th className="px-3 py-2">Skill</th>
+                          <th className="px-3 py-2">Mastery</th>
+                          <th className="px-3 py-2">Avg Score</th>
+                          <th className="px-3 py-2">Pass Rate</th>
+                          <th className="px-3 py-2">Trend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {masterySkillRows.map((row: any, idx: number) => (
+                          <tr key={`mastery-skill-row-${idx}`} className="border-t border-[var(--border)]">
+                            <td className="px-3 py-2">{row.skill}</td>
+                            <td className="px-3 py-2">{Number(row.masteryScore || 0).toFixed(1)}</td>
+                            <td className="px-3 py-2">{Number(row.averageScore || 0).toFixed(1)}%</td>
+                            <td className="px-3 py-2">{Number(row.testPassRate || 0).toFixed(1)}%</td>
+                            <td className={`px-3 py-2 ${Number(row.trendDelta || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {Number(row.trendDelta || 0) >= 0 ? '+' : ''}{Number(row.trendDelta || 0).toFixed(1)}
+                            </td>
+                          </tr>
+                        ))}
+                        {!masterySkillRows.length && <tr><td className="px-3 py-3 text-[var(--text-muted)]" colSpan={5}>No skill graph data.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="font-semibold">Progression Over Time</div>
+                  <div className="inline-flex rounded-lg border border-[var(--border)] p-1 text-xs">
+                    <button type="button" className={`px-2 py-1 rounded ${masteryProgressView === 'chart' ? 'bg-[var(--accent)] text-white' : ''}`} onClick={() => setMasteryProgressView('chart')}>Chart</button>
+                    <button type="button" className={`px-2 py-1 rounded ${masteryProgressView === 'table' ? 'bg-[var(--accent)] text-white' : ''}`} onClick={() => setMasteryProgressView('table')}>Table</button>
+                  </div>
+                </div>
+                {masteryProgressView === 'chart' ? (
+                  <div className="space-y-2">
+                    {masteryProgressRows.map((row: any, idx: number) => (
+                      <div key={`mastery-progress-${idx}`}>
+                        <div className="text-xs mb-1 flex items-center justify-between">
+                          <span>{row.weekStart}</span>
+                          <span>Readiness {Number(row.readinessScore || 0).toFixed(1)}</span>
+                        </div>
+                        <div className="h-2 rounded bg-slate-100 overflow-hidden">
+                          <div className="h-full bg-emerald-500" style={{ width: `${(toNum(row.readinessScore) / masteryProgressMax) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                    {!masteryProgressRows.length && <div className="text-sm text-[var(--text-muted)]">No progression points in selected scope.</div>}
+                  </div>
+                ) : (
+                  <div className="table-shell overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="text-left">
+                          <th className="px-3 py-2">Week Start</th>
+                          <th className="px-3 py-2">Attempts</th>
+                          <th className="px-3 py-2">Average</th>
+                          <th className="px-3 py-2">Pass Rate</th>
+                          <th className="px-3 py-2">Readiness</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {masteryProgressRows.map((row: any, idx: number) => (
+                          <tr key={`mastery-progress-row-${idx}`} className="border-t border-[var(--border)]">
+                            <td className="px-3 py-2">{row.weekStart}</td>
+                            <td className="px-3 py-2">{row.attempts}</td>
+                            <td className="px-3 py-2">{Number(row.averageScore || 0).toFixed(1)}%</td>
+                            <td className="px-3 py-2">{Number(row.passRate || 0).toFixed(1)}%</td>
+                            <td className="px-3 py-2">{Number(row.readinessScore || 0).toFixed(1)}</td>
+                          </tr>
+                        ))}
+                        {!masteryProgressRows.length && <tr><td className="px-3 py-3 text-[var(--text-muted)]" colSpan={5}>No progression data.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <div className="font-semibold mb-2">Top Strengths</div>
+                <ul className="list-disc pl-5 text-sm space-y-1">
+                  {(masteryData?.topStrengths || []).map((s: any, idx: number) => (
+                    <li key={`strength-${idx}`}>{s.skill} ({Number(s.masteryScore || 0).toFixed(1)})</li>
+                  ))}
+                  {!masteryData?.topStrengths?.length && <li className="text-[var(--text-muted)]">No strengths identified yet.</li>}
+                </ul>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] p-3">
+                <div className="font-semibold mb-2">Gap Recommendations</div>
+                <ul className="list-disc pl-5 text-sm space-y-1">
+                  {(masteryData?.gapRecommendations || []).map((r: string, idx: number) => (
+                    <li key={`gap-rec-${idx}`}>{r}</li>
+                  ))}
+                  {!masteryData?.gapRecommendations?.length && <li className="text-[var(--text-muted)]">No recommendations available.</li>}
+                </ul>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">

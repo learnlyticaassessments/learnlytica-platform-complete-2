@@ -187,6 +187,25 @@ export async function getStudentSkillMatrix(req: Request, res: Response, next: N
   }
 }
 
+export async function getCurriculumMastery(req: Request, res: Response, next: NextFunction) {
+  try {
+    const db = (req as any).db;
+    const organizationId = (req.user as any).organizationId as string;
+    const data = await analyticsService.getCurriculumMasteryAnalytics(db, organizationId, {
+      batchId: req.query.batchId as string | undefined,
+      studentId: req.query.studentId as string | undefined,
+      days: req.query.days ? Number(req.query.days) : undefined
+    });
+    res.json({ success: true, data });
+  } catch (error: any) {
+    if (/Learner not found/i.test(error?.message || '')) {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    next(error);
+  }
+}
+
 export async function exportCsv(req: Request, res: Response, next: NextFunction) {
   try {
     const db = (req as any).db;

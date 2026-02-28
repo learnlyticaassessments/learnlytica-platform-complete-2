@@ -75,6 +75,11 @@ export const analyticsService = {
     return response.data;
   },
 
+  getCurriculumMastery: async (params?: { batchId?: string; studentId?: string; days?: number }) => {
+    const response = await client.get('/skills/mastery', { params });
+    return response.data;
+  },
+
   exportCsv: async (assessmentId: string) => {
     const response = await client.get(`/assessments/${assessmentId}/export-csv`, {
       responseType: 'blob'

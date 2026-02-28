@@ -55,7 +55,7 @@ function checkCompatibility(question: any, template: any): string[] {
 export function AssessmentCreate() {
   const navigate = useNavigate();
   const createMutation = useCreateAssessment();
-  const { data: labTemplatesData } = useLabTemplates({ isActive: true });
+  const { data: labTemplatesData } = useLabTemplates();
   const [questionFilters, setQuestionFilters] = useState({
     curriculum: 'all',
     testFramework: '',
@@ -63,16 +63,16 @@ export function AssessmentCreate() {
     technicalFocus: '',
     search: ''
   });
-  const { data: questionsData } = useQuestions({
+  const filteredQuestionsQuery = useQuestions({
     status: 'published',
-    limit: 1000,
+    limit: 100,
     curriculum: questionFilters.curriculum && questionFilters.curriculum !== 'all' ? questionFilters.curriculum : undefined,
     testFramework: (questionFilters.testFramework as any) || undefined,
     difficulty: (questionFilters.difficulty as any) || undefined,
     technicalFocus: questionFilters.technicalFocus || undefined,
     search: questionFilters.search.trim().length >= 2 ? questionFilters.search.trim() : undefined
   });
-  const { data: allQuestionsData } = useQuestions({ status: 'published', limit: 1000 });
+  const allQuestionsQuery = useQuestions({ status: 'published', limit: 100 });
   const { data: curriculaData } = useQuestionCurricula();
 
   const [formData, setFormData] = useState({
@@ -85,9 +85,25 @@ export function AssessmentCreate() {
     selectedQuestions: [] as string[]
   });
 
-  const labTemplates = labTemplatesData?.data || [];
-  const questions = questionsData?.questions || [];
-  const allQuestions = allQuestionsData?.questions || [];
+  const labTemplatesRaw = labTemplatesData?.data || [];
+  const activeLabTemplates = labTemplatesRaw.filter((t: any) => t?.isActive !== false);
+  const labTemplates = activeLabTemplates.length ? activeLabTemplates : labTemplatesRaw;
+  const filteredQuestions = filteredQuestionsQuery.data?.questions || [];
+  const allQuestions = allQuestionsQuery.data?.questions || [];
+  const hasActiveQuestionFilters =
+    (questionFilters.curriculum && questionFilters.curriculum !== 'all') ||
+    !!questionFilters.testFramework ||
+    !!questionFilters.difficulty ||
+    !!questionFilters.technicalFocus ||
+    questionFilters.search.trim().length >= 2;
+  const questions = useMemo(() => {
+    if (!hasActiveQuestionFilters) {
+      // For default "All" view, prefer the full published list to avoid empty
+      // states caused by backend filter/query mismatches.
+      return allQuestions.length ? allQuestions : filteredQuestions;
+    }
+    return filteredQuestions;
+  }, [hasActiveQuestionFilters, allQuestions, filteredQuestions]);
   const selectedLabTemplate = labTemplates.find((t: any) => t.id === formData.labTemplateId);
 
   const fallbackCurriculumOptions = useMemo(() => {
@@ -211,7 +227,7 @@ export function AssessmentCreate() {
                 value={formData.labTemplateId}
                 onChange={(e) => setFormData({ ...formData, labTemplateId: e.target.value })}
               >
-                <option value="">Choose a template...</option>
+                <option value="">{labTemplates.length ? 'Choose a template...' : 'No runtime templates found'}</option>
                 {labTemplates.map((template: any) => (
                   <option key={template.id} value={template.id}>
                     {template.name} ({template.category})
@@ -221,6 +237,11 @@ export function AssessmentCreate() {
               <p className="mt-2 text-xs text-gray-600">
                 Learners always code in the embedded Monaco editor. This runtime template controls execution image and framework compatibility.
               </p>
+              {!labTemplates.length && (
+                <p className="mt-1 text-xs text-amber-700">
+                  Create at least one lab template in <span className="font-semibold">Lab Templates</span> to continue.
+                </p>
+              )}
             </div>
             {selectedLabTemplate && (
               <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
@@ -234,6 +255,14 @@ export function AssessmentCreate() {
 
           <div className="card">
             <h2 className="text-xl font-semibold mb-4">Questions</h2>
+            <div className="mb-3 text-xs text-gray-600">
+              Only <span className="font-semibold">published</span> questions are listed for assessment creation.
+            </div>
+            {(filteredQuestionsQuery.isError || allQuestionsQuery.isError) && (
+              <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+                Question list query had an issue. Showing best available results.
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Filter by Curriculum</label>

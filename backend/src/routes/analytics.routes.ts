@@ -26,6 +26,7 @@ router.get('/assessments/:id', controller.getAssessmentAnalytics);
 // Student report
 router.get('/students/:studentId', controller.getStudentReport);
 router.get('/students/:studentId/skill-matrix', controller.getStudentSkillMatrix);
+router.get('/skills/mastery', controller.getCurriculumMastery);
 
 // Export
 router.get('/assessments/:id/export-csv', controller.exportCsv);
