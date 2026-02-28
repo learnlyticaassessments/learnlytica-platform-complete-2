@@ -320,19 +320,21 @@ function parseDotnetResults(output: string, testCases: any[]): TestResult[] {
   const failedSet = new Set<string>();
   const durationByName = new Map<string, number>();
 
-  const passRegex = /^\s*Passed\s+(.+?)\s+\[(\d+)\s*ms\]/gm;
-  const failRegex = /^\s*Failed\s+(.+?)\s+\[(\d+)\s*ms\]/gm;
+  const statusRegex = /^\s*(Passed|Failed)\s+(.+?)\s+\[([^\]]+)\]\s*$/gm;
 
   let match: RegExpExecArray | null;
-  while ((match = passRegex.exec(text)) !== null) {
-    const name = String(match[1] || '').trim();
-    passedSet.add(name);
-    durationByName.set(name, Number(match[2] || 0));
-  }
-  while ((match = failRegex.exec(text)) !== null) {
-    const name = String(match[1] || '').trim();
-    failedSet.add(name);
-    durationByName.set(name, Number(match[2] || 0));
+  while ((match = statusRegex.exec(text)) !== null) {
+    const status = String(match[1] || '').trim().toLowerCase();
+    const name = String(match[2] || '').trim();
+    const duration = parseDotnetDurationToMs(match[3]);
+    if (status === 'passed') {
+      passedSet.add(name);
+    } else if (status === 'failed') {
+      failedSet.add(name);
+    }
+    if (typeof duration === 'number') {
+      durationByName.set(name, duration);
+    }
   }
 
   const discoveredNames = Array.from(new Set([...passedSet, ...failedSet]));
@@ -368,6 +370,22 @@ function parseDotnetResults(output: string, testCases: any[]): TestResult[] {
   });
 }
 
+function parseDotnetDurationToMs(value?: string): number | undefined {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return undefined;
+
+  const lessMs = raw.match(/^<\s*(\d+)\s*ms$/);
+  if (lessMs) return Number(lessMs[1] || 1);
+
+  const ms = raw.match(/^(\d+(?:\.\d+)?)\s*ms$/);
+  if (ms) return Math.round(Number(ms[1] || 0));
+
+  const sec = raw.match(/^(\d+(?:\.\d+)?)\s*s$/);
+  if (sec) return Math.round(Number(sec[1] || 0) * 1000);
+
+  return undefined;
+}
+
 function extractTrxResults(output: string, testCases: any[]): TestResult[] {
   const text = String(output || '');
   const markerMatch = text.match(/---TRX_START---\s*([\s\S]*?)\s*---TRX_END---/);
@@ -375,7 +393,7 @@ function extractTrxResults(output: string, testCases: any[]): TestResult[] {
   if (!trxXml) return [];
 
   const entries: Array<{ name: string; passed: boolean; duration?: number }> = [];
-  const unitResultRegex = /<UnitTestResult\b([^>]*?)\/>/g;
+  const unitResultRegex = /<UnitTestResult\b([^>]*?)(?:\/>|>[\s\S]*?<\/UnitTestResult>)/g;
   let m: RegExpExecArray | null;
   while ((m = unitResultRegex.exec(trxXml)) !== null) {
     const attrs = String(m[1] || '');
