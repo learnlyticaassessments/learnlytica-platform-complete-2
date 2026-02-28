@@ -47,6 +47,8 @@ export async function executeInDocker(
       await setupSupertestExecution(workDir, code, testCode);
     } else if (framework === 'pytest-requests') {
       await setupPytestRequestsExecution(workDir, code, testCode);
+    } else if (framework === 'dotnet') {
+      await setupDotnetExecution(workDir, code, testCode);
     }
 
     // Containers run as non-root (coderunner). mkdtemp creates a private dir,
@@ -177,6 +179,47 @@ async function setupPytestRequestsExecution(workDir: string, code: string, testC
   await fs.writeFile(path.join(workDir, 'test_api.py'), testCode);
 }
 
+async function setupDotnetExecution(workDir: string, code: string, testCode: string) {
+  const srcDir = path.join(workDir, 'src');
+  const testsDir = path.join(workDir, 'tests');
+  await fs.mkdir(srcDir, { recursive: true });
+  await fs.mkdir(testsDir, { recursive: true });
+
+  await fs.writeFile(path.join(srcDir, 'Solution.cs'), code);
+  await fs.writeFile(path.join(testsDir, 'SolutionTests.cs'), testCode);
+
+  const sourceCsproj = `<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+`;
+  await fs.writeFile(path.join(srcDir, 'Solution.csproj'), sourceCsproj);
+
+  const testsCsproj = `<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../src/Solution.csproj" />
+  </ItemGroup>
+</Project>
+`;
+  await fs.writeFile(path.join(testsDir, 'Solution.Tests.csproj'), testsCsproj);
+}
+
 function buildDockerCommand(image: string, framework: string, workDir: string): string {
   const baseCmd = [
     'docker run',
@@ -203,6 +246,8 @@ function buildDockerCommand(image: string, framework: string, workDir: string): 
     execCmd = 'sh -c "jest --config \'{\\"rootDir\\":\\"/workspace\\",\\"testEnvironment\\":\\"node\\"}\' --runInBand --json --outputFile=/workspace/results.json /workspace/question.test.js; CODE=$?; [ -f /workspace/results.json ] && cat /workspace/results.json; exit $CODE"';
   } else if (framework === 'pytest-requests') {
     execCmd = 'sh -c "pytest --json-report --json-report-file=results.json /workspace/test_api.py; CODE=$?; [ -f results.json ] && cat results.json; exit $CODE"';
+  } else if (framework === 'dotnet') {
+    execCmd = 'sh -c "dotnet restore /workspace/tests/Solution.Tests.csproj --nologo --ignore-failed-sources --use-lock-file; CODE=$?; [ $CODE -ne 0 ] && exit $CODE; dotnet test /workspace/tests/Solution.Tests.csproj --no-restore --nologo -v normal; CODE=$?; exit $CODE"';
   }
 
   return [...baseCmd, execCmd].join(' ');

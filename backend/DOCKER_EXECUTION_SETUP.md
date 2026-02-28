@@ -15,6 +15,9 @@ docker build -t learnlytica/executor-node:latest -f Dockerfile.node .
 
 # Build Python image
 docker build -t learnlytica/executor-python:latest -f Dockerfile.python .
+
+# Build .NET image
+docker build -t learnlytica/executor-dotnet:latest -f Dockerfile.dotnet .
 ```
 
 ## Verify Images
@@ -41,6 +44,13 @@ docker run --rm \
   --memory="512m" \
   learnlytica/executor-python:latest \
   python -c "print('Hello')"
+
+# Test .NET execution
+docker run --rm \
+  --cpus="1" \
+  --memory="512m" \
+  learnlytica/executor-dotnet:latest \
+  dotnet --version
 ```
 
 ## Security Features

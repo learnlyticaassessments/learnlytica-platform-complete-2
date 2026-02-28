@@ -77,7 +77,7 @@ type QuestionPackageManifest = {
 };
 
 const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
-const RUNNABLE_TEST_FRAMEWORKS = new Set(['jest', 'pytest', 'playwright', 'junit', 'supertest', 'pytest-requests']);
+const RUNNABLE_TEST_FRAMEWORKS = new Set(['jest', 'pytest', 'playwright', 'junit', 'dotnet', 'supertest', 'pytest-requests']);
 
 function assertFrameworkRunnable(framework: string) {
   const normalized = String(framework || '').toLowerCase();
@@ -92,6 +92,7 @@ function assertFrameworkRunnable(framework: string) {
 function inferCodeLanguageFromFramework(framework: string) {
   if (framework === 'pytest') return 'python';
   if (framework === 'junit') return 'java';
+  if (framework === 'dotnet') return 'csharp';
   return 'javascript';
 }
 
@@ -99,6 +100,7 @@ function inferCodeLanguageFromPath(path: string, fallback: string) {
   const p = String(path || '').toLowerCase();
   if (p.endsWith('.py')) return 'python';
   if (p.endsWith('.java')) return 'java';
+  if (p.endsWith('.cs')) return 'csharp';
   if (p.endsWith('.js') || p.endsWith('.jsx') || p.endsWith('.ts') || p.endsWith('.tsx')) return 'javascript';
   return fallback;
 }
@@ -106,6 +108,9 @@ function inferCodeLanguageFromPath(path: string, fallback: string) {
 function buildDefaultStarterCodeForFramework(category: string, framework: string) {
   if (framework === 'junit') {
     return [{ path: 'src/Main.java', content: 'public class Main {\n  // TODO: Implement solution\n}\n', language: 'java' }];
+  }
+  if (framework === 'dotnet') {
+    return [{ path: category === 'backend' ? 'src/Solution.cs' : 'Solution.cs', content: 'public static class Solution\n{\n    // TODO: Implement solution\n}\n', language: 'csharp' }];
   }
   if (framework === 'pytest') {
     return [{ path: category === 'backend' ? 'app.py' : 'solution.py', content: '# TODO: Implement solution\n', language: 'python' }];
@@ -407,7 +412,7 @@ export async function parseQuestionPackageZip(
       id: tc.id || `tc_${String(index + 1).padStart(3, '0')}`,
       name: tc.name || `Test Case ${index + 1}`,
       description: tc.description || undefined,
-      file: tc.file || `tests/test_${index + 1}.${fallbackLanguage === 'python' ? 'py' : fallbackLanguage === 'java' ? 'java' : 'js'}`,
+      file: tc.file || `tests/test_${index + 1}.${fallbackLanguage === 'python' ? 'py' : fallbackLanguage === 'java' ? 'java' : fallbackLanguage === 'csharp' ? 'cs' : 'js'}`,
       testName: tc.testName || `test_case_${index + 1}`,
       testCode: testCode || undefined,
       points: Number(tc.points ?? 0) || 0,
@@ -421,7 +426,7 @@ export async function parseQuestionPackageZip(
 
   const testConfig: any = {
     framework,
-    version: framework === 'junit' ? '5' : 'latest',
+    version: framework === 'junit' ? '5' : framework === 'dotnet' ? '8' : 'latest',
     environment: {},
     setup: { commands: ['echo "setup"'], timeout: 120000 },
     execution: { command: 'echo "run tests"', timeout: 300000 },
@@ -437,6 +442,10 @@ export async function parseQuestionPackageZip(
     testConfig.environment = { java: '17' };
     testConfig.setup.commands = ['echo "JUnit setup handled by executor"'];
     testConfig.execution.command = 'mvn test';
+  } else if (framework === 'dotnet') {
+    testConfig.environment = { dotnet: '8.0' };
+    testConfig.setup.commands = ['echo ".NET setup handled by executor"'];
+    testConfig.execution.command = 'dotnet test';
   } else if (framework === 'playwright') {
     testConfig.environment = { node: '20', runtime: 'browser' };
     testConfig.setup.commands = ['npm install'];

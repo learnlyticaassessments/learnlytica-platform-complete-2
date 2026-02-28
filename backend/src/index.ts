@@ -83,7 +83,7 @@ app.listen(PORT, () => {
    ✅ Module 1: Questions (9 endpoints)
    ✅ Module 2: Assessments (14 endpoints)
    ✅ Module 3: Student Interface (5 endpoints)
-   ✅ Module 4: Test Execution (6 frameworks)
+   ✅ Module 4: Test Execution (7 frameworks)
    ✅ Module 5: Analytics (4 endpoints)
    ✅ Question Library (6 endpoints)
    ✅ AI Generation (5 endpoints) ⭐ NEW!
@@ -92,6 +92,7 @@ app.listen(PORT, () => {
    ✅ Jest (JavaScript)
    ✅ Pytest (Python)
    ✅ JUnit (Java)
+   ✅ .NET xUnit (C#)
    ✅ Playwright (E2E)
    ✅ Supertest (API)
    ✅ Pytest-Requests (API)

@@ -33,6 +33,7 @@ const testFrameworkSchema = z.enum([
   'jest',
   'pytest',
   'junit',
+  'dotnet',
   'mocha',
   'cypress'
 ]);
@@ -72,6 +73,7 @@ const testEnvironmentSchema = z.object({
   node: z.string().optional(),
   python: z.string().optional(),
   java: z.string().optional(),
+  dotnet: z.string().optional(),
   runtime: z.string().optional()
 });
 

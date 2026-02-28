@@ -83,6 +83,7 @@ export type TestFramework =
   | 'jest' 
   | 'pytest' 
   | 'junit' 
+  | 'dotnet'
   | 'mocha' 
   | 'cypress';
 
@@ -151,6 +152,7 @@ export interface TestEnvironment {
   node?: string;
   python?: string;
   java?: string;
+  dotnet?: string;
   runtime?: string; // browser for playwright
 }
 

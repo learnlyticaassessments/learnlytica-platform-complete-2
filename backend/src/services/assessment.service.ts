@@ -55,10 +55,12 @@ function isFrameworkCompatibleWithLabTemplate(question: any, labTemplate: any): 
   const needsNode = ['jest', 'playwright', 'supertest', 'mocha', 'cypress'].includes(framework);
   const needsPython = ['pytest', 'pytest-requests'].includes(framework);
   const needsJava = ['junit'].includes(framework);
+  const needsDotnet = ['dotnet'].includes(framework);
 
   const looksNode = dockerImage.includes('node');
   const looksPython = dockerImage.includes('python');
   const looksJava = dockerImage.includes('java') || dockerImage.includes('maven') || dockerImage.includes('gradle');
+  const looksDotnet = dockerImage.includes('dotnet') || dockerImage.includes('aspnet') || dockerImage.includes('csharp') || dockerImage.includes('c#');
 
   if (needsNode && !(looksNode || ['frontend', 'backend', 'fullstack', 'devops'].includes(templateCategory))) {
     return { ok: false, reason: `Framework '${framework}' requires a Node-capable lab template` };
@@ -68,6 +70,9 @@ function isFrameworkCompatibleWithLabTemplate(question: any, labTemplate: any): 
   }
   if (needsJava && !(looksJava || ['backend', 'fullstack'].includes(templateCategory))) {
     return { ok: false, reason: `Framework '${framework}' requires a Java-capable lab template` };
+  }
+  if (needsDotnet && !(looksDotnet || ['backend', 'fullstack'].includes(templateCategory))) {
+    return { ok: false, reason: `Framework '${framework}' requires a .NET-capable lab template` };
   }
 
   return { ok: true };

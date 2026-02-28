@@ -158,12 +158,13 @@ function mapProblemStyle(value: string): CreateQuestionDTO['problemStyle'] {
 
 function mapFramework(language: string, rawFramework?: string): TestFramework {
   const fromResponse = String(rawFramework || '').toLowerCase();
-  if (fromResponse === 'jest' || fromResponse === 'pytest' || fromResponse === 'junit' || fromResponse === 'playwright' || fromResponse === 'mocha' || fromResponse === 'cypress') {
+  if (fromResponse === 'jest' || fromResponse === 'pytest' || fromResponse === 'junit' || fromResponse === 'dotnet' || fromResponse === 'playwright' || fromResponse === 'mocha' || fromResponse === 'cypress') {
     return fromResponse as TestFramework;
   }
   const lang = String(language || '').toLowerCase();
   if (lang === 'python') return 'pytest';
   if (lang === 'java') return 'junit';
+  if (lang === 'csharp' || lang === 'c#' || lang === 'dotnet') return 'dotnet';
   return 'jest';
 }
 
@@ -171,6 +172,7 @@ function defaultStarterPath(language: string, questionType: string): string {
   const lang = String(language || '').toLowerCase();
   if (lang === 'python') return 'solution.py';
   if (lang === 'java') return 'src/Main.java';
+  if (lang === 'csharp' || lang === 'c#' || lang === 'dotnet') return 'src/Solution.cs';
   if (String(questionType || '').toLowerCase() === 'component') return 'src/App.jsx';
   return 'solution.js';
 }
@@ -181,7 +183,7 @@ function normalizeStarterCode(generated: any, language: string, questionType: st
   const normalizedFiles = (files.length ? files : [{ name: fallbackPath, content: '// TODO: implement' }]).map((f: any) => ({
     path: String(f.path || f.name || fallbackPath),
     content: String(f.content || ''),
-    language: language === 'python' ? 'python' : language === 'java' ? 'java' : 'javascript'
+    language: language === 'python' ? 'python' : language === 'java' ? 'java' : (language === 'csharp' || language === 'c#' || language === 'dotnet') ? 'csharp' : 'javascript'
   }));
 
   return {
@@ -197,6 +199,8 @@ function normalizeSolution(generated: any, starterPath: string, language: string
       ? 'def solve(*args, **kwargs):\n    return None\n'
       : language === 'java'
         ? 'public class Main {\n  public static Object solve(Object input) {\n    return input;\n  }\n}\n'
+        : (language === 'csharp' || language === 'c#' || language === 'dotnet')
+          ? 'public static class Solution\n{\n    public static object Solve(object input)\n    {\n        return input;\n    }\n}\n'
         : 'function solve(input) { return input; }\nmodule.exports = { solve };\n';
   const solutionValue = generated?.solution;
   if (solutionValue && typeof solutionValue === 'object' && Array.isArray(solutionValue.files)) {
@@ -204,7 +208,7 @@ function normalizeSolution(generated: any, starterPath: string, language: string
       files: solutionValue.files.map((f: any) => ({
         path: String(f.path || f.name || starterPath),
         content: String(f.content || ''),
-        language: language === 'python' ? 'python' : language === 'java' ? 'java' : 'javascript'
+        language: language === 'python' ? 'python' : language === 'java' ? 'java' : (language === 'csharp' || language === 'c#' || language === 'dotnet') ? 'csharp' : 'javascript'
       }))
     };
   }
@@ -214,7 +218,7 @@ function normalizeSolution(generated: any, starterPath: string, language: string
       {
         path: starterPath,
         content: String(solutionValue || fallbackSolution),
-        language: language === 'python' ? 'python' : language === 'java' ? 'java' : 'javascript'
+        language: language === 'python' ? 'python' : language === 'java' ? 'java' : (language === 'csharp' || language === 'c#' || language === 'dotnet') ? 'csharp' : 'javascript'
       }
     ]
   };
@@ -244,6 +248,8 @@ function normalizeTestCases(
     ? 'tests/test_solution.py'
     : framework === 'junit'
       ? 'src/test/java/SolutionTest.java'
+      : framework === 'dotnet'
+        ? 'tests/SolutionTests.cs'
       : 'tests/solution.spec.js';
 
   const evenPoints = Math.max(1, Math.floor(totalPoints / source.length));
@@ -343,10 +349,10 @@ function toCreateQuestionDto(generated: any, request: any): CreateQuestionDTO {
     testConfig: {
       framework,
       version: '1.0.0',
-      environment: framework === 'pytest' ? { python: '3.11' } : framework === 'junit' ? { java: '17' } : { node: '20' },
-      setup: generated?.testConfig?.setup || { commands: framework === 'pytest' ? ['pip install pytest'] : ['npm install'] },
+      environment: framework === 'pytest' ? { python: '3.11' } : framework === 'junit' ? { java: '17' } : framework === 'dotnet' ? { dotnet: '8.0' } : { node: '20' },
+      setup: generated?.testConfig?.setup || { commands: framework === 'pytest' ? ['pip install pytest'] : framework === 'dotnet' ? ['echo ".NET setup handled by executor"'] : ['npm install'] },
       execution: {
-        command: generated?.testConfig?.execution?.command || (framework === 'pytest' ? 'pytest -q' : framework === 'junit' ? 'mvn test' : framework === 'playwright' ? 'npx playwright test' : framework === 'mocha' ? 'npx mocha' : framework === 'cypress' ? 'npx cypress run' : 'npx jest --runInBand'),
+        command: generated?.testConfig?.execution?.command || (framework === 'pytest' ? 'pytest -q' : framework === 'junit' ? 'mvn test' : framework === 'dotnet' ? 'dotnet test' : framework === 'playwright' ? 'npx playwright test' : framework === 'mocha' ? 'npx mocha' : framework === 'cypress' ? 'npx cypress run' : 'npx jest --runInBand'),
         timeout: Number(generated?.testConfig?.execution?.timeout || 30000),
         retries: Number(generated?.testConfig?.execution?.retries || 0),
         parallelism: Boolean(generated?.testConfig?.execution?.parallelism ?? false)

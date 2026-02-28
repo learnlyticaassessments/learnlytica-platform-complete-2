@@ -4,6 +4,10 @@
 
 import { Request, Response, NextFunction } from 'express';
 import * as analyticsService from '../services/analytics.service';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 export async function getDashboard(req: Request, res: Response, next: NextFunction) {
   try {
@@ -90,6 +94,59 @@ export async function getSystemMonitor(req: Request, res: Response, next: NextFu
     const organizationId = (req.user as any).organizationId as string;
     const data = await analyticsService.getSystemMonitorStats(db, organizationId);
     res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getExecutorHealth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const expectedImages = [
+      'learnlytica/executor-node:latest',
+      'learnlytica/executor-python:latest',
+      'learnlytica/executor-java:latest',
+      'learnlytica/executor-playwright:latest',
+      'learnlytica/executor-dotnet:latest'
+    ];
+
+    let dockerDaemonReachable = true;
+    let daemonError: string | null = null;
+    try {
+      await execAsync('docker info', { timeout: 10000, maxBuffer: 1024 * 1024 });
+    } catch (error: any) {
+      dockerDaemonReachable = false;
+      daemonError = String(error?.stderr || error?.message || 'docker info failed').trim();
+    }
+
+    const checks = await Promise.all(
+      expectedImages.map(async (image) => {
+        try {
+          await execAsync(`docker image inspect ${image}`, { timeout: 10000, maxBuffer: 1024 * 1024 });
+          return { image, available: true };
+        } catch {
+          return { image, available: false };
+        }
+      })
+    );
+
+    const availableCount = checks.filter((c) => c.available).length;
+    const missingImages = checks.filter((c) => !c.available).map((c) => c.image);
+    const healthy = dockerDaemonReachable && missingImages.length === 0;
+
+    res.json({
+      success: true,
+      data: {
+        healthy,
+        dockerDaemonReachable,
+        daemonError,
+        availableCount,
+        totalExpected: expectedImages.length,
+        checks,
+        missingImages,
+        recommendedBuildCommand:
+          'cd docker/execution-environments && docker build -t learnlytica/executor-node:latest -f Dockerfile.node . && docker build -t learnlytica/executor-python:latest -f Dockerfile.python . && docker build -t learnlytica/executor-java:latest -f Dockerfile.java . && docker build -t learnlytica/executor-playwright:latest -f Dockerfile.playwright . && docker build -t learnlytica/executor-dotnet:latest -f Dockerfile.dotnet .'
+      }
+    });
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,6 @@
 /**
  * Test Runner Service (Complete with all frameworks)
- * Integrates with Jest, Pytest, Playwright, Supertest, and Pytest-Requests
+ * Integrates with Jest, Pytest, Playwright, JUnit, .NET, Supertest, and Pytest-Requests
  */
 
 import { executeInDocker } from './docker-executor.service';
@@ -62,7 +62,7 @@ export async function runTests(
   if (framework === 'junit') {
     return runJavaTests(code, testConfig, question);
   }
-  const supportedDraftFrameworks = new Set(['jest', 'pytest', 'playwright']);
+  const supportedDraftFrameworks = new Set(['jest', 'pytest', 'playwright', 'dotnet']);
   if (!supportedDraftFrameworks.has(framework)) {
     return {
       success: false,
@@ -71,7 +71,7 @@ export async function runTests(
       totalPoints: 0,
       pointsEarned: 0,
       results: [],
-      output: `Test execution is not supported for framework "${framework}" in the current runner. Supported: jest, pytest, playwright, junit, supertest, pytest-requests.`,
+      output: `Test execution is not supported for framework "${framework}" in the current runner. Supported: jest, pytest, playwright, dotnet, junit, supertest, pytest-requests.`,
       executionTime: 0,
       diagnostics: {
         framework,
@@ -154,6 +154,7 @@ function getLanguage(framework: string): string {
     'jest': 'javascript',
     'pytest': 'python',
     'playwright': 'javascript',
+    'dotnet': 'csharp',
     'supertest': 'javascript',
     'pytest-requests': 'python',
     'mocha': 'javascript'
@@ -166,6 +167,7 @@ function getDockerImage(framework: string): string {
     'jest': 'learnlytica/executor-node:latest',
     'pytest': 'learnlytica/executor-python:latest',
     'playwright': 'learnlytica/executor-playwright:latest',
+    'dotnet': 'learnlytica/executor-dotnet:latest',
     'supertest': 'learnlytica/executor-node:latest',
     'pytest-requests': 'learnlytica/executor-python:latest',
   };
@@ -210,6 +212,25 @@ ${indentPy(tc.testCode || 'pass')}
         });
       `).join('\n')}
     `;
+  } else if (framework === 'dotnet') {
+    const sanitizeMethodName = (input: string, idx: number) => {
+      const core = String(input || `test_${idx + 1}`).replace(/[^a-zA-Z0-9_]/g, '_');
+      return /^[0-9]/.test(core) ? `Test_${core}` : (core || `Test_${idx + 1}`);
+    };
+    return `
+      using Xunit;
+
+      public class SolutionTests
+      {
+      ${testCases.map((tc, idx) => `
+        [Fact(DisplayName = ${JSON.stringify(String(tc.name || `Test ${idx + 1}`))})]
+        public void ${sanitizeMethodName(tc.id || tc.name, idx)}()
+        {
+          ${tc.testCode || 'Assert.True(true);'}
+        }
+      `).join('\n')}
+      }
+    `;
   }
   return '';
 }
@@ -225,6 +246,9 @@ function parseTestResults(output: string, framework: string, testCases: any[]): 
   
   if (framework === 'pytest') {
     return parsePytestResults(output, testCases);
+  }
+  if (framework === 'dotnet') {
+    return parseDotnetResults(output, testCases);
   }
   
   return [];
@@ -285,6 +309,60 @@ function parsePytestResults(output: string, testCases: any[]): TestResult[] {
   }
   
   return [];
+}
+
+function parseDotnetResults(output: string, testCases: any[]): TestResult[] {
+  const text = String(output || '');
+  const passedSet = new Set<string>();
+  const failedSet = new Set<string>();
+  const durationByName = new Map<string, number>();
+
+  const passRegex = /^\s*Passed\s+(.+?)\s+\[(\d+)\s*ms\]/gm;
+  const failRegex = /^\s*Failed\s+(.+?)\s+\[(\d+)\s*ms\]/gm;
+
+  let match: RegExpExecArray | null;
+  while ((match = passRegex.exec(text)) !== null) {
+    const name = String(match[1] || '').trim();
+    passedSet.add(name);
+    durationByName.set(name, Number(match[2] || 0));
+  }
+  while ((match = failRegex.exec(text)) !== null) {
+    const name = String(match[1] || '').trim();
+    failedSet.add(name);
+    durationByName.set(name, Number(match[2] || 0));
+  }
+
+  const discoveredNames = Array.from(new Set([...passedSet, ...failedSet]));
+  if (!discoveredNames.length) {
+    const aggregate = text.match(/Failed:\s*(\d+),\s*Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)/i);
+    if (aggregate && Array.isArray(testCases) && testCases.length) {
+      const passed = Number(aggregate[2] || 0);
+      return testCases.map((tc: any, idx: number) => ({
+        name: tc?.name || `Test ${idx + 1}`,
+        passed: idx < passed,
+        points: Number(tc?.points || 0),
+        error: idx < passed ? undefined : 'dotnet test failed',
+      }));
+    }
+    return [];
+  }
+
+  const byName = new Map<string, any>();
+  for (const tc of testCases || []) {
+    byName.set(String(tc?.name || '').trim(), tc);
+  }
+
+  return discoveredNames.map((name, idx) => {
+    const tc = byName.get(name) || testCases?.[idx] || {};
+    const passed = passedSet.has(name) && !failedSet.has(name);
+    return {
+      name,
+      passed,
+      points: Number(tc?.points || 0),
+      error: passed ? undefined : 'dotnet test assertion failed',
+      duration: durationByName.get(name)
+    };
+  });
 }
 
 function extractJsonObject(output: string): any | null {

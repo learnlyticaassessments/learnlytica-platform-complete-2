@@ -18,6 +18,7 @@ router.get('/projects/trends', controller.getProjectTrends);
 router.get('/projects/by-batch', controller.getProjectBatchAnalytics);
 router.get('/projects/debug', controller.getProjectAnalyticsDebug);
 router.get('/system-monitor', controller.getSystemMonitor);
+router.get('/executors/health', controller.getExecutorHealth);
 
 // Assessment analytics
 router.get('/assessments/:id', controller.getAssessmentAnalytics);

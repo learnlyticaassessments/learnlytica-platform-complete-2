@@ -34,7 +34,7 @@ type DraftRunResult = {
 type DraftCodeFile = {
   path: string;
   content: string;
-  language: 'javascript' | 'python' | 'java';
+  language: 'javascript' | 'python' | 'java' | 'csharp';
 };
 
 type QuestionPackageManifest = {
@@ -58,12 +58,19 @@ type QuestionPackageManifest = {
 };
 
 const QUESTION_PACKAGE_SCHEMA_VERSION = 1;
-const DRAFT_RUN_SUPPORTED_FRAMEWORKS = new Set<TestFramework>(['jest', 'pytest', 'playwright', 'junit']);
+const DRAFT_RUN_SUPPORTED_FRAMEWORKS = new Set<TestFramework>(['jest', 'pytest', 'playwright', 'junit', 'dotnet']);
 
 function buildDefaultStarterCode(category: QuestionCategory, framework: TestFramework) {
   if (framework === 'junit') {
     return {
       files: [{ path: 'src/Main.java', content: 'public class Main {\n  // TODO: Implement solution\n}\n', language: 'java' }],
+      dependencies: {},
+      scripts: {}
+    };
+  }
+  if (framework === 'dotnet') {
+    return {
+      files: [{ path: 'src/Solution.cs', content: 'public static class Solution\n{\n    // TODO: Implement solution\n}\n', language: 'csharp' }],
       dependencies: {},
       scripts: {}
     };
@@ -89,6 +96,7 @@ function buildDefaultTestCase(framework: TestFramework, points: number): DraftTe
     jest: { name: 'Basic correctness', file: 'tests/question.test.js', testName: 'basic correctness' },
     pytest: { name: 'Basic correctness', file: 'tests/test_solution.py', testName: 'test_basic_correctness' },
     junit: { name: 'Basic correctness', file: 'src/test/java/MainTest.java', testName: 'basicCorrectness' },
+    dotnet: { name: 'Basic correctness', file: 'tests/SolutionTests.cs', testName: 'BasicCorrectness' },
     mocha: { name: 'Basic correctness', file: 'test/question.spec.js', testName: 'should pass basic case' },
     cypress: { name: 'Basic UI flow', file: 'cypress/e2e/question.cy.js', testName: 'basic flow' }
   };
@@ -107,6 +115,8 @@ function buildDefaultTestCase(framework: TestFramework, points: number): DraftTe
           ? "assert True"
           : framework === 'junit'
           ? "assertTrue(true);"
+          : framework === 'dotnet'
+          ? "Assert.True(true);"
           : framework === 'playwright'
           ? "await page.goto('http://localhost:3000');\nawait expect(page).toHaveTitle(/./);"
           : "expect(true).toBe(true);"
@@ -118,7 +128,7 @@ function buildTestConfig(framework: TestFramework, points: number, testCases: Dr
   const passing = Math.max(1, Math.ceil(total * 0.6));
   const base: any = {
     framework,
-    version: framework === 'junit' ? '5' : 'latest',
+    version: framework === 'junit' ? '5' : framework === 'dotnet' ? '8' : 'latest',
     environment: {},
     setup: { commands: ['echo "setup"'], timeout: 120000 },
     execution: { command: 'echo "run tests"', timeout: 300000 },
@@ -144,6 +154,10 @@ function buildTestConfig(framework: TestFramework, points: number, testCases: Dr
     base.environment = { java: '17' };
     base.setup.commands = ['echo "JUnit setup handled by executor"'];
     base.execution.command = 'mvn test';
+  } else if (framework === 'dotnet') {
+    base.environment = { dotnet: '8.0' };
+    base.setup.commands = ['echo ".NET setup handled by executor"'];
+    base.execution.command = 'dotnet test';
   } else if (framework === 'playwright') {
     base.environment = { node: '20', runtime: 'browser' };
     base.setup.commands = ['npm install'];
@@ -172,6 +186,7 @@ function parseCsvList(input: string) {
 function inferLanguage(framework: TestFramework): DraftCodeFile['language'] {
   if (framework === 'pytest') return 'python';
   if (framework === 'junit') return 'java';
+  if (framework === 'dotnet') return 'csharp';
   return 'javascript';
 }
 
@@ -179,6 +194,7 @@ function inferLanguageFromPath(path: string, fallback: DraftCodeFile['language']
   const p = path.toLowerCase();
   if (p.endsWith('.py')) return 'python';
   if (p.endsWith('.java')) return 'java';
+  if (p.endsWith('.cs')) return 'csharp';
   if (p.endsWith('.ts') || p.endsWith('.tsx') || p.endsWith('.js') || p.endsWith('.jsx')) return 'javascript';
   return fallback;
 }
@@ -382,7 +398,7 @@ export function QuestionCreate() {
 
   const runDraftTests = async () => {
     if (!draftRunSupported) {
-      setDraftRunError(`Draft test execution is not supported for "${testFramework}" yet. Supported frameworks: Jest, Pytest, Playwright, JUnit. You can still author and save the question package.`);
+      setDraftRunError(`Draft test execution is not supported for "${testFramework}" yet. Supported frameworks: Jest, Pytest, Playwright, JUnit, .NET. You can still author and save the question package.`);
       setDraftRunResult(null);
       return;
     }
@@ -589,12 +605,15 @@ export function QuestionCreate() {
       const isJs = sampleFramework === 'jest' || sampleFramework === 'playwright';
       const isPy = sampleFramework === 'pytest';
       const isJava = sampleFramework === 'junit';
+      const isDotnet = sampleFramework === 'dotnet';
 
-      const starterPath = isPy ? 'solution.py' : isJava ? 'src/main/java/Solution.java' : 'solution.js';
+      const starterPath = isPy ? 'solution.py' : isJava ? 'src/main/java/Solution.java' : isDotnet ? 'src/Solution.cs' : 'solution.js';
       const testFile = isPy
         ? 'tests/test_solution.py'
         : isJava
         ? 'src/test/java/SolutionTest.java'
+        : isDotnet
+        ? 'tests/SolutionTests.cs'
         : sampleFramework === 'playwright'
         ? 'tests/question.spec.js'
         : 'tests/sum.test.js';
@@ -603,6 +622,8 @@ export function QuestionCreate() {
         ? "def sum_numbers(a, b):\n    # TODO: return the sum of two numbers\n    return 0\n"
         : isJava
         ? "public class Solution {\n    public static int sumNumbers(int a, int b) {\n        // TODO: return the sum of two numbers\n        return 0;\n    }\n}\n"
+        : isDotnet
+        ? "public static class Solution\n{\n    public static int SumNumbers(int a, int b)\n    {\n        // TODO: return the sum of two numbers\n        return 0;\n    }\n}\n"
         : sampleFramework === 'playwright'
         ? "export function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n"
         : "function sum(a, b) {\n  // TODO: return the sum of two numbers\n  return 0;\n}\n\nmodule.exports = { sum };\n";
@@ -610,6 +631,8 @@ export function QuestionCreate() {
         ? "def sum_numbers(a, b):\n    return a + b\n"
         : isJava
         ? "public class Solution {\n    public static int sumNumbers(int a, int b) {\n        return a + b;\n    }\n}\n"
+        : isDotnet
+        ? "public static class Solution\n{\n    public static int SumNumbers(int a, int b)\n    {\n        return a + b;\n    }\n}\n"
         : sampleFramework === 'playwright'
         ? "export function sum(a, b) {\n  return a + b;\n}\n"
         : "function sum(a, b) {\n  return a + b;\n}\n\nmodule.exports = { sum };\n";
@@ -618,6 +641,8 @@ export function QuestionCreate() {
         ? "from solution import sum_numbers\nassert sum_numbers(1, 2) == 3\n"
         : isJava
         ? "assertEquals(3, Solution.sumNumbers(1, 2));"
+        : isDotnet
+        ? "Assert.Equal(3, Solution.SumNumbers(1, 2));"
         : sampleFramework === 'playwright'
         ? "expect(solution.sum(1, 2)).toBe(3);"
         : "const { sum } = require('./solution');\nexpect(sum(1, 2)).toBe(3);";
@@ -625,6 +650,8 @@ export function QuestionCreate() {
         ? "from solution import sum_numbers\nassert sum_numbers(-5, 2) == -3\n"
         : isJava
         ? "assertEquals(-3, Solution.sumNumbers(-5, 2));"
+        : isDotnet
+        ? "Assert.Equal(-3, Solution.SumNumbers(-5, 2));"
         : sampleFramework === 'playwright'
         ? "expect(solution.sum(-5, 2)).toBe(-3);"
         : "const { sum } = require('./solution');\nexpect(sum(-5, 2)).toBe(-3);";
@@ -632,15 +659,17 @@ export function QuestionCreate() {
         ? "from solution import sum_numbers\nassert sum_numbers(0, 0) == 0\n"
         : isJava
         ? "assertEquals(0, Solution.sumNumbers(0, 0));"
+        : isDotnet
+        ? "Assert.Equal(0, Solution.SumNumbers(0, 0));"
         : sampleFramework === 'playwright'
         ? "expect(solution.sum(0, 0)).toBe(0);"
         : "const { sum } = require('./solution');\nexpect(sum(0, 0)).toBe(0);";
 
       zip.file(`starter/${starterPath}`, starterCode);
       zip.file(`solution/${starterPath}`, solutionCode);
-      zip.file(`tests/tc_001.${isPy ? 'py' : isJava ? 'java' : 'js'}`, tc1);
-      zip.file(`tests/tc_002.${isPy ? 'py' : isJava ? 'java' : 'js'}`, tc2);
-      zip.file(`tests/tc_003.${isPy ? 'py' : isJava ? 'java' : 'js'}`, tc3);
+      zip.file(`tests/tc_001.${isPy ? 'py' : isJava ? 'java' : isDotnet ? 'cs' : 'js'}`, tc1);
+      zip.file(`tests/tc_002.${isPy ? 'py' : isJava ? 'java' : isDotnet ? 'cs' : 'js'}`, tc2);
+      zip.file(`tests/tc_003.${isPy ? 'py' : isJava ? 'java' : isDotnet ? 'cs' : 'js'}`, tc3);
 
       const manifest: QuestionPackageManifest = {
         schemaVersion: QUESTION_PACKAGE_SCHEMA_VERSION,
@@ -653,18 +682,18 @@ export function QuestionCreate() {
         testFramework: sampleFramework,
         points: 100,
         timeEstimate: 15,
-        skills: isPy ? ['python', 'functions', 'unit-testing'] : isJava ? ['java', 'methods', 'unit-testing'] : ['javascript', 'functions', 'unit-testing'],
+        skills: isPy ? ['python', 'functions', 'unit-testing'] : isJava ? ['java', 'methods', 'unit-testing'] : isDotnet ? ['csharp', 'methods', 'unit-testing'] : ['javascript', 'functions', 'unit-testing'],
         tags: ['warmup', 'math', sampleFramework],
         starterCode: {
-          files: [{ path: starterPath, source: `starter/${starterPath}`, language: isPy ? 'python' : isJava ? 'java' : 'javascript' }]
+          files: [{ path: starterPath, source: `starter/${starterPath}`, language: isPy ? 'python' : isJava ? 'java' : isDotnet ? 'csharp' : 'javascript' }]
         },
         solution: {
-          files: [{ path: starterPath, source: `solution/${starterPath}`, language: isPy ? 'python' : isJava ? 'java' : 'javascript' }]
+          files: [{ path: starterPath, source: `solution/${starterPath}`, language: isPy ? 'python' : isJava ? 'java' : isDotnet ? 'csharp' : 'javascript' }]
         },
         testCases: [
-          { id: 'tc_001', name: 'Adds positive integers', file: testFile, testName: isPy ? 'test_adds_positive_integers' : isJava ? 'addsPositiveIntegers' : 'adds positive integers', points: 40, visible: true, category: 'basic', testCodePath: `tests/tc_001.${isPy ? 'py' : isJava ? 'java' : 'js'}` },
-          { id: 'tc_002', name: 'Adds negative and positive', file: testFile, testName: isPy ? 'test_adds_negative_and_positive' : isJava ? 'addsNegativeAndPositive' : 'adds negative and positive', points: 30, visible: true, category: 'edge', testCodePath: `tests/tc_002.${isPy ? 'py' : isJava ? 'java' : 'js'}` },
-          { id: 'tc_003', name: 'Adds zeros', file: testFile, testName: isPy ? 'test_adds_zeros' : isJava ? 'addsZeros' : 'adds zeros', points: 30, visible: false, category: 'edge', testCodePath: `tests/tc_003.${isPy ? 'py' : isJava ? 'java' : 'js'}` }
+          { id: 'tc_001', name: 'Adds positive integers', file: testFile, testName: isPy ? 'test_adds_positive_integers' : isJava ? 'addsPositiveIntegers' : isDotnet ? 'AddsPositiveIntegers' : 'adds positive integers', points: 40, visible: true, category: 'basic', testCodePath: `tests/tc_001.${isPy ? 'py' : isJava ? 'java' : isDotnet ? 'cs' : 'js'}` },
+          { id: 'tc_002', name: 'Adds negative and positive', file: testFile, testName: isPy ? 'test_adds_negative_and_positive' : isJava ? 'addsNegativeAndPositive' : isDotnet ? 'AddsNegativeAndPositive' : 'adds negative and positive', points: 30, visible: true, category: 'edge', testCodePath: `tests/tc_002.${isPy ? 'py' : isJava ? 'java' : isDotnet ? 'cs' : 'js'}` },
+          { id: 'tc_003', name: 'Adds zeros', file: testFile, testName: isPy ? 'test_adds_zeros' : isJava ? 'addsZeros' : isDotnet ? 'AddsZeros' : 'adds zeros', points: 30, visible: false, category: 'edge', testCodePath: `tests/tc_003.${isPy ? 'py' : isJava ? 'java' : isDotnet ? 'cs' : 'js'}` }
         ]
       };
 
@@ -898,7 +927,7 @@ export function QuestionCreate() {
                   Drag and drop a question ZIP here, or upload it manually to populate authoring fields.
                 </div>
                 <div className="mt-2 text-xs text-[var(--text-muted)]">
-                  Supported draft runners after import: Jest, Pytest, Playwright, JUnit
+                  Supported draft runners after import: Jest, Pytest, Playwright, JUnit, .NET
                 </div>
               </div>
               <button
@@ -931,6 +960,7 @@ export function QuestionCreate() {
                   <option value="pytest">Pytest</option>
                   <option value="playwright">Playwright</option>
                   <option value="junit">JUnit</option>
+                  <option value="dotnet">.NET (xUnit)</option>
                 </select>
                 <button
                   type="button"
@@ -961,6 +991,7 @@ export function QuestionCreate() {
                   <option value="pytest">Pytest Sample</option>
                   <option value="playwright">Playwright Sample</option>
                   <option value="junit">JUnit Sample</option>
+                  <option value="dotnet">.NET Sample</option>
                 </select>
                 <button
                   type="button"
@@ -1070,6 +1101,7 @@ export function QuestionCreate() {
                     <option value="jest">Jest</option>
                     <option value="pytest">Pytest</option>
                     <option value="junit">JUnit</option>
+                    <option value="dotnet">.NET (xUnit)</option>
                     <option value="mocha">Mocha</option>
                     <option value="cypress">Cypress</option>
                   </select>
@@ -1236,7 +1268,7 @@ export function QuestionCreate() {
                       <div className={editorShellClass}>
                         <Editor
                           height="150px"
-                          language={testFramework === 'pytest' ? 'python' : testFramework === 'junit' ? 'java' : 'javascript'}
+                          language={testFramework === 'pytest' ? 'python' : testFramework === 'junit' ? 'java' : testFramework === 'dotnet' ? 'csharp' : 'javascript'}
                           theme={monacoTheme}
                           value={tc.testCode || ''}
                           onChange={(value) => updateTestCase(idx, { testCode: value ?? '' })}
@@ -1344,7 +1376,7 @@ export function QuestionCreate() {
                 )}
                 {solutionEnabled && !draftRunSupported && (
                   <span className="text-xs text-amber-700 self-center">
-                    Draft execution is template-only for {testFramework}. Supported draft runners: Jest, Pytest, Playwright, JUnit.
+                    Draft execution is template-only for {testFramework}. Supported draft runners: Jest, Pytest, Playwright, JUnit, .NET.
                   </span>
                 )}
               </div>

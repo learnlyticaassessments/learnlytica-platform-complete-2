@@ -244,6 +244,7 @@ export const SUPPORTED_FRAMEWORKS = [
   { value: 'jest', label: 'Jest (JavaScript)', language: 'javascript' },
   { value: 'pytest', label: 'Pytest (Python)', language: 'python' },
   { value: 'playwright', label: 'Playwright (E2E)', language: 'javascript' },
+  { value: 'dotnet', label: '.NET xUnit (C#)', language: 'csharp' },
   { value: 'supertest', label: 'Supertest (Node.js API)', language: 'javascript' },
   { value: 'pytest-requests', label: 'Pytest-Requests (Python API)', language: 'python' },
   { value: 'junit', label: 'JUnit 5 (Java)', language: 'java' }
@@ -252,5 +253,6 @@ export const SUPPORTED_FRAMEWORKS = [
 export const LANGUAGE_EXTENSIONS = {
   javascript: '.js',
   python: '.py',
-  java: '.java'
+  java: '.java',
+  csharp: '.cs'
 };

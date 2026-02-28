@@ -23,6 +23,7 @@ function checkCompatibility(question: any, template: any): string[] {
   const nodeCapable = dockerImage.includes('node') || ['frontend', 'backend', 'fullstack', 'devops'].includes(templateCategory);
   const pythonCapable = dockerImage.includes('python') || ['backend', 'fullstack', 'devops'].includes(templateCategory);
   const javaCapable = dockerImage.includes('java') || dockerImage.includes('maven') || dockerImage.includes('gradle') || ['backend', 'fullstack'].includes(templateCategory);
+  const dotnetCapable = dockerImage.includes('dotnet') || dockerImage.includes('aspnet') || dockerImage.includes('csharp') || dockerImage.includes('c#') || ['backend', 'fullstack'].includes(templateCategory);
 
   if (['jest', 'playwright', 'supertest', 'mocha', 'cypress'].includes(framework) && !nodeCapable) {
     issues.push(`Framework ${framework} needs Node-capable lab`);
@@ -32,6 +33,9 @@ function checkCompatibility(question: any, template: any): string[] {
   }
   if (framework === 'junit' && !javaCapable) {
     issues.push('Framework junit needs Java-capable lab');
+  }
+  if (framework === 'dotnet' && !dotnetCapable) {
+    issues.push('Framework dotnet needs .NET-capable lab');
   }
 
   return issues;

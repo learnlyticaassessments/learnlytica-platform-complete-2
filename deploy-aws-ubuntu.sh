@@ -162,6 +162,9 @@ docker build -t learnlytica/executor-java:latest -f Dockerfile.java .
 echo "Building Playwright executor..."
 docker build -t learnlytica/executor-playwright:latest -f Dockerfile.playwright .
 
+echo "Building .NET executor..."
+docker build -t learnlytica/executor-dotnet:latest -f Dockerfile.dotnet .
+
 cd ../..
 echo "✅ All Docker images built"
 echo ""

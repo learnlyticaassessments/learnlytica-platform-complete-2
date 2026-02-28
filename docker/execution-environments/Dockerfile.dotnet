@@ -1,0 +1,32 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+# Warm NuGet cache for the exact test dependencies used by the runner.
+RUN mkdir -p /tmp/warmup/WarmupTests && \
+    printf '%s\n' \
+'<?xml version="1.0" encoding="utf-8"?>' \
+'<Project Sdk="Microsoft.NET.Sdk">' \
+'  <PropertyGroup>' \
+'    <TargetFramework>net8.0</TargetFramework>' \
+'    <IsPackable>false</IsPackable>' \
+'    <Nullable>enable</Nullable>' \
+'  </PropertyGroup>' \
+'  <ItemGroup>' \
+'    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />' \
+'    <PackageReference Include="xunit" Version="2.9.2" />' \
+'    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />' \
+'  </ItemGroup>' \
+'</Project>' > /tmp/warmup/WarmupTests/WarmupTests.csproj && \
+    printf '%s\n' \
+'using Xunit;' \
+'public class Warmup {' \
+'  [Fact] public void Ping() => Assert.True(true);' \
+'}' > /tmp/warmup/WarmupTests/UnitTest1.cs && \
+    dotnet restore /tmp/warmup/WarmupTests/WarmupTests.csproj && \
+    rm -rf /tmp/warmup
+
+# Security: run as non-root user.
+RUN useradd -m -u 1001 coderunner
+USER coderunner
+WORKDIR /workspace
+
+# Resource limits are enforced by docker run command.

@@ -57,6 +57,7 @@ docker build -t learnlytica/executor-node:latest -f Dockerfile.node . || exit 1
 docker build -t learnlytica/executor-python:latest -f Dockerfile.python . || exit 1
 docker build -t learnlytica/executor-java:latest -f Dockerfile.java . || exit 1
 docker build -t learnlytica/executor-playwright:latest -f Dockerfile.playwright . || exit 1
+docker build -t learnlytica/executor-dotnet:latest -f Dockerfile.dotnet . || exit 1
 
 cd ../..
 echo "✅ Docker images built"
