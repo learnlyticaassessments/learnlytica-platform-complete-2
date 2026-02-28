@@ -31,7 +31,18 @@ export interface GenerateQuestionRequest {
   questionType: 'algorithm' | 'api' | 'component' | 'database' | 'fullstack';
   points?: number;
   timeLimit?: number;
+  provider?: 'claude' | 'gpt';
+  model?: string;
 }
+
+export const AI_PROVIDER_OPTIONS: Array<{
+  value: NonNullable<GenerateQuestionRequest['provider']>;
+  label: string;
+  defaultModel: string;
+}> = [
+  { value: 'claude', label: 'Claude', defaultModel: 'claude-sonnet-4-20250514' },
+  { value: 'gpt', label: 'GPT', defaultModel: 'gpt-4o-mini' }
+];
 
 export const AI_QUESTION_TYPE_OPTIONS: Array<{
   value: GenerateQuestionRequest['questionType'];
@@ -59,27 +70,31 @@ export const aiService = {
   },
 
   // Generate test cases for code
-  generateTests: async (code: string, language: string, description?: string) => {
+  generateTests: async (code: string, language: string, description?: string, provider?: GenerateQuestionRequest['provider'], model?: string) => {
     const response = await client.post('/generate-tests', {
       code,
       language,
-      description
+      description,
+      provider,
+      model
     });
     return response.data;
   },
 
   // Improve existing question
-  improveQuestion: async (question: any) => {
-    const response = await client.post('/improve-question', { question });
+  improveQuestion: async (question: any, provider?: GenerateQuestionRequest['provider'], model?: string) => {
+    const response = await client.post('/improve-question', { question, provider, model });
     return response.data;
   },
 
   // Review student code
-  reviewCode: async (code: string, testResults: any, question: any) => {
+  reviewCode: async (code: string, testResults: any, question: any, provider?: GenerateQuestionRequest['provider'], model?: string) => {
     const response = await client.post('/review-code', {
       code,
       testResults,
-      question
+      question,
+      provider,
+      model
     });
     return response.data;
   }

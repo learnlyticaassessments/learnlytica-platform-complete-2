@@ -5,9 +5,9 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || ''
-});
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
 
 export interface GenerateQuestionRequest {
   topic: string;
@@ -16,6 +16,13 @@ export interface GenerateQuestionRequest {
   questionType: 'algorithm' | 'api' | 'component' | 'database' | 'fullstack';
   points?: number;
   timeLimit?: number;
+  provider?: 'claude' | 'gpt';
+  model?: string;
+}
+
+export interface AIProviderOptions {
+  provider?: 'claude' | 'gpt';
+  model?: string;
 }
 
 export interface GeneratedQuestion {
@@ -46,6 +53,72 @@ export interface GeneratedQuestion {
   solution: string;
   hints: string[];
   tags: string[];
+}
+
+function cleanJsonBlock(input: string): string {
+  let cleaned = String(input || '').trim();
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+  }
+  return cleaned;
+}
+
+function resolveProvider(request: GenerateQuestionRequest): 'claude' | 'gpt' {
+  return request.provider === 'gpt' ? 'gpt' : 'claude';
+}
+
+async function generateWithClaude(systemPrompt: string, userPrompt: string, model?: string): Promise<string> {
+  if (!anthropic) {
+    throw new Error('Claude provider is not configured. Set ANTHROPIC_API_KEY.');
+  }
+
+  const message = await anthropic.messages.create({
+    model: model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    temperature: 0.7,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }]
+  });
+
+  return message.content[0]?.type === 'text' ? message.content[0].text : '';
+}
+
+async function generateWithGpt(systemPrompt: string, userPrompt: string, model?: string): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GPT provider is not configured. Set OPENAI_API_KEY.');
+  }
+
+  const fetchFn = (globalThis as any).fetch;
+  if (typeof fetchFn !== 'function') {
+    throw new Error('Fetch API is not available in this Node runtime.');
+  }
+
+  const response = await fetchFn('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      temperature: 0.7,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`OpenAI error (${response.status}): ${body.slice(0, 400)}`);
+  }
+
+  const json = await response.json();
+  return json?.choices?.[0]?.message?.content || '';
 }
 
 /**
@@ -117,29 +190,12 @@ Time Limit: ${request.timeLimit || 'auto-determine based on difficulty'} minutes
 Create a complete question with comprehensive test cases that students can solve.`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      temperature: 1,
-      system: systemPrompt,
-      messages: [{
-        role: 'user',
-        content: userPrompt
-      }]
-    });
+    const provider = resolveProvider(request);
+    const responseText = provider === 'gpt'
+      ? await generateWithGpt(systemPrompt, userPrompt, request.model)
+      : await generateWithClaude(systemPrompt, userPrompt, request.model);
 
-    // Extract text from response
-    const responseText = message.content[0].type === 'text' 
-      ? message.content[0].text 
-      : '';
-
-    // Clean response - remove markdown code blocks if present
-    let cleanedResponse = responseText.trim();
-    if (cleanedResponse.startsWith('```json')) {
-      cleanedResponse = cleanedResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleanedResponse.startsWith('```')) {
-      cleanedResponse = cleanedResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
+    const cleanedResponse = cleanJsonBlock(responseText);
 
     // Parse JSON
     const question: GeneratedQuestion = JSON.parse(cleanedResponse);
@@ -163,7 +219,8 @@ Create a complete question with comprehensive test cases that students can solve
 export async function generateTestCases(
   code: string,
   language: string,
-  description?: string
+  description?: string,
+  options?: AIProviderOptions
 ): Promise<any[]> {
   
   const systemPrompt = `Generate comprehensive test cases for the provided code.
@@ -195,26 +252,11 @@ ${code}
 Generate 8 comprehensive test cases.`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages: [{
-        role: 'user',
-        content: userPrompt
-      }]
-    });
+    const responseText = options?.provider === 'gpt'
+      ? await generateWithGpt(systemPrompt, userPrompt, options.model)
+      : await generateWithClaude(systemPrompt, userPrompt, options?.model);
 
-    const responseText = message.content[0].type === 'text' 
-      ? message.content[0].text 
-      : '[]';
-
-    let cleaned = responseText.trim();
-    if (cleaned.startsWith('```json')) {
-      cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    } else if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
-    }
+    const cleaned = cleanJsonBlock(responseText || '[]');
 
     return JSON.parse(cleaned);
 
@@ -227,7 +269,8 @@ Generate 8 comprehensive test cases.`;
  * Improve existing question
  */
 export async function improveQuestion(
-  existingQuestion: any
+  existingQuestion: any,
+  options?: AIProviderOptions
 ): Promise<any> {
   
   const systemPrompt = `Analyze and improve the provided question.
@@ -250,24 +293,11 @@ Suggest:
 4. Any missing requirements`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 3072,
-      system: systemPrompt,
-      messages: [{
-        role: 'user',
-        content: userPrompt
-      }]
-    });
+    const responseText = options?.provider === 'gpt'
+      ? await generateWithGpt(systemPrompt, userPrompt, options.model)
+      : await generateWithClaude(systemPrompt, userPrompt, options?.model);
 
-    const responseText = message.content[0].type === 'text' 
-      ? message.content[0].text 
-      : '{}';
-
-    let cleaned = responseText.trim();
-    if (cleaned.startsWith('```json')) {
-      cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    }
+    const cleaned = cleanJsonBlock(responseText || '{}');
 
     return JSON.parse(cleaned);
 
@@ -282,7 +312,8 @@ Suggest:
 export async function reviewStudentCode(
   code: string,
   testResults: any,
-  question: any
+  question: any,
+  options?: AIProviderOptions
 ): Promise<any> {
   
   const systemPrompt = `Review student code and provide constructive feedback.
@@ -311,24 +342,11 @@ Test Results:
 Provide constructive feedback on correctness, performance, code quality, and best practices.`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages: [{
-        role: 'user',
-        content: userPrompt
-      }]
-    });
+    const responseText = options?.provider === 'gpt'
+      ? await generateWithGpt(systemPrompt, userPrompt, options.model)
+      : await generateWithClaude(systemPrompt, userPrompt, options?.model);
 
-    const responseText = message.content[0].type === 'text' 
-      ? message.content[0].text 
-      : '{}';
-
-    let cleaned = responseText.trim();
-    if (cleaned.startsWith('```json')) {
-      cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    }
+    const cleaned = cleanJsonBlock(responseText || '{}');
 
     return JSON.parse(cleaned);
 

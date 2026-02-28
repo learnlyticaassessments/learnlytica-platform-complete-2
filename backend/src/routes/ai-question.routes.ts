@@ -15,18 +15,18 @@ import {
 const router = Router();
 
 // POST /api/v1/ai/generate-question
-router.post('/generate-question', generateQuestionHandler);
+router.post('/generate-question', authenticate, generateQuestionHandler);
 
 // POST /api/v1/ai/generate-and-create
 router.post('/generate-and-create', authenticate, generateAndCreateHandler);
 
 // POST /api/v1/ai/generate-tests
-router.post('/generate-tests', generateTestsHandler);
+router.post('/generate-tests', authenticate, generateTestsHandler);
 
 // POST /api/v1/ai/improve-question
-router.post('/improve-question', improveQuestionHandler);
+router.post('/improve-question', authenticate, improveQuestionHandler);
 
 // POST /api/v1/ai/review-code
-router.post('/review-code', reviewCodeHandler);
+router.post('/review-code', authenticate, reviewCodeHandler);
 
 export default router;

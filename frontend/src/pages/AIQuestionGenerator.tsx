@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Loader2, Check, AlertCircle, Cpu, Star, TrendingUp, Wand2 } from 'lucide-react';
-import { aiService, AI_QUESTION_TYPE_OPTIONS, GenerateQuestionRequest } from '../services/aiService';
+import { aiService, AI_PROVIDER_OPTIONS, AI_QUESTION_TYPE_OPTIONS, GenerateQuestionRequest } from '../services/aiService';
 
 export function AIQuestionGenerator() {
   const navigate = useNavigate();
@@ -9,17 +9,40 @@ export function AIQuestionGenerator() {
     topic: '',
     language: 'javascript',
     difficulty: 'intermediate',
-    questionType: 'algorithm'
+    questionType: 'algorithm',
+    provider: 'claude',
+    model: 'claude-sonnet-4-20250514'
   });
   const [loading, setLoading] = useState(false);
   const [generatedQuestion, setGeneratedQuestion] = useState<any>(null);
+  const [generationPipeline, setGenerationPipeline] = useState<any>(null);
   const [error, setError] = useState('');
+  const [utilityLoading, setUtilityLoading] = useState<'tests' | 'improve' | 'review' | null>(null);
+  const [utilityError, setUtilityError] = useState('');
+
+  const [testGenCode, setTestGenCode] = useState('function solve(input) {\n  return input;\n}');
+  const [testGenDescription, setTestGenDescription] = useState('');
+  const [generatedTests, setGeneratedTests] = useState<any[] | null>(null);
+
+  const [improveQuestionInput, setImproveQuestionInput] = useState('');
+  const [improvementOutput, setImprovementOutput] = useState<any | null>(null);
+
+  const [reviewCodeInput, setReviewCodeInput] = useState('function solve(input) {\n  return input;\n}');
+  const [reviewQuestionInput, setReviewQuestionInput] = useState('{\n  "title": "Sample Question"\n}');
+  const [reviewTestResultsInput, setReviewTestResultsInput] = useState('{\n  "testsPassed": 2,\n  "testsRun": 5,\n  "pointsEarned": 40,\n  "totalPoints": 100\n}');
+  const [reviewOutput, setReviewOutput] = useState<any | null>(null);
 
   const statCards = [
     { label: 'Time Saved', value: '93%', icon: Cpu },
     { label: 'Quality', value: 'Perfect', icon: Star },
     { label: 'Cost', value: '$0.03', icon: TrendingUp }
   ];
+
+  useEffect(() => {
+    if (!generatedQuestion) return;
+    setImproveQuestionInput(JSON.stringify(generatedQuestion, null, 2));
+    setReviewQuestionInput(JSON.stringify({ title: generatedQuestion.title || 'Generated Question' }, null, 2));
+  }, [generatedQuestion]);
 
   const handleGenerate = async () => {
     if (!formData.topic.trim()) {
@@ -33,6 +56,7 @@ export function AIQuestionGenerator() {
     try {
       const response = await aiService.generateQuestion(formData);
       setGeneratedQuestion(response.data);
+      setGenerationPipeline(response.pipeline || null);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to generate question');
     } finally {
@@ -46,12 +70,69 @@ export function AIQuestionGenerator() {
 
     try {
       const response = await aiService.generateAndCreate(formData);
-      alert('Question created successfully!');
+      const tests = response?.data?.pipeline
+        ? `${response.data.pipeline.testsPassed}/${response.data.pipeline.testsRun}`
+        : '-';
+      alert(`Question created successfully. Verification tests: ${tests}`);
       navigate(`/questions/${response.data.question.id}`);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create question');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGenerateTests = async () => {
+    setUtilityLoading('tests');
+    setUtilityError('');
+    try {
+      const response = await aiService.generateTests(
+        testGenCode,
+        formData.language,
+        testGenDescription,
+        formData.provider,
+        formData.model
+      );
+      setGeneratedTests(response?.data || response || []);
+    } catch (err: any) {
+      setUtilityError(err.response?.data?.error || 'Failed to generate tests');
+    } finally {
+      setUtilityLoading(null);
+    }
+  };
+
+  const handleImproveQuestion = async () => {
+    setUtilityLoading('improve');
+    setUtilityError('');
+    try {
+      const parsed = JSON.parse(improveQuestionInput);
+      const response = await aiService.improveQuestion(parsed, formData.provider, formData.model);
+      setImprovementOutput(response?.data || response || null);
+    } catch (err: any) {
+      setUtilityError(err?.message || err.response?.data?.error || 'Failed to improve question');
+    } finally {
+      setUtilityLoading(null);
+    }
+  };
+
+  const handleReviewCode = async () => {
+    setUtilityLoading('review');
+    setUtilityError('');
+    try {
+      const parsedQuestion = JSON.parse(reviewQuestionInput);
+      const parsedResults = JSON.parse(reviewTestResultsInput);
+      const response = await aiService.reviewCode(
+        reviewCodeInput,
+        parsedResults,
+        parsedQuestion,
+        formData.provider,
+        formData.model
+      );
+      setReviewOutput(response?.data || response || null);
+    } catch (err: any) {
+      setUtilityError(err?.message || err.response?.data?.error || 'Failed to review code');
+    } finally {
+      setUtilityLoading(null);
     }
   };
 
@@ -123,7 +204,41 @@ export function AIQuestionGenerator() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Provider</label>
+              <select
+                value={formData.provider}
+                onChange={(e) => {
+                  const nextProvider = e.target.value as GenerateQuestionRequest['provider'];
+                  const opt = AI_PROVIDER_OPTIONS.find((o) => o.value === nextProvider);
+                  setFormData({
+                    ...formData,
+                    provider: nextProvider,
+                    model: opt?.defaultModel || formData.model
+                  });
+                }}
+                className="input-field"
+              >
+                {AI_PROVIDER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Model</label>
+              <input
+                type="text"
+                value={formData.model || ''}
+                onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                placeholder="Model id"
+                className="input-field"
+              />
+            </div>
+
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">Language</label>
               <select
@@ -219,7 +334,109 @@ export function AIQuestionGenerator() {
               <span>{error}</span>
             </div>
           )}
+
+          {generationPipeline && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+              Validation: <span className="font-semibold">{generationPipeline.validated ? 'Passed' : 'Failed'}</span>
+              {' • '}
+              Verification: <span className="font-semibold">{generationPipeline.verified ? 'Passed' : 'Failed'}</span>
+              {' • '}
+              Tests: <span className="font-semibold">{generationPipeline.testsPassed ?? 0}/{generationPipeline.testsRun ?? 0}</span>
+            </div>
+          )}
         </div>
+      </section>
+
+      <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-[0_12px_40px_rgba(15,23,42,0.08)]">
+        <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 mb-2">AI Utilities</h2>
+        <p className="text-sm text-slate-500 mb-6">Use the same provider/model for test generation, question improvements, and code reviews.</p>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <h3 className="font-semibold text-slate-900">Generate Tests</h3>
+            <textarea
+              value={testGenCode}
+              onChange={(e) => setTestGenCode(e.target.value)}
+              className="w-full min-h-[140px] px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+              placeholder="Paste solution code..."
+            />
+            <textarea
+              value={testGenDescription}
+              onChange={(e) => setTestGenDescription(e.target.value)}
+              className="w-full min-h-[80px] px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+              placeholder="Optional problem description..."
+            />
+            <button
+              onClick={handleGenerateTests}
+              disabled={utilityLoading !== null}
+              className="btn-secondary w-full"
+            >
+              {utilityLoading === 'tests' ? 'Generating...' : 'Generate Tests'}
+            </button>
+            {generatedTests && (
+              <pre className="text-xs bg-slate-900 text-slate-100 rounded-lg p-3 overflow-auto max-h-56">{JSON.stringify(generatedTests, null, 2)}</pre>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <h3 className="font-semibold text-slate-900">Improve Question</h3>
+            <textarea
+              value={improveQuestionInput}
+              onChange={(e) => setImproveQuestionInput(e.target.value)}
+              className="w-full min-h-[230px] px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+              placeholder="Paste question JSON..."
+            />
+            <button
+              onClick={handleImproveQuestion}
+              disabled={utilityLoading !== null}
+              className="btn-secondary w-full"
+            >
+              {utilityLoading === 'improve' ? 'Improving...' : 'Improve Question'}
+            </button>
+            {improvementOutput && (
+              <pre className="text-xs bg-slate-900 text-slate-100 rounded-lg p-3 overflow-auto max-h-56">{JSON.stringify(improvementOutput, null, 2)}</pre>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <h3 className="font-semibold text-slate-900">Review Code</h3>
+            <textarea
+              value={reviewCodeInput}
+              onChange={(e) => setReviewCodeInput(e.target.value)}
+              className="w-full min-h-[100px] px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+              placeholder="Paste student code..."
+            />
+            <textarea
+              value={reviewQuestionInput}
+              onChange={(e) => setReviewQuestionInput(e.target.value)}
+              className="w-full min-h-[60px] px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+              placeholder="Question JSON"
+            />
+            <textarea
+              value={reviewTestResultsInput}
+              onChange={(e) => setReviewTestResultsInput(e.target.value)}
+              className="w-full min-h-[60px] px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
+              placeholder="Test results JSON"
+            />
+            <button
+              onClick={handleReviewCode}
+              disabled={utilityLoading !== null}
+              className="btn-secondary w-full"
+            >
+              {utilityLoading === 'review' ? 'Reviewing...' : 'Review Code'}
+            </button>
+            {reviewOutput && (
+              <pre className="text-xs bg-slate-900 text-slate-100 rounded-lg p-3 overflow-auto max-h-56">{JSON.stringify(reviewOutput, null, 2)}</pre>
+            )}
+          </div>
+        </div>
+
+        {utilityError && (
+          <div className="mt-4 flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{utilityError}</span>
+          </div>
+        )}
       </section>
 
       {generatedQuestion && (

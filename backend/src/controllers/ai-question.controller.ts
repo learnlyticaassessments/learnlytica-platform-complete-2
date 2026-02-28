@@ -10,7 +10,184 @@ import {
   improveQuestion,
   reviewStudentCode
 } from '../services/ai-question-generator.service';
-import { createQuestion } from '../services/question.service';
+import { createQuestion, runDraftQuestionTests, validateDraftQuestionPackage } from '../services/question.service';
+import type { CreateQuestionDTO, QuestionCategory, QuestionDifficulty, TestFramework } from '../../shared/types/question.types';
+
+type PipelineContext = {
+  organizationId: string;
+  userId: string;
+  userRole: string;
+};
+
+function mapDifficulty(value: string): QuestionDifficulty {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'beginner' || normalized === 'easy') return 'easy';
+  if (normalized === 'intermediate' || normalized === 'medium') return 'medium';
+  if (normalized === 'advanced' || normalized === 'hard') return 'hard';
+  return 'medium';
+}
+
+function mapCategory(value: string, questionType?: string): QuestionCategory {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'frontend') return 'frontend';
+  if (normalized === 'backend') return 'backend';
+  if (normalized === 'fullstack') return 'fullstack';
+  if (normalized === 'database') return 'database';
+  if (normalized === 'devops') return 'devops';
+
+  const fromType = String(questionType || '').toLowerCase();
+  if (fromType === 'component') return 'frontend';
+  if (fromType === 'database') return 'database';
+  if (fromType === 'fullstack') return 'fullstack';
+  return 'backend';
+}
+
+function mapFramework(language: string, rawFramework?: string): TestFramework {
+  const fromResponse = String(rawFramework || '').toLowerCase();
+  if (fromResponse === 'jest' || fromResponse === 'pytest' || fromResponse === 'junit' || fromResponse === 'playwright' || fromResponse === 'mocha' || fromResponse === 'cypress') {
+    return fromResponse as TestFramework;
+  }
+  const lang = String(language || '').toLowerCase();
+  if (lang === 'python') return 'pytest';
+  if (lang === 'java') return 'junit';
+  return 'jest';
+}
+
+function defaultStarterPath(language: string, questionType: string): string {
+  const lang = String(language || '').toLowerCase();
+  if (lang === 'python') return 'solution.py';
+  if (lang === 'java') return 'src/Main.java';
+  if (String(questionType || '').toLowerCase() === 'component') return 'src/App.jsx';
+  return 'solution.js';
+}
+
+function normalizeStarterCode(generated: any, language: string, questionType: string) {
+  const fallbackPath = defaultStarterPath(language, questionType);
+  const files = Array.isArray(generated?.starterCode?.files) ? generated.starterCode.files : [];
+  const normalizedFiles = (files.length ? files : [{ name: fallbackPath, content: '// TODO: implement' }]).map((f: any) => ({
+    path: String(f.path || f.name || fallbackPath),
+    content: String(f.content || ''),
+    language: language === 'python' ? 'python' : language === 'java' ? 'java' : 'javascript'
+  }));
+
+  return {
+    files: normalizedFiles,
+    dependencies: {},
+    scripts: {}
+  };
+}
+
+function normalizeSolution(generated: any, starterPath: string, language: string) {
+  const fallbackSolution =
+    language === 'python'
+      ? 'def solve(*args, **kwargs):\n    return None\n'
+      : language === 'java'
+        ? 'public class Main {\n  public static Object solve(Object input) {\n    return input;\n  }\n}\n'
+        : 'function solve(input) { return input; }\nmodule.exports = { solve };\n';
+  const solutionValue = generated?.solution;
+  if (solutionValue && typeof solutionValue === 'object' && Array.isArray(solutionValue.files)) {
+    return {
+      files: solutionValue.files.map((f: any) => ({
+        path: String(f.path || f.name || starterPath),
+        content: String(f.content || ''),
+        language: language === 'python' ? 'python' : language === 'java' ? 'java' : 'javascript'
+      }))
+    };
+  }
+
+  return {
+    files: [
+      {
+        path: starterPath,
+        content: String(solutionValue || fallbackSolution),
+        language: language === 'python' ? 'python' : language === 'java' ? 'java' : 'javascript'
+      }
+    ]
+  };
+}
+
+function normalizeTestCases(generated: any, framework: TestFramework, totalPoints: number) {
+  const raw = Array.isArray(generated?.testConfig?.testCases) ? generated.testConfig.testCases : [];
+  const fallbackCount = 6;
+  const source = raw.length ? raw : Array.from({ length: fallbackCount }).map((_, i) => ({
+    id: `test-${i + 1}`,
+    name: `Generated Test ${i + 1}`,
+    points: Math.floor(totalPoints / fallbackCount),
+    testCode: ''
+  }));
+  const defaultFile = framework === 'pytest'
+    ? 'tests/test_solution.py'
+    : framework === 'junit'
+      ? 'src/test/java/SolutionTest.java'
+      : 'tests/solution.spec.js';
+
+  const evenPoints = Math.max(1, Math.floor(totalPoints / source.length));
+  return source.map((tc: any, index: number) => ({
+    id: String(tc.id || `test-${index + 1}`),
+    name: String(tc.name || `Generated Test ${index + 1}`),
+    description: tc.description ? String(tc.description) : undefined,
+    file: String(tc.file || defaultFile),
+    testName: String(tc.testName || `generated_test_${index + 1}`),
+    testCode: String(tc.testCode || ''),
+    points: Number(tc.points || evenPoints),
+    visible: tc.visible ?? true,
+    category: tc.category ? String(tc.category) : undefined
+  }));
+}
+
+function toCreateQuestionDto(generated: any, request: any): CreateQuestionDTO {
+  const language = String(request?.language || 'javascript');
+  const framework = mapFramework(language, generated?.testConfig?.framework);
+  const difficulty = mapDifficulty(generated?.difficulty || request?.difficulty);
+  const category = mapCategory(generated?.category, request?.questionType);
+  const points = Math.max(10, Number(generated?.points || request?.points || 100));
+  const starterCode = normalizeStarterCode(generated, language, String(request?.questionType || 'algorithm'));
+  const starterPath = starterCode.files?.[0]?.path || defaultStarterPath(language, String(request?.questionType || 'algorithm'));
+  const solution = normalizeSolution(generated, starterPath, language);
+  const testCases = normalizeTestCases(generated, framework, points);
+  const totalFromCases = testCases.reduce((sum: number, tc: any) => sum + Number(tc.points || 0), 0);
+  const scoringTotal = totalFromCases > 0 ? totalFromCases : points;
+
+  return {
+    title: String(generated?.title || 'AI Generated Question'),
+    description: String(generated?.description || request?.topic || 'AI generated question'),
+    category,
+    subcategory: [],
+    difficulty,
+    skills: [],
+    tags: Array.isArray(generated?.tags) ? generated.tags.map((t: any) => String(t)) : [],
+    starterCode,
+    testFramework: framework,
+    testConfig: {
+      framework,
+      version: '1.0.0',
+      environment: framework === 'pytest' ? { python: '3.11' } : framework === 'junit' ? { java: '17' } : { node: '20' },
+      setup: generated?.testConfig?.setup || { commands: framework === 'pytest' ? ['pip install pytest'] : ['npm install'] },
+      execution: {
+        command: generated?.testConfig?.execution?.command || (framework === 'pytest' ? 'pytest -q' : framework === 'junit' ? 'mvn test' : framework === 'playwright' ? 'npx playwright test' : framework === 'mocha' ? 'npx mocha' : framework === 'cypress' ? 'npx cypress run' : 'npx jest --runInBand'),
+        timeout: Number(generated?.testConfig?.execution?.timeout || 30000),
+        retries: Number(generated?.testConfig?.execution?.retries || 0),
+        parallelism: Boolean(generated?.testConfig?.execution?.parallelism ?? false)
+      },
+      testCases,
+      scoring: {
+        total: scoringTotal,
+        passing: Math.max(1, Math.ceil(scoringTotal * 0.6))
+      }
+    },
+    solution,
+    timeEstimate: Math.max(5, Number(generated?.timeLimit || request?.timeLimit || 30)),
+    points: scoringTotal
+  };
+}
+
+async function runGenerationPipeline(db: any, requestPayload: any, context: PipelineContext) {
+  const generated = await generateQuestion(requestPayload);
+  const dto = toCreateQuestionDto(generated, requestPayload);
+  const validation = await validateDraftQuestionPackage(db, dto, context);
+  const verification = await runDraftQuestionTests(db, dto, context, { useSolution: true });
+  return { generated, dto, validation, verification };
+}
 
 /**
  * POST /api/v1/ai/generate-question
@@ -18,7 +195,7 @@ import { createQuestion } from '../services/question.service';
  */
 export async function generateQuestionHandler(req: Request, res: Response) {
   try {
-    const { topic, language, difficulty, questionType, points, timeLimit } = req.body;
+    const { topic, language, difficulty, questionType, points, timeLimit, provider, model } = req.body;
 
     if (!topic || !language || !difficulty || !questionType) {
       return res.status(400).json({
@@ -27,20 +204,40 @@ export async function generateQuestionHandler(req: Request, res: Response) {
       });
     }
 
-    // Generate question using AI
-    const generatedQuestion = await generateQuestion({
+    const requestPayload = {
       topic,
       language,
       difficulty,
       questionType,
       points,
-      timeLimit
-    });
+      timeLimit,
+      provider,
+      model
+    };
+    const pipelineContext: PipelineContext = {
+      organizationId: (req as any).user?.organizationId || '00000000-0000-0000-0000-000000000000',
+      userId: (req as any).user?.id || '00000000-0000-0000-0000-000000000000',
+      userRole: (req as any).user?.role || 'admin'
+    };
+
+    const { dto, validation, verification } = await runGenerationPipeline(
+      req.app.locals.db,
+      requestPayload,
+      pipelineContext
+    );
 
     res.json({
       success: true,
-      data: generatedQuestion,
-      message: 'Question generated successfully'
+      data: dto,
+      pipeline: {
+        validated: Boolean(validation?.valid),
+        verified: Boolean(verification?.success),
+        testsRun: verification?.testsRun || 0,
+        testsPassed: verification?.testsPassed || 0,
+        pointsEarned: verification?.pointsEarned || 0,
+        totalPoints: verification?.totalPoints || 0
+      },
+      message: 'Question generated, validated, and verified successfully'
     });
 
   } catch (error: any) {
@@ -58,7 +255,7 @@ export async function generateQuestionHandler(req: Request, res: Response) {
  */
 export async function generateAndCreateHandler(req: Request, res: Response) {
   try {
-    const { topic, language, difficulty, questionType, points, timeLimit } = req.body;
+    const { topic, language, difficulty, questionType, points, timeLimit, provider, model } = req.body;
     const userId = (req as any).user?.id;
     const organizationId = (req as any).user?.organizationId;
 
@@ -69,36 +266,55 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       });
     }
 
-    // Generate question
-    const generated = await generateQuestion({
+    const requestPayload = {
       topic,
       language,
       difficulty,
       questionType,
       points,
-      timeLimit
-    });
+      timeLimit,
+      provider,
+      model
+    };
+    const pipelineContext: PipelineContext = {
+      organizationId,
+      userId,
+      userRole: (req as any).user?.role || 'admin'
+    };
+    const { generated, dto, validation, verification } = await runGenerationPipeline(
+      req.app.locals.db,
+      requestPayload,
+      pipelineContext
+    );
+
+    if (!validation?.valid) {
+      return res.status(422).json({
+        success: false,
+        error: 'AI generated question failed schema validation',
+        details: validation
+      });
+    }
+
+    if (!verification?.success || (verification?.testsRun > 0 && verification?.testsPassed < verification?.testsRun)) {
+      return res.status(422).json({
+        success: false,
+        error: 'AI generated question failed draft verification. Review test output and regenerate.',
+        details: {
+          testsRun: verification?.testsRun || 0,
+          testsPassed: verification?.testsPassed || 0,
+          output: verification?.output || ''
+        }
+      });
+    }
 
     // Create in database
     const question = await createQuestion(
-      (req as any).db,
-      {
-        title: generated.title,
-        category: generated.category,
-        difficulty: generated.difficulty,
-        points: generated.points,
-        timeLimit: generated.timeLimit,
-        description: generated.description,
-        testConfig: generated.testConfig,
-        starterCode: generated.starterCode,
-        hints: generated.hints,
-        tags: generated.tags,
-        status: 'draft'
-      } as any,
+      req.app.locals.db,
+      dto,
       {
         userId,
         organizationId,
-        userRole: 'admin'
+        userRole: (req as any).user?.role || 'admin'
       }
     );
 
@@ -106,9 +322,17 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
       success: true,
       data: {
         question,
-        generatedSolution: generated.solution
+        generatedSolution: generated.solution,
+        pipeline: {
+          validated: Boolean(validation?.valid),
+          verified: Boolean(verification?.success),
+          testsRun: verification?.testsRun || 0,
+          testsPassed: verification?.testsPassed || 0,
+          pointsEarned: verification?.pointsEarned || 0,
+          totalPoints: verification?.totalPoints || 0
+        }
       },
-      message: 'Question generated and created successfully'
+      message: 'Question generated, validated, verified, and created successfully'
     });
 
   } catch (error: any) {
@@ -126,7 +350,7 @@ export async function generateAndCreateHandler(req: Request, res: Response) {
  */
 export async function generateTestsHandler(req: Request, res: Response) {
   try {
-    const { code, language, description } = req.body;
+    const { code, language, description, provider, model } = req.body;
 
     if (!code || !language) {
       return res.status(400).json({
@@ -135,7 +359,7 @@ export async function generateTestsHandler(req: Request, res: Response) {
       });
     }
 
-    const testCases = await generateTestCases(code, language, description);
+    const testCases = await generateTestCases(code, language, description, { provider, model });
 
     res.json({
       success: true,
@@ -157,7 +381,7 @@ export async function generateTestsHandler(req: Request, res: Response) {
  */
 export async function improveQuestionHandler(req: Request, res: Response) {
   try {
-    const { question } = req.body;
+    const { question, provider, model } = req.body;
 
     if (!question) {
       return res.status(400).json({
@@ -166,7 +390,7 @@ export async function improveQuestionHandler(req: Request, res: Response) {
       });
     }
 
-    const improvements = await improveQuestion(question);
+    const improvements = await improveQuestion(question, { provider, model });
 
     res.json({
       success: true,
@@ -188,7 +412,7 @@ export async function improveQuestionHandler(req: Request, res: Response) {
  */
 export async function reviewCodeHandler(req: Request, res: Response) {
   try {
-    const { code, testResults, question } = req.body;
+    const { code, testResults, question, provider, model } = req.body;
 
     if (!code || !testResults || !question) {
       return res.status(400).json({
@@ -197,7 +421,7 @@ export async function reviewCodeHandler(req: Request, res: Response) {
       });
     }
 
-    const review = await reviewStudentCode(code, testResults, question);
+    const review = await reviewStudentCode(code, testResults, question, { provider, model });
 
     res.json({
       success: true,
