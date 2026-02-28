@@ -77,6 +77,28 @@ function frameworkWeight(dockerImage: string, framework: string): number {
   return 0;
 }
 
+function pickBestRuntimeTemplateForQuestion(question: any, templates: any[], fallbackTemplateId?: string): string {
+  const framework = String(question?.testFramework || '').trim();
+  if (!framework) return fallbackTemplateId || '';
+
+  const compatible = templates.filter((template: any) => supportsFramework(template, framework));
+  if (!compatible.length) return fallbackTemplateId || '';
+
+  const targetCategory = String(question?.category || '').toLowerCase();
+  const ranked = compatible
+    .map((template: any) => {
+      const image = String(template?.dockerImage || '').toLowerCase();
+      const category = String(template?.category || '').toLowerCase();
+      let score = frameworkWeight(image, framework);
+      if (category === targetCategory) score += 2;
+      if (category === 'fullstack') score += 1;
+      return { id: template.id, score };
+    })
+    .sort((a: any, b: any) => b.score - a.score);
+
+  return ranked[0]?.id || fallbackTemplateId || '';
+}
+
 export function AssessmentCreate() {
   const navigate = useNavigate();
   const createMutation = useCreateAssessment();
@@ -224,6 +246,25 @@ export function AssessmentCreate() {
     }
   }, [suggestedRuntimeTemplate, formData.labTemplateId, labTemplates, selectedFrameworks]);
 
+  useEffect(() => {
+    if (!formData.selectedQuestions.length || !labTemplates.length) return;
+    setFormData((prev) => {
+      const nextMap = { ...prev.questionRuntimeTemplates };
+      let changed = false;
+      for (const qId of prev.selectedQuestions) {
+        if (nextMap[qId]) continue;
+        const question = allQuestions.find((q: any) => q.id === qId);
+        if (!question) continue;
+        const picked = pickBestRuntimeTemplateForQuestion(question, labTemplates, prev.labTemplateId);
+        if (picked) {
+          nextMap[qId] = picked;
+          changed = true;
+        }
+      }
+      return changed ? { ...prev, questionRuntimeTemplates: nextMap } : prev;
+    });
+  }, [formData.selectedQuestions, labTemplates, allQuestions, formData.labTemplateId]);
+
   const compatibilityIssues = useMemo(
     () =>
       selectedQuestionObjects
@@ -248,7 +289,7 @@ export function AssessmentCreate() {
       const questionPayload = formData.selectedQuestions.map((qId, index) => ({
         questionId: qId,
         orderIndex: index + 1,
-        runtimeTemplateId: formData.questionRuntimeTemplates[qId] || undefined
+        runtimeTemplateId: formData.questionRuntimeTemplates[qId] || formData.labTemplateId || undefined
       }));
 
       await createMutation.mutateAsync({
@@ -496,7 +537,15 @@ export function AssessmentCreate() {
                     checked={formData.selectedQuestions.includes(question.id)}
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setFormData({ ...formData, selectedQuestions: [...formData.selectedQuestions, question.id] });
+                        const pickedRuntime = pickBestRuntimeTemplateForQuestion(question, labTemplates, formData.labTemplateId);
+                        setFormData({
+                          ...formData,
+                          selectedQuestions: [...formData.selectedQuestions, question.id],
+                          questionRuntimeTemplates: {
+                            ...formData.questionRuntimeTemplates,
+                            ...(pickedRuntime ? { [question.id]: pickedRuntime } : {})
+                          }
+                        });
                       } else {
                         const nextSelected = formData.selectedQuestions.filter(id => id !== question.id);
                         const nextRuntimeMap = { ...formData.questionRuntimeTemplates };
