@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCreateAssessment, useLabTemplates } from '../../hooks/useAssessments';
 import { useQuestionCurricula, useQuestions } from '../../hooks/useQuestions';
@@ -52,6 +52,31 @@ function checkCompatibility(question: any, template: any): string[] {
   return issues;
 }
 
+function supportsFramework(template: any, framework: string): boolean {
+  const templateCategory = String(template?.category || '').toLowerCase();
+  const dockerImage = String(template?.dockerImage || '').toLowerCase();
+
+  const nodeCapable = dockerImage.includes('node') || ['frontend', 'backend', 'fullstack', 'devops'].includes(templateCategory);
+  const pythonCapable = dockerImage.includes('python') || ['backend', 'fullstack', 'devops'].includes(templateCategory);
+  const javaCapable = dockerImage.includes('java') || dockerImage.includes('maven') || dockerImage.includes('gradle') || ['backend', 'fullstack'].includes(templateCategory);
+  const dotnetCapable = dockerImage.includes('dotnet') || dockerImage.includes('aspnet') || dockerImage.includes('csharp') || dockerImage.includes('c#') || ['backend', 'fullstack'].includes(templateCategory);
+
+  if (['jest', 'playwright', 'supertest', 'mocha', 'cypress'].includes(framework)) return nodeCapable;
+  if (['pytest', 'pytest-requests'].includes(framework)) return pythonCapable;
+  if (framework === 'junit') return javaCapable;
+  if (framework === 'dotnet') return dotnetCapable;
+  return false;
+}
+
+function frameworkWeight(dockerImage: string, framework: string): number {
+  const image = String(dockerImage || '').toLowerCase();
+  if (['jest', 'playwright', 'supertest', 'mocha', 'cypress'].includes(framework)) return image.includes('node') ? 3 : 1;
+  if (['pytest', 'pytest-requests'].includes(framework)) return image.includes('python') ? 3 : 1;
+  if (framework === 'junit') return image.includes('java') ? 3 : 1;
+  if (framework === 'dotnet') return image.includes('dotnet') ? 3 : 1;
+  return 0;
+}
+
 export function AssessmentCreate() {
   const navigate = useNavigate();
   const createMutation = useCreateAssessment();
@@ -78,6 +103,7 @@ export function AssessmentCreate() {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
+    editorMode: 'monaco',
     labTemplateId: '',
     timeLimitMinutes: 120,
     passingScore: 70,
@@ -145,6 +171,57 @@ export function AssessmentCreate() {
     [allQuestions, formData.selectedQuestions]
   );
 
+  const selectedFrameworks = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          selectedQuestionObjects
+            .map((q: any) => String(q?.testFramework || '').trim())
+            .filter(Boolean)
+        )
+      ),
+    [selectedQuestionObjects]
+  );
+
+  const suggestedRuntimeTemplate = useMemo(() => {
+    if (!selectedFrameworks.length) return null;
+    const compatible = labTemplates.filter((template: any) =>
+      selectedFrameworks.every((fw) => supportsFramework(template, fw))
+    );
+    if (!compatible.length) return null;
+
+    const ranked = compatible
+      .map((template: any) => {
+        const image = String(template?.dockerImage || '').toLowerCase();
+        const category = String(template?.category || '').toLowerCase();
+        let score = 0;
+        if (category === 'fullstack') score += 1;
+        for (const fw of selectedFrameworks) score += frameworkWeight(image, fw);
+        return { template, score };
+      })
+      .sort((a: any, b: any) => b.score - a.score);
+    return ranked[0]?.template || compatible[0];
+  }, [labTemplates, selectedFrameworks]);
+
+  useEffect(() => {
+    if (!suggestedRuntimeTemplate?.id) return;
+    if (!formData.labTemplateId) {
+      setFormData((prev) => ({ ...prev, labTemplateId: suggestedRuntimeTemplate.id }));
+      return;
+    }
+    const current = labTemplates.find((t: any) => t.id === formData.labTemplateId);
+    if (!current) {
+      setFormData((prev) => ({ ...prev, labTemplateId: suggestedRuntimeTemplate.id }));
+      return;
+    }
+    const currentCompatible = selectedFrameworks.length
+      ? selectedFrameworks.every((fw) => supportsFramework(current, fw))
+      : true;
+    if (!currentCompatible) {
+      setFormData((prev) => ({ ...prev, labTemplateId: suggestedRuntimeTemplate.id }));
+    }
+  }, [suggestedRuntimeTemplate, formData.labTemplateId, labTemplates, selectedFrameworks]);
+
   const compatibilityIssues = useMemo(
     () =>
       selectedLabTemplate
@@ -185,7 +262,7 @@ export function AssessmentCreate() {
           </button>
           <div>
             <h1 className="text-3xl font-bold">Create Assessment</h1>
-            <p className="text-sm page-subtle mt-1">Select a lab template and published questions. Preflight checks help avoid framework/template mismatches.</p>
+            <p className="text-sm page-subtle mt-1">Choose learner editor mode, execution runtime template, and published questions. Preflight checks prevent runtime mismatch.</p>
           </div>
           </div>
         </div>
@@ -218,6 +295,26 @@ export function AssessmentCreate() {
           </div>
 
           <div className="card">
+            <h2 className="text-xl font-semibold mb-4">Editor Environment</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Learner Editor</label>
+                <select
+                  className="input-field"
+                  value={formData.editorMode}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, editorMode: e.target.value }))}
+                >
+                  <option value="monaco">Monaco Editor (recommended)</option>
+                  <option value="vscode_embedded" disabled>VS Code Embedded (coming soon)</option>
+                </select>
+                <p className="mt-2 text-xs text-gray-600">
+                  This controls the coding UI learners see. Current production mode uses Monaco.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
             <h2 className="text-xl font-semibold mb-4">Lab Runtime</h2>
             <div>
               <label className="block text-sm font-medium mb-1">Select Runtime Template</label>
@@ -234,12 +331,26 @@ export function AssessmentCreate() {
                   </option>
                 ))}
               </select>
+              {selectedFrameworks.length > 0 && (
+                <p className="mt-2 text-xs text-gray-600">
+                  Required frameworks from selected questions: <span className="font-semibold">{selectedFrameworks.join(', ')}</span>
+                  {suggestedRuntimeTemplate ? (
+                    <>
+                      {' '}• Suggested runtime: <span className="font-semibold">{suggestedRuntimeTemplate.name}</span>
+                    </>
+                  ) : (
+                    <>
+                      {' '}• <span className="text-amber-700 font-semibold">No compatible runtime template found yet</span>
+                    </>
+                  )}
+                </p>
+              )}
               <p className="mt-2 text-xs text-gray-600">
-                Learners always code in the embedded Monaco editor. This runtime template controls execution image and framework compatibility.
+                Execution runtime controls runner image and framework compatibility. It is separate from learner editor UI.
               </p>
               {!labTemplates.length && (
                 <p className="mt-1 text-xs text-amber-700">
-                  Create at least one lab template in <span className="font-semibold">Lab Templates</span> to continue.
+                  Create at least one runtime template in <span className="font-semibold">Lab Templates</span> to continue.
                 </p>
               )}
             </div>

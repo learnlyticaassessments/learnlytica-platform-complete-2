@@ -3,6 +3,7 @@ import type { AuthUser } from '../services/authService';
 export type AppRole = AuthUser['role'];
 
 export type AppAction =
+  | 'labTemplates.view'
   | 'batches.view'
   | 'batches.manage'
   | 'learners.view'
@@ -37,6 +38,7 @@ const ROLE_LABELS: Record<AppRole, string> = {
 
 const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
   admin: new Set<AppAction>([
+    'labTemplates.view',
     'batches.view',
     'batches.manage',
     'learners.view',
@@ -60,6 +62,7 @@ const PERMISSIONS: Record<AppRole, Set<AppAction>> = {
     'labTemplates.manage'
   ]),
   client: new Set<AppAction>([
+    'labTemplates.view',
     'batches.view',
     'batches.manage',
     'learners.view',

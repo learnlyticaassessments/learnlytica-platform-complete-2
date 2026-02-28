@@ -30,6 +30,7 @@ import { ClientAssignmentDetail } from './pages/ClientAssignmentDetail';
 import { ClientSkillMatrix } from './pages/ClientSkillMatrix';
 import { Certificates } from './pages/Certificates';
 import { ProjectEvaluations } from './pages/ProjectEvaluations';
+import { LabTemplates } from './pages/LabTemplates';
 
 // Module 5: Analytics
 import { Dashboard as AnalyticsDashboard } from './pages/analytics/Dashboard';
@@ -82,6 +83,7 @@ function App() {
                 
                 {/* Module 1: Questions */}
                 <Route path="/questions" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionList /></RoleRoute>} />
+                <Route path="/lab-templates" element={<RoleRoute allowedRoles={['admin', 'client']}><LabTemplates /></RoleRoute>} />
                 <Route path="/questions/create" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionCreate /></RoleRoute>} />
                 <Route path="/questions/:id" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionDetail /></RoleRoute>} />
                 <Route path="/questions/:id/edit" element={<RoleRoute allowedRoles={['admin', 'client']}><QuestionEdit /></RoleRoute>} />

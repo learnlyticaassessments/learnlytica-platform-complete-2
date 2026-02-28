@@ -36,9 +36,9 @@ export class LabTemplateInUseError extends Error {
 // ============================================================================
 
 export async function createLabTemplate(db: any, data: any, context: any) {
-  // Only admins can create lab templates
-  if (context.userRole !== 'admin') {
-    throw new UnauthorizedError('Only administrators can create lab templates');
+  // Admins and client-org admins can create lab templates
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Only administrators or client admins can create lab templates');
   }
 
   const labTemplate = await labTemplateModel.createLabTemplate(db, {
@@ -84,9 +84,9 @@ export async function listLabTemplates(db: any, filters: any, context: any) {
 // ============================================================================
 
 export async function updateLabTemplate(db: any, id: string, data: any, context: any) {
-  // Only admins can update lab templates
-  if (context.userRole !== 'admin') {
-    throw new UnauthorizedError('Only administrators can update lab templates');
+  // Admins and client-org admins can update lab templates
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Only administrators or client admins can update lab templates');
   }
 
   // Verify template exists and belongs to organization
@@ -108,9 +108,9 @@ export async function updateLabTemplate(db: any, id: string, data: any, context:
 // ============================================================================
 
 export async function deleteLabTemplate(db: any, id: string, context: any) {
-  // Only admins can delete lab templates
-  if (context.userRole !== 'admin') {
-    throw new UnauthorizedError('Only administrators can delete lab templates');
+  // Admins and client-org admins can delete lab templates
+  if (!['admin', 'client'].includes(context.userRole)) {
+    throw new UnauthorizedError('Only administrators or client admins can delete lab templates');
   }
 
   // Verify template exists
